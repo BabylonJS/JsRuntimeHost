@@ -21,8 +21,8 @@ jobs:
   - task: Npm@1
     inputs:
       command: 'install'
-      workingDir: 'Test'
-    displayName: 'Install Babylon.js NPM packages'
+      workingDir: 'Tests'
+    displayName: 'Install NPM packages'
 
   - script: |
       cmake -B ${{variables.buildDir}} -A ${{parameters.platform}} ..
