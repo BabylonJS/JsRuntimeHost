@@ -24,8 +24,7 @@ jobs:
       workingDir: 'Tests'
     displayName: 'Install NPM packages'
 
-  - script: |
-      cmake -B ${{variables.buildDir}} -A ${{parameters.platform}} ..
+  - script: cmake -B ${{variables.buildDir}} -A ${{parameters.platform}}
     displayName: 'Generate ${{variables.solutionName}} solution'
 
   - task: MSBuild@1
