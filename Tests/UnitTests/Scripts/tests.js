@@ -70,22 +70,22 @@ describe("XMLHTTPRequest", function () {
         expect(openDoubleSlash).to.throw();
     });
 
-   it("should throw something when opening a url with no scheme", function () {
-       function openNoProtocol() {
-           const xhr = new XMLHttpRequest();
-           xhr.open("GET", "noscheme.glb");
-           xhr.send();
-       }
-       expect(openNoProtocol).to.throw();
-   });
+    it("should throw something when opening a url with no scheme", function () {
+        function openNoProtocol() {
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", "noscheme.glb");
+            xhr.send();
+        }
+        expect(openNoProtocol).to.throw();
+    });
 
-   it("should throw something when sending before opening", function () {
-       function sendWithoutOpening() {
-           const xhr = new XMLHttpRequest();
-           xhr.send();
-       }
-       expect(sendWithoutOpening).to.throw();
-   });
+    it("should throw something when sending before opening", function () {
+        function sendWithoutOpening() {
+            const xhr = new XMLHttpRequest();
+            xhr.send();
+        }
+        expect(sendWithoutOpening).to.throw();
+    });
 });
 
 describe("setTimeout", function () {
