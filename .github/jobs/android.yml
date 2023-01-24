@@ -19,13 +19,15 @@ jobs:
     displayName: 'Install NPM packages'
 
   - script: |
-      echo "y" | %ANDROID_HOME%\tools\bin\sdkmanager --install "system-images;android-30;google_apis;x86"
-      echo "no" | %ANDROID_HOME%\tools\bin\avdmanager create avd -n android_api_30 -k 'system-images;android-30;google_apis;x86' --force
+      %ANDROID_HOME%\emulator\emulator -list-avds
+      echo "y" | %ANDROID_HOME%\tools\bin\sdkmanager --install "system-images;android-27;google_apis;x86"
+      echo "no" | %ANDROID_HOME%\tools\bin\avdmanager create avd -n android_api_27 -k "system-images;android-27;google_apis;x86" --force
       %ANDROID_HOME%\emulator\emulator -list-avds
     displayName: Install Android Emulator
 
   - script: |
-      %ANDROID_HOME%\emulator\emulator -avd android_api_30 -no-snapshot
+      %ANDROID_HOME%\emulator\emulator -list-avds
+      %ANDROID_HOME%\emulator\emulator -avd android_api_27 -no-snapshot
     displayName: Start Android Emulator
 
       # %ANDROID_HOME%\platform-tools\adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do sleep 1; done; input keyevent 82'
