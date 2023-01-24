@@ -21,5 +21,6 @@ jobs:
   - task: Gradle@3
     inputs:
         workingDirectory: 'Tests/UnitTests/Android'
+        gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
         tasks: 'assembleDebug'
     displayName: 'Build UnitTests'
