@@ -1,0 +1,29 @@
+parameters:
+- name: name
+  type: string
+- name: vmImage
+  type: string
+
+jobs:
+- job: ${{parameters.name}}
+  timeoutInMinutes: 5
+
+  pool:
+    vmImage: ${{parameters.vmImage}}
+
+  steps:
+  - task: Npm@1
+    inputs:
+      command: 'install'
+      workingDir: 'Tests'
+    displayName: 'Install NPM packages'
+
+  - template: cmake.yml
+    parameters:
+      vmImage: ${{parameters.vmImage}}
+
+  - task: Gradle@3
+    inputs:
+        workingDirectory: 'Tests/UnitTests/Android'
+        tasks: 'assembleDebug'
+    displayName: 'Build UnitTests'
