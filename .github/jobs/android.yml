@@ -18,10 +18,6 @@ jobs:
       workingDir: 'Tests'
     displayName: 'Install NPM packages'
 
-  - template: cmake.yml
-    parameters:
-      vmImage: ${{parameters.vmImage}}
-
   - task: Gradle@3
     inputs:
         workingDirectory: 'Tests/UnitTests/Android'
