@@ -18,10 +18,26 @@ jobs:
       workingDir: 'Tests'
     displayName: 'Install NPM packages'
 
+  - script: |
+      echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "system-images;android-30;google_apis;x86"
+      echo "no" | $ANDROID_HOME/tools/bin/avdmanager create avd -n xamarin_android_emulator -k 'system-images;android-30;google_apis;x86' --force
+      $ANDROID_HOME/emulator/emulator -list-avds
+    displayName: Install Android Emulator
+
+  - script: |
+      nohup $ANDROID_HOME/emulator/emulator -avd xamarin_android_emulator -no-snapshot > /dev/null 2>&1
+      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do sleep 1; done; input keyevent 82'
+    displayName: Start Android Emulator
+
   - task: Gradle@3
     inputs:
-        gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
-        workingDirectory: 'Tests/UnitTests/Android'
-        tasks: 'assembleDebug'
-        jdkVersionOption: 1.11
-    displayName: 'Build UnitTests'
+      gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
+      workingDirectory: 'Tests/UnitTests/Android'
+      tasks: 'connectedAndroidTest'
+      jdkVersionOption: 1.11
+    displayName: Run Connected Android Test
+
+  - script: |
+      adb logcat -s "JsRuntimeHost" -d
+    displayName: Show logcat
+

@@ -18,13 +18,13 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
         switch (level)
         {
         case Babylon::Polyfills::Console::LogLevel::Log:
-            __android_log_write(ANDROID_LOG_INFO, "log", message);
+            __android_log_write(ANDROID_LOG_INFO, "JsRuntimeHost", message);
             break;
         case Babylon::Polyfills::Console::LogLevel::Warn:
-            __android_log_write(ANDROID_LOG_WARN, "warn", message);
+            __android_log_write(ANDROID_LOG_WARN, "JsRuntimeHost", message);
             break;
         case Babylon::Polyfills::Console::LogLevel::Error:
-            __android_log_write(ANDROID_LOG_ERROR, "error", message);
+            __android_log_write(ANDROID_LOG_ERROR, "JsRuntimeHost", message);
             break;
         }
     };
