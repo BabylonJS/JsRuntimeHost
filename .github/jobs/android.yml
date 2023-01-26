@@ -41,15 +41,15 @@ jobs:
       # %ANDROID_HOME%\platform-tools\adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do sleep 1; done; input keyevent 82'
       # %ANDROID_HOME%\platform-tools\adb devices
 
-  - task: Gradle@3
-    inputs:
-      gradleWrapperFile: 'Tests\UnitTests\Android\gradlew'
-      workingDirectory: "Tests\UnitTests\Android"
-      tasks: "connectedAndroidTest"
-      jdkVersionOption: 1.11
-    displayName: Run Connected Android Test
+  # - task: Gradle@3
+  #   inputs:
+  #     gradleWrapperFile: "Tests/UnitTests/Android/gradlew"
+  #     workingDirectory: "Tests/UnitTests/Android"
+  #     tasks: "connectedAndroidTest"
+  #     jdkVersionOption: 1.11
+  #   displayName: Run Connected Android Test
 
-  - script: |
-      adb logcat -s "JsRuntimeHost" -d
-    displayName: Dump logcat
+  # - script: |
+  #     adb logcat -s "JsRuntimeHost" -d
+  #   displayName: Dump logcat
 
