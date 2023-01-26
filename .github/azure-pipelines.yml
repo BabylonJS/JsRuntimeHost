@@ -20,6 +20,3 @@ jobs:
 
   # Android
   - template: jobs/android.yml
-    parameters:
-      name: Android
-      vmImage: 'windows-latest'
