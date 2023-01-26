@@ -18,7 +18,11 @@ jobs:
       workingDir: 'Tests'
     displayName: 'Install NPM packages'
 
-  - bash: |
+  - script: |
+      export JAVA_HOME=$JAVA_HOME_8_X64
+      echo JAVA_HOME=$JAVA_HOME
+      echo java -version
+      java -version
       echo List AVDs 1
       $ANDROID_HOME/emulator/emulator -list-avds
       echo SDK Manager
@@ -29,7 +33,7 @@ jobs:
       $ANDROID_HOME/emulator/emulator -list-avds
     displayName: Install Android Emulator
 
-  - bash: |
+  - script: |
       echo List AVDs 3
       $ANDROID_HOME/emulator/emulator -list-avds
       echo Emulator AVD
