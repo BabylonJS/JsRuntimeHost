@@ -24,22 +24,22 @@ jobs:
   - script: |
       echo emulator -list-avds
       $ANDROID_HOME/emulator/emulator -list-avds
-      echo emulator -avd
-      $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-audio -no-boot-anim -camera-back none -camera-front none -qemu -m 2048
+      echo nohup emulator -avd
+      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-audio -no-boot-anim -camera-back none -camera-front none -qemu -m 2048
+      echo adb wait-for-device
+      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo "wait..."; sleep 1; done; input keyevent 82'
+      echo adb devices
+      $ANDROID_HOME/platform-tools/adb devices
     displayName: Start Android Emulator
 
-      # $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '/r') ]]; do sleep 1; done; input keyevent 82'
-      # $ANDROID_HOME/platform-tools/adb devices
+  - task: Gradle@3
+    inputs:
+      gradleWrapperFile: "Tests/UnitTests/Android/gradlew"
+      workingDirectory: "Tests/UnitTests/Android"
+      tasks: "connectedAndroidTest"
+      jdkVersionOption: 1.11
+    displayName: Run Connected Android Test
 
-  # - task: Gradle@3
-  #   inputs:
-  #     gradleWrapperFile: "Tests/UnitTests/Android/gradlew"
-  #     workingDirectory: "Tests/UnitTests/Android"
-  #     tasks: "connectedAndroidTest"
-  #     jdkVersionOption: 1.11
-  #   displayName: Run Connected Android Test
-
-  # - script: |
-  #     adb logcat -s "JsRuntimeHost" -d
-  #   displayName: Dump logcat
-
+  - script: |
+      adb logcat -s "JsRuntimeHost" -d
+    displayName: Dump logcat
