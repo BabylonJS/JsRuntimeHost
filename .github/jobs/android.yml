@@ -21,18 +21,14 @@ jobs:
   - script: |
       set JAVA_HOME=%JAVA_HOME_8_X64%
       echo JAVA_HOME=%JAVA_HOME%
-      echo List AVDs 1
-      %ANDROID_HOME%\emulator\emulator -list-avds
       echo SDK Manager
-      %ANDROID_HOME%\tools\bin\sdkmanager --install "system-images;android-30;google_apis;x86"
+      (echo y) | %ANDROID_HOME%\tools\bin\sdkmanager --install "system-images;android-30;google_apis;x86"
       echo AVD Manager
       (echo no) | %ANDROID_HOME%\tools\bin\avdmanager create avd -n android_api_30 -k "system-images;android-30;google_apis;x86" --force
-      echo List AVDs 2
-      %ANDROID_HOME%\emulator\emulator -list-avds
     displayName: Install Android Emulator
 
   - script: |
-      echo List AVDs 3
+      echo List AVDs 2
       %ANDROID_HOME%\emulator\emulator -list-avds
       echo Emulator AVD
       %ANDROID_HOME%\emulator\emulator -avd android_api_30 -no-snapshot
