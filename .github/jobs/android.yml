@@ -22,9 +22,9 @@ jobs:
 
   - script: |
       echo Start emulator
-      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window 2>&1 &
+      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-audio -no-boot-anim -camera-back none -camera-front none -qemu -m 2048 2>&1 &
       echo Wait for emulator
-      $ANDROID_HOME/platform-tools/adb wait-for-device shell "while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo '.'; sleep 1; done"
+      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo "."; sleep 1; done; input keyevent 82'
       $ANDROID_HOME/platform-tools/adb devices
     displayName: Start Android Emulator
 
@@ -38,7 +38,8 @@ jobs:
     displayName: Run Connected Android Test
 
   - script: |
-      cat "app/build/outputs/androidTest-results/connected/Pixel_API_27(AVD) - 8.1.0/logcat-com.jsruntimehost.unittests.Main-javaScriptTests.txt"
+      cat "$(find ./Tests/UnitTests/Android/app/build/outputs/androidTest-results -name '*.txt')"
+    condition: succeededOrFailed()
     displayName: Dump logcat from Test Results
 
   - task: PublishBuildArtifacts@1
