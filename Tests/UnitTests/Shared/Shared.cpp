@@ -9,13 +9,13 @@ int RunTests(Babylon::Polyfills::Console::CallbackT consoleCallback)
 {
     std::promise<int32_t> exitCode;
 
-    std::unique_ptr<Babylon::AppRuntime> runtime = std::make_unique<Babylon::AppRuntime>();
-    runtime->Dispatch([&exitCode, consoleCallback = std::move(consoleCallback)](Napi::Env env)
+    Babylon::AppRuntime runtime;
+    runtime.Dispatch([&exitCode, consoleCallback = std::move(consoleCallback)](Napi::Env env) mutable
     {
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
         Babylon::Polyfills::Console::Initialize(env, std::move(consoleCallback));
         Babylon::Polyfills::Scheduling::Initialize(env);
-        
+
         env.Global().Set("SetExitCode", Napi::Function::New(env, [&exitCode](const Napi::CallbackInfo& info)
         {
             Napi::Env env = info.Env();
@@ -23,9 +23,9 @@ int RunTests(Babylon::Polyfills::Console::CallbackT consoleCallback)
         }, "SetExitCode"));
     });
 
-    Babylon::ScriptLoader loader{*runtime};
-    loader.Eval("var global = {};", ""); // Required for Chai.js as we do not have global in Babylon Native
-    loader.Eval("var location = { href: '' };", ""); // Required for Mocha.js as we do not have a location in Babylon Native
+    Babylon::ScriptLoader loader{runtime};
+    loader.Eval("var global = {};", ""); // Required for chai.js
+    loader.Eval("var location = { href: '' };", ""); // Required for mocha.js
     loader.LoadScript("app:///Scripts/chai.js");
     loader.LoadScript("app:///Scripts/mocha.js");
     loader.LoadScript("app:///Scripts/tests.js");

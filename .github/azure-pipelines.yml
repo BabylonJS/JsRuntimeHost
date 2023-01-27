@@ -6,17 +6,17 @@ pr:
 
 jobs:
   # WIN32
-  # - template: jobs/win32.yml
-  #   parameters:
-  #     name: Win32_x86
-  #     vmImage: 'windows-latest'
-  #     platform: win32
+  - template: jobs/win32.yml
+    parameters:
+      name: Win32_x86
+      vmImage: 'windows-latest'
+      platform: win32
 
-  # - template: jobs/win32.yml
-  #   parameters:
-  #     name: Win32_x64
-  #     vmImage: 'windows-latest'
-  #     platform: x64
+  - template: jobs/win32.yml
+    parameters:
+      name: Win32_x64
+      vmImage: 'windows-latest'
+      platform: x64
 
   # Android
   - template: jobs/android.yml
