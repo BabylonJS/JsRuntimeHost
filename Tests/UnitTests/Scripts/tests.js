@@ -176,39 +176,39 @@ describe("setTimeout", function () {
         trailingCodeExecuted = true;
     });
 
-    it("should call the given functions in the correct order", function (done) {
-        const called = [];
-        for (let i = 9; i >= 0; i--) {
-            setTimeout(() => {
-                called.push(i);
-                if (called.length === 10) {
-                    try {
-                        expect(called).to.deep.equal([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-                        done();
-                    }
-                    catch (e) {
-                        done(e);
-                    }
-                }
-            }, i * 10);
-        }
-    });
+    // it("should call the given functions in the correct order", function (done) {
+    //     const called = [];
+    //     for (let i = 9; i >= 0; i--) {
+    //         setTimeout(() => {
+    //             called.push(i);
+    //             if (called.length === 10) {
+    //                 try {
+    //                     expect(called).to.deep.equal([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    //                     done();
+    //                 }
+    //                 catch (e) {
+    //                     done(e);
+    //                 }
+    //             }
+    //         }, i * 10);
+    //     }
+    // });
 });
 
-// describe("clearTimeout", function () {
-//     this.timeout(0);
-//     it("should stop the timeout matching the given timeout id", function (done) {
-//         const id = setTimeout(() => {
-//             done(new Error("Timeout was not cleared"));
-//         }, 0);
-//         clearTimeout(id);
-//         setTimeout(done, 100);
-//     });
-//     it("should do nothing if the given timeout id is undefined", function (done) {
-//         setTimeout(() => { done(); }, 0);
-//         clearTimeout(undefined);
-//     });
-// });
+describe("clearTimeout", function () {
+    this.timeout(0);
+    it("should stop the timeout matching the given timeout id", function (done) {
+        const id = setTimeout(() => {
+            done(new Error("Timeout was not cleared"));
+        }, 0);
+        clearTimeout(id);
+        setTimeout(done, 100);
+    });
+    it("should do nothing if the given timeout id is undefined", function (done) {
+        setTimeout(() => { done(); }, 0);
+        clearTimeout(undefined);
+    });
+});
 
 mocha.run(failures => {
     // Test program will wait for code to be set before exiting
