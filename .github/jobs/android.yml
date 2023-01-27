@@ -26,11 +26,12 @@ jobs:
       $ANDROID_HOME/emulator/emulator -list-avds
       echo nohup emulator -avd
       nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-audio -no-boot-anim -camera-back none -camera-front none -qemu -m 2048 2>&1 &
-      echo adb wait-for-device
-      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo "wait..."; sleep 1; done; input keyevent 82'
-      echo adb devices
-      $ANDROID_HOME/platform-tools/adb devices
     displayName: Start Android Emulator
+
+      # echo adb wait-for-device
+      # $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo "wait..."; sleep 1; done; input keyevent 82'
+      # echo adb devices
+      # $ANDROID_HOME/platform-tools/adb devices
 
   - task: Gradle@3
     inputs:
