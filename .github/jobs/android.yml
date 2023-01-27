@@ -40,6 +40,9 @@ jobs:
       jdkVersionOption: 1.11
     displayName: Run Connected Android Test
 
-  - script: |
-      adb logcat -s "JsRuntimeHost" -d
-    displayName: Dump logcat
+  - task: PublishBuildArtifacts@1
+    inputs:
+      pathToPublish: "Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected"
+      artifactName: AndroidTestResults
+    condition: succeededOrFailed()
+    displayName: Publish Test Results
