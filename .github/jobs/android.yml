@@ -37,8 +37,13 @@ jobs:
       jdkVersionOption: 1.11
     displayName: Run Connected Android Test
 
+  - script: |
+      cat "app/build/outputs/androidTest-results/connected/Pixel_API_27(AVD) - 8.1.0/logcat-com.jsruntimehost.unittests.Main-javaScriptTests.txt"
+    displayName: Dump logcat from Test Results
+
   - task: PublishBuildArtifacts@1
     inputs:
       pathToPublish: "Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected"
       artifactName: AndroidTestResults
     condition: succeededOrFailed()
+    displayName: Publish Test Results
