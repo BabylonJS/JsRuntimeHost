@@ -8,8 +8,8 @@ jobs:
   steps:
   - task: Npm@1
     inputs:
-      command: "install"
-      workingDir: "Tests"
+      command: 'install'
+      workingDir: 'Tests'
     displayName: 'Install NPM packages'
 
   - script: |
@@ -18,7 +18,7 @@ jobs:
       echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --licenses
       echo Create AVD
       $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
-    displayName: Install Android Emulator
+    displayName: 'Install Android Emulator'
 
   - script: |
       echo Start emulator
@@ -26,28 +26,28 @@ jobs:
       echo Wait for emulator
       $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo '.'; sleep 1; done'
       $ANDROID_HOME/platform-tools/adb devices
-    displayName: Start Android Emulator
+    displayName: 'Start Android Emulator'
 
   - task: Gradle@3
     inputs:
-      gradleWrapperFile: "Tests/UnitTests/Android/gradlew"
-      workingDirectory: "Tests/UnitTests/Android"
-      options: "-PabiFilters=x86_64"
-      tasks: "connectedAndroidTest"
+      gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
+      workingDirectory: 'Tests/UnitTests/Android'
+      options: '-PabiFilters=x86_64'
+      tasks: 'connectedAndroidTest'
       jdkVersionOption: 1.11
-    displayName: Run Connected Android Test
+    displayName: 'Run Connected Android Test'
 
   - script: |
       export results=$(find ./app/build/outputs/androidTest-results  -name "*.txt")
       echo cat "$results"
       cat "$results"
-    workingDirectory: Tests/UnitTests/Android
+    workingDirectory: 'Tests/UnitTests/Android'
     condition: succeededOrFailed()
-    displayName: Dump logcat from Test Results
+    displayName: 'Dump logcat from Test Results'
 
   - task: PublishBuildArtifacts@1
     inputs:
-      pathToPublish: "Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected"
-      artifactName: AndroidTestResults
+      pathToPublish: 'Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected'
+      artifactName: 'AndroidTestResults'
     condition: succeededOrFailed()
-    displayName: Publish Test Results
+    displayName: 'Publish Test Results'
