@@ -24,6 +24,12 @@ android {
                 )
             }
         }
+
+        if (project.hasProperty("abiFilters")) {
+            ndk {
+                abiFilters project.getProperty("abiFilters")
+            }
+        }
     }
 
     buildTypes {
