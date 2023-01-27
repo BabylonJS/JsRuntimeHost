@@ -13,25 +13,20 @@ jobs:
     displayName: 'Install NPM packages'
 
   - script: |
-      echo sdkmanager --install
+      echo Install Android image
       echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "system-images;android-27;default;x86_64"
-      echo sdkmanager --licenses
       echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --licenses
-      echo avdmanager create avd
+      echo Create AVD
       $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k "system-images;android-27;default;x86_64"
     displayName: Install Android Emulator
 
   - script: |
-      echo emulator -list-avds
-      $ANDROID_HOME/emulator/emulator -list-avds
-      echo nohup emulator -avd
+      echo Start emulator
       nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-audio -no-boot-anim -camera-back none -camera-front none -qemu -m 2048 2>&1 &
+      echo Wait for emulator
+      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo "."; sleep 1; done; input keyevent 82'
+      $ANDROID_HOME/platform-tools/adb devices
     displayName: Start Android Emulator
-
-      # echo adb wait-for-device
-      # $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do echo "wait..."; sleep 1; done; input keyevent 82'
-      # echo adb devices
-      # $ANDROID_HOME/platform-tools/adb devices
 
   - task: Gradle@3
     inputs:
@@ -44,3 +39,4 @@ jobs:
   - script: |
       adb logcat -s "JsRuntimeHost" -d
     displayName: Dump logcat
+    condition: succeededOrFailed()
