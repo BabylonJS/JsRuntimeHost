@@ -38,5 +38,5 @@ jobs:
     displayName: 'Build Xcode Project'
 
   - script: ./UnitTests
-    workingDirectory: 'Build/Win32/Tests/UnitTests/Debug'
+    workingDirectory: 'Build/macOS/Tests/UnitTests/Debug'
     displayName: 'Run Tests'
