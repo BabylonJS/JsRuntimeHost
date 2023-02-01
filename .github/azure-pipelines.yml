@@ -23,3 +23,7 @@ jobs:
 
   # macOS
   - template: jobs/macos.yml
+    parameters:
+      name: macOS
+      vmImage: 'macos-latest'
+      xcodeVersion: 14.0
