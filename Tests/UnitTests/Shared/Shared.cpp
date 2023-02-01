@@ -9,7 +9,10 @@ int RunTests(Babylon::Polyfills::Console::CallbackT consoleCallback)
 {
     std::promise<int32_t> exitCode;
 
-    Babylon::AppRuntime runtime;
+    Babylon::AppRuntime runtime{[&exitCode](const std::exception& ex) {
+        exitCode.set_value(-1);
+    }};
+
     runtime.Dispatch([&exitCode, consoleCallback = std::move(consoleCallback)](Napi::Env env) mutable
     {
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
