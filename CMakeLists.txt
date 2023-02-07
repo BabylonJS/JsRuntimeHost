@@ -1,5 +1,23 @@
 cmake_minimum_required(VERSION 3.18)
 
+include(FetchContent)
+
+if(IOS)
+    FetchContent_Declare(
+        ios_cmake
+        GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
+        GIT_TAG        04d91f6675dabb3c97df346a32f6184b0a7ef845)
+
+    message(STATUS "Fetching ios-cmake")
+    FetchContent_MakeAvailable(ios-cmake)
+    message(STATUS "Fetching ios-cmake - done")
+
+    # if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    #     set(CMAKE_TOOLCHAIN_FILE "${ios_cmake_SOURCE_DIR} /vita.toolchain.cmake" CACHE PATH "toolchain file")
+    # endif()
+endif()
+
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -23,11 +41,7 @@ option(JSRUNTIMEHOST_TESTS "Include Babylon Native Tests." ON)
 
 # Dependencies
 
-include(FetchContent)
-
 if(NOT TARGET arcana)
-    include(FetchContent)
-
     FetchContent_Declare(
         arcana
         GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
