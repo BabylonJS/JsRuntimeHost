@@ -24,7 +24,12 @@ jobs:
     inputs:
       xcWorkspacePath: 'Build/iOS/JsRuntimeHost.xcodeproj'
       scheme: 'UnitTests'
-      sdk: 'iphoneos'
+      sdk: 'iphonesimulator'
       useXcpretty: false
       configuration: Debug
     displayName: 'Build Xcode Project'
+
+  - script: |
+      xcrun simctl boot "iPhone 11"
+      xcrun simctl install "iPhone 11" "Build/iOS/Tests/UnitTests/Debug-iphonesimulator/UnitTests.app"
+      xcrun simctl launch --console "iPhone 11" "com.jsruntimehost.unittests"
