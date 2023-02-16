@@ -176,6 +176,7 @@ describe("setTimeout", function () {
         trailingCodeExecuted = true;
     });
 
+    // See https://github.com/BabylonJS/JsRuntimeHost/issues/9
     // it("should call the given functions in the correct order", function (done) {
     //     const called = [];
     //     for (let i = 9; i >= 0; i--) {
