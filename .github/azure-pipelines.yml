@@ -8,12 +8,12 @@ jobs:
   # WIN32
   - template: jobs/win32.yml
     parameters:
-      name: Win32 (x86)
+      name: Win32_x86
       platform: win32
 
   - template: jobs/win32.yml
     parameters:
-      name: Win32 (x64)
+      name: Win32_x64
       platform: x64
 
   # Android
