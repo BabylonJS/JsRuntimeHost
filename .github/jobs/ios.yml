@@ -5,9 +5,6 @@ parameters:
   type: string
 - name: xcodeVersion
   type: string
-- deploymentTarget:
-  type: string
-  default: '12'
 
 jobs:
 - job: ${{parameters.name}}
@@ -17,44 +14,25 @@ jobs:
     vmImage: ${{parameters.vmImage}}
 
   steps:
-  - script: |
-      git submodule update --init --recursive
-    displayName: 'Checkout dependencies'
-
   - task: Npm@1
     inputs:
       command: 'install'
-      workingDir: 'Apps'
-    displayName: 'Install Babylon.js NPM packages'
-
-  - template: cmake.yml
-    parameters:
-      vmImage: ${{ parameters.vmImage }}
+      workingDir: 'Tests'
+    displayName: 'Install NPM packages'
 
   - script: |
-      sudo xcode-select --switch /Applications/Xcode_${{ parameters.xCodeVersion }}.app/Contents/Developer
-    displayName: 'Select XCode ${{ parameters.xCodeVersion }}'
+      sudo xcode-select --switch /Applications/Xcode_${{parameters.xCodeVersion}}.app/Contents/Developer
+    displayName: 'Select XCode ${{parameters.xCodeVersion}}'
 
   - script: |
-      mkdir buildiOS
-      cd buildiOS
-      cmake .. -G Xcode -DCMAKE_TOOLCHAIN_FILE=../Dependencies/ios-cmake/ios.toolchain.cmake -DPLATFORM=OS64COMBINED -DENABLE_ARC=0 -DDEPLOYMENT_TARGET=${{ parameters.deploymentTarget }} -DENABLE_GLSLANG_BINARIES=OFF -DSPIRV_CROSS_CLI=OFF -DCMAKE_UNITY_BUILD=${UNITY_BUILD}
-    displayName: 'Generate iOS solution'
+      cmake -B Build/iOS -G Xcode -D IOS=ON
+    displayName: 'Configure CMake'
 
   - task: Xcode@5
     inputs:
-      xcWorkspacePath: 'buildiOS/BabylonNative.xcodeproj'
-      scheme: 'Playground'
+      xcWorkspacePath: 'Build/iOS/JsRuntimeHost.xcodeproj'
+      scheme: 'UnitTests'
       sdk: 'iphoneos'
       useXcpretty: false
-      configuration: RelWithDebInfo
-    displayName: 'Build Playground iOS'
-
-  - task: Xcode@5
-    inputs:
-      xcWorkspacePath: 'buildiOS/BabylonNative.xcodeproj'
-      scheme: 'ValidationTests'
-      sdk: 'iphoneos'
-      useXcpretty: false
-      configuration: RelWithDebInfo
-    displayName: 'Build ValidationTests iOS'
+      configuration: Debug
+    displayName: 'Build Xcode Project'
