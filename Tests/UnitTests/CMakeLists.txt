@@ -51,10 +51,6 @@ target_link_libraries(UnitTests
 
 add_test(NAME UnitTests COMMAND UnitTests)
 
-# RESOURCE
-# "${CMAKE_CURRENT_LIST_DIR}/iOS/Base.lproj/LaunchScreen.storyboard"
-# "${CMAKE_CURRENT_LIST_DIR}/iOS/Base.lproj/Main.storyboard"
-
 if(IOS)
     set_target_properties(UnitTests PROPERTIES
         MACOSX_BUNDLE true
