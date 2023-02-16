@@ -30,6 +30,10 @@ jobs:
     displayName: 'Build Xcode Project'
 
   - script: |
+      echo Booting iOS Simulator
       xcrun simctl boot "iPhone 11"
+      echo Installing UnitTests app
       xcrun simctl install "iPhone 11" "Build/iOS/Tests/UnitTests/Debug-iphonesimulator/UnitTests.app"
+      echo Launching UnitTests app
       xcrun simctl launch --console "iPhone 11" "com.jsruntimehost.unittests"
+    displayName: 'Run Tests'
