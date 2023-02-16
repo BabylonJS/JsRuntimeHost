@@ -32,6 +32,7 @@ describe("XMLHTTPRequest", function () {
     this.timeout(0);
 
     it("should have readyState=4 when load ends", async function () {
+        expect(1).to.equal(2);
         const xhr = await createRequest("GET", "https://httpbin.org/get");
         expect(xhr.readyState).to.equal(4);
     });
