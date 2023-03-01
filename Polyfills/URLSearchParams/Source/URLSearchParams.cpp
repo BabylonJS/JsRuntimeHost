@@ -41,6 +41,7 @@ namespace Babylon::Polyfills::Internal
             auto key = subStr.substr(0, equalSign);
             auto value = subStr.substr(equalSign + 1);
 
+            params_vector.push_back(std::make_pair(key, value));
             params_map[key] = value;
         }
     }
@@ -78,6 +79,17 @@ namespace Babylon::Polyfills::Internal
         parseKeyVal(queryStr.substr(start));
     }
 
+    void URLSearchParams::setKeyVal(const std::string& key, const std::string& value) {
+        params_map[key] = value;
+        for (auto& paramsPair : params_vector) {
+            if (paramsPair.first == key) {
+                paramsPair.second = value;
+                return;
+            }
+        }
+        params_vector.push_back(std::make_pair(key, value));
+    }
+
     Napi::Value URLSearchParams::Get(const Napi::CallbackInfo& info)
     {
         std::string key = info[0].As<Napi::String>();
@@ -97,14 +109,14 @@ namespace Babylon::Polyfills::Internal
     {
         
         std::string resultString = "";
-        if (params_map.empty())
+        if (params_vector.empty())
         {
             return resultString;
         }
 
         resultString += "?";
 
-        for (const auto& myPair : params_map)
+        for (const auto& myPair : params_vector)
         {
             std::string key = myPair.first;
             std::string value = myPair.second;
@@ -134,9 +146,9 @@ namespace Babylon::Polyfills::Internal
         std::string key = info[0].As<Napi::String>();
         std::string value = info[1].ToString().Utf8Value();
 
-        params_map[key] = value;
+        setKeyVal(key, value);
     }
-
+    
     Napi::Value URLSearchParams::Has(const Napi::CallbackInfo& info)
     {
         std::string key = info[0].As<Napi::String>();

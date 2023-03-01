@@ -3,6 +3,7 @@
 #include <Babylon/JsRuntimeScheduler.h>
 #include <napi/napi.h>
 #include <unordered_map>
+#include <vector>
 #include "../Include/Babylon/Polyfills/URLSearchParams.h"
 
 namespace Babylon::Polyfills::Internal
@@ -20,9 +21,11 @@ namespace Babylon::Polyfills::Internal
         Napi::Value Has(const Napi::CallbackInfo& info);
         Napi::Value Get(const Napi::CallbackInfo& info);
         void parseKeyVal(const std::string& subStr);
+        void setKeyVal(const std::string& key, const std::string& value);
         void parseInputQueryStr(std::string& queryStr);
 
         JsRuntimeScheduler m_runtimeScheduler;
         std::unordered_map<std::string, std::string> params_map;
+        std::vector<std::pair<std::string, std::string>> params_vector;
     };
 }
