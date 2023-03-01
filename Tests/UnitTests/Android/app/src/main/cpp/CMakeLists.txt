@@ -26,5 +26,7 @@ target_link_libraries(UnitTestsJNI
     PRIVATE Console
     PRIVATE Scheduling
     PRIVATE ScriptLoader
+    PRIVATE URL
     PRIVATE UrlLib
+    PRIVATE URLSearchParams
     PRIVATE XMLHttpRequest)

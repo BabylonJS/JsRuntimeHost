@@ -34,6 +34,8 @@ option(JSRUNTIMEHOST_CORE_SCRIPTLOADER "Include Babylon Native Core ScriptLoader
 option(JSRUNTIMEHOST_POLYFILL_CONSOLE "Include Babylon Native Polyfill Console." ON)
 option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include Babylon Native Polyfill Scheduling." ON)
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include Babylon Native Polyfill XMLHttpRequest." ON)
+option(JSRUNTIMEHOST_POLYFILL_URL "Include Babylon Native Polyfill URL." ON)
+option(JSRUNTIMEHOST_POLYFILL_URLSEARCHPARAMS "Include Babylon Native Polyfill UrlSearchParams." ON)
 
 ## Tests
 option(JSRUNTIMEHOST_TESTS "Include Babylon Native Tests." ON)

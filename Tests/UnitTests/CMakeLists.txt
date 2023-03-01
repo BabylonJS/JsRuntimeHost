@@ -45,7 +45,9 @@ target_link_libraries(UnitTests
     PRIVATE Console
     PRIVATE Scheduling
     PRIVATE ScriptLoader
+    PRIVATE URL
     PRIVATE UrlLib
+    PRIVATE URLSearchParams
     PRIVATE XMLHttpRequest
     ${ADDITIONAL_LIBRARIES})
 
