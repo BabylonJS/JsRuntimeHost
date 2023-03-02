@@ -9,3 +9,11 @@ endif()
 if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     add_subdirectory(XMLHttpRequest)
 endif()
+
+if(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER)
+    add_subdirectory(AbortController)
+endif()
+
+if(JSRUNTIMEHOST_POLYFILL_ABORTSIGNAL)
+    add_subdirectory(AbortSignal)
+endif()
