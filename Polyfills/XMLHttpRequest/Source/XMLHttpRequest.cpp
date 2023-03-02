@@ -83,6 +83,7 @@ namespace Babylon::Polyfills::Internal
                 InstanceMethod("abort", &XMLHttpRequest::Abort),
                 InstanceMethod("open", &XMLHttpRequest::Open),
                 InstanceMethod("send", &XMLHttpRequest::Send),
+                InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
             });
 
         if (env.Global().Get(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME).IsUndefined())
@@ -142,6 +143,11 @@ namespace Babylon::Polyfills::Internal
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
         return Napi::Value::From(Env(), arcana::underlying_cast(m_request.StatusCode()));
+    }
+
+    void XMLHttpRequest::SetRequestHeader(const Napi::CallbackInfo& info)
+    {
+        m_request.SetRequestHeader(info[0].As<Napi::String>().Utf8Value(), info[1].As<Napi::String>().Utf8Value());
     }
 
     void XMLHttpRequest::AddEventListener(const Napi::CallbackInfo& info)

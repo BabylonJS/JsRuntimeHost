@@ -37,6 +37,7 @@ namespace Babylon::Polyfills::Internal
         void Abort(const Napi::CallbackInfo& info);
         void Open(const Napi::CallbackInfo& info);
         void Send(const Napi::CallbackInfo& info);
+        void SetRequestHeader(const Napi::CallbackInfo& info);
 
         void SetReadyState(ReadyState readyState);
         void RaiseEvent(const char* eventType);
