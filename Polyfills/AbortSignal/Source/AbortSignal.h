@@ -27,12 +27,6 @@ namespace Babylon::Polyfills::Internal
 
         Napi::Value GetOnAbort(const Napi::CallbackInfo& info);
         void SetOnAbort(const Napi::CallbackInfo&, const Napi::Value& value);
-        
-        //Napi::Value GetReason(const Napi::CallbackInfo& info);
-
-        //void ThrowIfAborted(const Napi::CallbackInfo& info);
-        //static Napi::Value Abort(const Napi::CallbackInfo& info);
-        //static Napi::Value Timeout(const Napi::CallbackInfo& info);
 
         void AddEventListener(const Napi::CallbackInfo& info);
         void RemoveEventListener(const Napi::CallbackInfo& info);
