@@ -34,8 +34,7 @@ option(JSRUNTIMEHOST_CORE_SCRIPTLOADER "Include Babylon Native Core ScriptLoader
 option(JSRUNTIMEHOST_POLYFILL_CONSOLE "Include Babylon Native Polyfill Console." ON)
 option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include Babylon Native Polyfill Scheduling." ON)
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include Babylon Native Polyfill XMLHttpRequest." ON)
-option(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER "Include Babylon Native Polyfill AbortController." ON)
-option(JSRUNTIMEHOST_POLYFILL_ABORTSIGNAL "Include Babylon Native Polyfill AbortSignal." ON)
+option(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER_SIGNAL "Include Babylon Native Polyfills AbortController and AbortSignal." ON)
 
 ## Tests
 option(JSRUNTIMEHOST_TESTS "Include Babylon Native Tests." ON)

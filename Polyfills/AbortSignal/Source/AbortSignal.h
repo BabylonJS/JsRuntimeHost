@@ -35,8 +35,6 @@ namespace Babylon::Polyfills::Internal
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
 
         Napi::FunctionReference m_onabort;
-
-        int m_reason = 0;
         bool m_aborted = false;
     };
 }

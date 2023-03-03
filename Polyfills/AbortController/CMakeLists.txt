@@ -9,8 +9,7 @@ add_library(AbortController ${SOURCES})
 target_include_directories(AbortController PUBLIC "Include")
 
 target_link_libraries(AbortController
-    PUBLIC JsRuntime
-    PRIVATE arcana)
+    PUBLIC JsRuntime)
 
 set_property(TARGET AbortController PROPERTY FOLDER Polyfills)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})

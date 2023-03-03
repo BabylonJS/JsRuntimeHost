@@ -27,7 +27,7 @@ describe("AbortController / AbortSignal", function () {
     })
 
     it("should not throw while aborting and correctly trigger callback", function (done) {
-     // Expect aborted to be true after abort()
+        // Expect aborted to be true after abort()
         controller.signal.onabort = () => {
             expect(controller.signal.aborted).to.equal(true);
             done();

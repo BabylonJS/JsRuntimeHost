@@ -45,8 +45,6 @@ namespace Babylon::Polyfills::Internal
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
         m_signal = Napi::Persistent(info.Env().Global().Get(AbortSignal::JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).As<Napi::Function>().New({}));
-    
-        m_signal.Set("onabort", Env().Null());
     }
 }
 

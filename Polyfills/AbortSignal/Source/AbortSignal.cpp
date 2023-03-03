@@ -1,7 +1,6 @@
 #include "AbortSignal.h"
 #include <Babylon/JsRuntime.h>
 #include <Babylon/Polyfills/AbortSignal.h>
-#include <sstream>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -33,7 +32,7 @@ namespace Babylon::Polyfills::Internal
     {
     }
 
-    Napi::Value AbortSignal::GetAborted(const Napi::CallbackInfo& )
+    Napi::Value AbortSignal::GetAborted(const Napi::CallbackInfo&)
     {
         return Napi::Value::From(Env(), m_aborted);
     }
@@ -46,20 +45,23 @@ namespace Babylon::Polyfills::Internal
     Napi::Value AbortSignal::GetOnAbort(const Napi::CallbackInfo&)
     {
         if (m_onabort.IsEmpty())
+        {
             return Napi::Value::From(Env(), Env().Null());
+        }
         
         return Napi::Value::From(Env(), m_onabort.Value());
     }
 
     void AbortSignal::SetOnAbort(const Napi::CallbackInfo&, const Napi::Value& value)
     {
-        napi_valuetype type;
-        napi_typeof(Env(), value, &type);
-
-        if (type == napi_null)
+        if (value.IsNull() || value.IsUndefined())
+        {
             m_onabort.Reset();
+        }
         else
+        {
             m_onabort = Napi::Persistent(value.As<Napi::Function>());
+        }
     }
 
     void AbortSignal::AddEventListener(const Napi::CallbackInfo& info)

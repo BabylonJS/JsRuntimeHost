@@ -20,7 +20,6 @@ namespace Babylon::Polyfills::Internal
         void Abort(const Napi::CallbackInfo& info);
 
         JsRuntimeScheduler m_runtimeScheduler;
-        std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
         Napi::ObjectReference m_signal;
     };
 }
