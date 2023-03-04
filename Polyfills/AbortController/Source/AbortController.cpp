@@ -33,16 +33,11 @@ namespace Babylon::Polyfills::Internal
     void AbortController::Abort(const Napi::CallbackInfo& )
     {
         m_signal.Set("aborted", true);
-
-        m_runtimeScheduler([this]() 
-        { 
-            m_signal.Get("onabort").As<Napi::Function>().Call({});
-        });
+        m_signal.Get("onabort").As<Napi::Function>().Call({});
     }
 
     AbortController::AbortController(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<AbortController>{info}
-        , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
         m_signal = Napi::Persistent(info.Env().Global().Get(AbortSignal::JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).As<Napi::Function>().New({}));
     }

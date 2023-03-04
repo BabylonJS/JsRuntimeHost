@@ -28,7 +28,6 @@ namespace Babylon::Polyfills::Internal
 
     AbortSignal::AbortSignal(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<AbortSignal>{info}
-        , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
     }
 

@@ -30,8 +30,6 @@ namespace Babylon::Polyfills::Internal
 
         void AddEventListener(const Napi::CallbackInfo& info);
         void RemoveEventListener(const Napi::CallbackInfo& info);
-
-        JsRuntimeScheduler m_runtimeScheduler;
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
 
         Napi::FunctionReference m_onabort;

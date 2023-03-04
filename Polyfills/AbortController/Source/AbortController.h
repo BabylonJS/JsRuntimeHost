@@ -18,8 +18,6 @@ namespace Babylon::Polyfills::Internal
         Napi::Value GetSignal(const Napi::CallbackInfo& info);
 
         void Abort(const Napi::CallbackInfo& info);
-
-        JsRuntimeScheduler m_runtimeScheduler;
         Napi::ObjectReference m_signal;
     };
 }
