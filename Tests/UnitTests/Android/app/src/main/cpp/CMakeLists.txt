@@ -28,5 +28,4 @@ target_link_libraries(UnitTestsJNI
     PRIVATE ScriptLoader
     PRIVATE URL
     PRIVATE UrlLib
-    PRIVATE URLSearchParams
     PRIVATE XMLHttpRequest)

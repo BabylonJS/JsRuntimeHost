@@ -2,11 +2,6 @@
 
 namespace Babylon::Polyfills::Internal
 {
-    /*namespace
-    {
-        constexpr auto JS_CREATE_OBJECT_URL_NAME = "createObjectURL";
-    }*/
-
     void URL::Initialize(Napi::Env env)
     {
         Napi::HandleScope scope{env};
@@ -15,7 +10,6 @@ namespace Babylon::Polyfills::Internal
             env,
             JS_URL_CONSTRUCTOR_NAME,
             {
-                StaticMethod("createObjectURL", &URL::CreateObjectURL),
                 InstanceAccessor("search", &URL::GetSearch, &URL::SetSearch),
                 InstanceAccessor("href", &URL::GetHref, &URL::SetHref),
                 InstanceAccessor("origin", &URL::GetOrigin, nullptr),
@@ -50,7 +44,7 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value URL::GetHref(const Napi::CallbackInfo&)
     {
-        std::string resultHref = "";
+        std::string resultHref;
         resultHref += m_origin;
         resultHref += m_pathname;
 
@@ -92,18 +86,13 @@ namespace Babylon::Polyfills::Internal
         return m_searchParamsReference.Value();
     }
 
-    //TODO replace stub with actual implementation
-    Napi::Value URL::CreateObjectURL(const Napi::CallbackInfo& info)
-    {
-        return Napi::Value::From(info.Env(), "");
-    }
-
     URL::URL(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<URL>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
-        if (!info.Length())
+        if (!info.Length()) {
             return;
+        }
 
         // Store Entire URL
         m_href = info[0].As<Napi::String>();
@@ -111,13 +100,13 @@ namespace Babylon::Polyfills::Internal
         // Get Position of ? to store search var
         const size_t qIndex = m_href.find_last_of('?');
         
-        if (qIndex != std::string::npos)
+        if (qIndex != std::string::npos) {
             m_search = m_href.substr(qIndex, m_href.size() - qIndex);
-        else
-            m_search = "";
+        }
+
 
         // get UrlSearchParams object 
-        m_searchParams = info.Env().Global().Get(URLSearchParams::JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME).As<Napi::Function>().New({Napi::Value::From(info.Env(), m_search) });
+        const Napi::Object m_searchParams = info.Env().Global().Get(URLSearchParams::JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME).As<Napi::Function>().New({Napi::Value::From(info.Env(), m_search) });
         m_searchParamsReference = Napi::Persistent(m_searchParams);
 
         // Get URL Domain

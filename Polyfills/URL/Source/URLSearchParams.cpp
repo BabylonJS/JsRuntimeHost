@@ -1,5 +1,6 @@
 #include "URLSearchParams.h"
 #include <string>
+#include <sstream>
 
 
 namespace Babylon::Polyfills::Internal
@@ -29,6 +30,10 @@ namespace Babylon::Polyfills::Internal
         : Napi::ObjectWrap<URLSearchParams>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
+        if (info.Length() == 0) 
+        {
+            return;
+        }
         std::string queryStr = info[0].As<Napi::String>();
         parseInputQueryStr(queryStr);
     }
@@ -41,12 +46,12 @@ namespace Babylon::Polyfills::Internal
             auto key = subStr.substr(0, equalSign);
             auto value = subStr.substr(equalSign + 1);
 
-            params_vector.push_back(std::make_pair(key, value));
-            params_map[key] = value;
+            m_paramsVector.push_back(key);
+            m_paramsMap[key] = value;
         }
     }
 
-    void URLSearchParams::parseInputQueryStr(std::string& queryStr)
+    void URLSearchParams::parseInputQueryStr(const std::string& queryStr)
     {
         // find all the &'s to determine where each param ends
         // got positions for substring
@@ -55,14 +60,8 @@ namespace Babylon::Polyfills::Internal
             return;
         }
         
-        // if first character is ?, remove it
-        if (queryStr[0] == '?')
-        {
-            queryStr.erase(0, 1);
-        }
-        size_t start = 0;
+        size_t start = queryStr[0] == '?' ? 1 : 0;
         size_t end = queryStr.find("&");
-
         // find the first &, in a while loop
         while (end != std::string::npos)
         {
@@ -79,26 +78,14 @@ namespace Babylon::Polyfills::Internal
         parseKeyVal(queryStr.substr(start));
     }
 
-    void URLSearchParams::setKeyVal(const std::string& key, const std::string& value) {
-        params_map[key] = value;
-        for (auto& paramsPair : params_vector) {
-            if (paramsPair.first == key) {
-                paramsPair.second = value;
-                return;
-            }
-        }
-        params_vector.push_back(std::make_pair(key, value));
-    }
-
     Napi::Value URLSearchParams::Get(const Napi::CallbackInfo& info)
     {
         std::string key = info[0].As<Napi::String>();
-        std::string result;
 
-        auto element = params_map.find(key);
+        auto element = m_paramsMap.find(key);
 
         // element is not found 
-        if (element == params_map.end())
+        if (element == m_paramsMap.end())
         {
             return Env().Null();
         }
@@ -107,52 +94,61 @@ namespace Babylon::Polyfills::Internal
 
     std::string URLSearchParams::GetAllParams()
     {
-        
-        std::string resultString = "";
-        if (params_vector.empty())
+        std::stringstream resultStringStream("");
+
+        if (m_paramsVector.empty())
         {
-            return resultString;
+            return resultStringStream.str();
         }
 
-        resultString += "?";
-
-        for (const auto& myPair : params_vector)
+        for (int i = 0; i < m_paramsVector.size(); i++)
         {
-            std::string key = myPair.first;
-            std::string value = myPair.second;
+            if (i > 0) 
+            {
+                resultStringStream << "&";
+            }
+            else 
+            {
+                resultStringStream << "?";
+            }
 
-            resultString += key;
-            resultString += "=";
-            resultString += value;
-            resultString += "&";
+            std::string key = m_paramsVector[i];
+            std::string value = m_paramsMap[key];
+
+            resultStringStream << key;
+            resultStringStream << "=";
+            resultStringStream << value;
         } 
 
-        // check last value of string 
-        char ch = resultString.back();
-        if (ch == '&')
-        { 
-            resultString.pop_back();
-        };
-
-        return resultString;
+        return resultStringStream.str();
     }
 
 
     void URLSearchParams::Set(const Napi::CallbackInfo& info)
     {
-        if (info.Length() < 2)
+        if (info.Length() < 2) 
+        {
             return;
+        }
 
         std::string key = info[0].As<Napi::String>();
         std::string value = info[1].ToString().Utf8Value();
 
-        setKeyVal(key, value);
+        if (m_paramsMap.find(key) == m_paramsMap.end()) 
+        {
+            m_paramsVector.push_back(key);
+            m_paramsMap[key] = value;
+        }
+        else 
+        {
+            m_paramsMap[key] = value;
+        }
     }
     
     Napi::Value URLSearchParams::Has(const Napi::CallbackInfo& info)
     {
         std::string key = info[0].As<Napi::String>();
-        return Napi::Value::From(Env(), params_map.find(key) != params_map.end());
+        return Napi::Value::From(Env(), m_paramsMap.find(key) != m_paramsMap.end());
     }
 }
 

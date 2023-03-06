@@ -13,7 +13,3 @@ endif()
 if(JSRUNTIMEHOST_POLYFILL_URL)
     add_subdirectory(URL)
 endif()
-
-if(JSRUNTIMEHOST_POLYFILL_URLSEARCHPARAMS)
-    add_subdirectory(URLSearchParams)
-endif()

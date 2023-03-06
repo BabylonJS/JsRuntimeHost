@@ -230,7 +230,7 @@ describe("URL", function () {
     }
 
     // Base URLs:
-    let baseUrl = 'https://developer.mozilla.org';
+    const baseUrl = 'https://developer.mozilla.org';
 
     it('should load URL with no pathname / search', function () {
         // Standard URL (No pathname, no search)
@@ -247,7 +247,7 @@ describe("URL", function () {
 
     it("should load URL with pathname (no search)", function () {
         // Augment URL with pathname (no search)
-        url = new URL(baseUrl + '/en-US/docs');
+        url = new URL(`${baseUrl}/en-US/docs`);
         // => 'https://developer.mozilla.org/en-US/docs'
         checkURL(url,
             'https://developer.mozilla.org/en-US/docs', // href
@@ -260,7 +260,7 @@ describe("URL", function () {
 
     it("should load URL with pathname and search", function () {
         // Augment URL with pathname and search
-        url = new URL(baseUrl + '/en-US/docs?foo=1&bar=2');
+        url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
         // => 'https://developer.mozilla.org/en-US/docs?foo=1&bar=2'
         checkURL(url,
             'https://developer.mozilla.org/en-US/docs?foo=1&bar=2', // href
@@ -271,9 +271,21 @@ describe("URL", function () {
         );
     })
 
+    it("should load URL with pathname and search with multiple key value pairs", function () {
+        url = new URL(`${baseUrl}/en-US/docs?c=3&b=2&a=1&d=4`);
+        checkURL(url,
+            'https://developer.mozilla.org/en-US/docs?c=3&b=2&a=1&d=4', // href
+            'developer.mozilla.org',                                // hostname
+            'https://developer.mozilla.org',                        // origin
+            '/en-US/docs',                                          // pathname
+            '?c=3&b=2&a=1&d=4'                                          // search
+        );
+    });
+
+
     it("should update href after URLSearchParams are changed", function () {
         // Augment URL with pathname and search
-        url = new URL(baseUrl + '/en-US/docs?foo=1&bar=2');
+        url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
         // => 'https://developer.mozilla.org/en-US/docs?foo=1&bar=2'
         url.searchParams.set('foo', 999);
         // href should change to reflect searchParams change
@@ -288,7 +300,7 @@ describe("URL", function () {
 
     it("should update href after URLSearchParams are changed (Starting with 0 params)", function () {
         // Augment URL with pathname and search
-        url = new URL(baseUrl + '/en-US/docs');
+        url = new URL(`${baseUrl}/en-US/docs`);
         // => 'https://developer.mozilla.org/en-US/docs?foo=1&bar=2'
 
         url.searchParams.set('foo', 999);
@@ -302,43 +314,6 @@ describe("URL", function () {
             '?foo=999'                                          // search
         );
     })
-
-    // TODO: Does not identify and replace pre-established parts of a URL
-    //       ex. url already has '/en-US/docs' appended to it
-    // let url = new URL('/en-US/docs', url);
-    // => 'https://developer.mozilla.org/en-US/docs'
-
-    //new URL('/en-US/docs', "https://developer.mozilla.org/fr-FR/toto");
-    // => 'https://developer.mozilla.org/en-US/docs'
-
-
-    // TODO: Implement URL construction throws, currently does not check anything
-    // Invalid URLs:
-
-    //new URL('/en-US/docs', '');
-    // Raises a TypeError exception as '' is not a valid URL
-
-    //new URL('/en-US/docs');
-    // Raises a TypeError exception as '/en-US/docs' is not a valid URL
-
-
-    // Other cases:
-
-    //new URL('http://www.example.com',);
-    // => 'http://www.example.com/'
-
-    //new URL('http://www.example.com', B);
-    // => 'http://www.example.com/'
-
-    //new URL("", "https://example.com/?query=1");
-    // => 'https://example.com/?query=1' (Edge before 79 removes query arguments)
-
-    //new URL("/a", "https://example.com/?query=1");
-    // => 'https://example.com/a' (see relative URLs)
-
-    //new URL("//foo.com", "https://example.com");
-    // => 'https://foo.com' (see relative URLs)
-
 })
 
 // URLSearchParams
@@ -348,14 +323,14 @@ describe("URLSearchParams", function () {
 
     it("should retrieve null from empty searchParams", function () {
         // Get Empty
-        let params = new URLSearchParams('');
+        const params = new URLSearchParams('');
 
         expect(params.get('foo')).to.equal(null);
     })
 
     it("should retrieve value from searchParams", function () {
         // Get Value
-        let params = new URLSearchParams('?foo=1');
+        const params = new URLSearchParams('?foo=1');
 
         expect(params.get('foo')).to.equal('1');
     })
@@ -433,17 +408,6 @@ describe("URLSearchParams", function () {
         expect(params2.get('foo')).to.equal('1');
         expect(params2.get('bar')).to.equal('2');
     })
-
-    // TODO: List construction not supported
-    // Pass in a sequence of pairs
-    /*const params3 = new URLSearchParams([["foo", "1"], ["bar", "2"]]);
-    expect(params2a.get('foo')).to.equal(1);
-    expect(params2a.get('bar')).to.equal(2);*/
-
-    // Pass in a record
-    /*const params4 = new URLSearchParams({ "foo": "1", "bar": "2" });
-    expect(params2a.get('foo')).to.equal(1);
-    expect(params2a.get('bar')).to.equal(2);*/
 })
 
 mocha.run(failures => {
