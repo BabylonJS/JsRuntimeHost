@@ -19,14 +19,11 @@ mocha.setup({ ui: "bdd", reporter: BabylonReporter });
 
 const expect = chai.expect;
 
-describe("AbortController / AbortSignal", function () {
-    const controller = new AbortController();
-
-    it("should have aborted flag set false on initialization", function () {
-        expect(controller.signal.aborted).to.equal(false);
-    })
-
+describe("AbortController", function () {
     it("should not throw while aborting and correctly trigger callback", function (done) {
+        const controller = new AbortController();
+        expect(controller.signal.aborted).to.equal(false);
+
         // Expect aborted to be true after abort()
         controller.signal.onabort = () => {
             expect(controller.signal.aborted).to.equal(true);
