@@ -10,7 +10,6 @@ if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     add_subdirectory(XMLHttpRequest)
 endif()
 
-if(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER_SIGNAL)
+if(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER)
     add_subdirectory(AbortController)
-    add_subdirectory(AbortSignal)
 endif()

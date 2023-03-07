@@ -44,7 +44,6 @@ target_link_libraries(UnitTests
     PRIVATE AppRuntime
     PRIVATE Console
     PRIVATE AbortController
-    PRIVATE AbortSignal
     PRIVATE Scheduling
     PRIVATE ScriptLoader
     PRIVATE UrlLib

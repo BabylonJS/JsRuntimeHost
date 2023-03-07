@@ -55,7 +55,6 @@ describe("XMLHTTPRequest", function () {
 
     it("should have status=200 for a file that exists", async function () {
         const xhr = await createRequest("GET", "https://httpbin.org/status/200");
-        console.log(xhr.status);
         expect(xhr.status).to.equal(200);
     });
 

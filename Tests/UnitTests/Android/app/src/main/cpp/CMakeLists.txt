@@ -24,7 +24,6 @@ target_link_libraries(UnitTestsJNI
     PRIVATE AndroidExtensions
     PRIVATE AppRuntime
     PRIVATE AbortController
-    PRIVATE AbortSignal
     PRIVATE Console
     PRIVATE Scheduling
     PRIVATE ScriptLoader

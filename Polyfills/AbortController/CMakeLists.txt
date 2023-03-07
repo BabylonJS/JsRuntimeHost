@@ -1,7 +1,9 @@
 set(SOURCES 
     "Include/Babylon/Polyfills/AbortController.h"
     "Source/AbortController.cpp"
-    "Source/AbortController.h")
+    "Source/AbortController.h"
+    "Source/AbortSignal.cpp"
+    "Source/AbortSignal.h")
 
 add_library(AbortController ${SOURCES})
 #warnings_as_errors(AbortController)

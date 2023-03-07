@@ -3,7 +3,7 @@
 #include <Babylon/JsRuntimeScheduler.h>
 
 #include <napi/napi.h>
-#include <../../AbortSignal/Source/AbortSignal.h>
+#include "AbortSignal.h"
 
 namespace Babylon::Polyfills::Internal
 {

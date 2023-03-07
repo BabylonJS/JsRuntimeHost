@@ -1,6 +1,5 @@
 #include "AbortSignal.h"
 #include <Babylon/JsRuntime.h>
-#include <Babylon/Polyfills/AbortSignal.h>
 
 namespace Babylon::Polyfills::Internal
 {
