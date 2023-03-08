@@ -246,8 +246,16 @@ namespace Babylon::Polyfills::Internal
             throw Napi::Error::New(info.Env(), "XMLHttpRequest must be opened before it can be sent");
         }
 
-        std::string requestBody = info[0].IsString() ? info[0].As<Napi::String>().Utf8Value() : std::string();
-        m_request.SetRequestBody(requestBody);
+        if (info.Length() > 0)
+        {
+            if (!info[0].IsString())
+            {
+                throw Napi::Error:New(info.Env(), "Only strings are supported in XMLHttpRequest body");
+            }
+
+            std::string requestBody = info[0].As<Napi::String>().Utf8Value();
+            m_request.SetRequestBody(requestBody);
+        }
 
         m_request.SendAsync().then(m_runtimeScheduler, arcana::cancellation::none(), [env{info.Env()}, this](arcana::expected<void, std::exception_ptr> result)
         {
