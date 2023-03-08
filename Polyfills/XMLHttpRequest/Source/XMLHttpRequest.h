@@ -32,11 +32,9 @@ namespace Babylon::Polyfills::Internal
         void SetResponseType(const Napi::CallbackInfo& info, const Napi::Value& value);
         Napi::Value GetResponseURL(const Napi::CallbackInfo& info);
         Napi::Value GetStatus(const Napi::CallbackInfo& info);
-        Napi::Value Ok(const Napi::CallbackInfo& info);
         Napi::Value GetAllResponseHeaders(const Napi::CallbackInfo& info);
         void SetRequestHeader(const Napi::CallbackInfo& info);
 
-        Napi::Value Json(const Napi::CallbackInfo& info);
         void AddEventListener(const Napi::CallbackInfo& info);
         void RemoveEventListener(const Napi::CallbackInfo& info);
         void Abort(const Napi::CallbackInfo& info);
