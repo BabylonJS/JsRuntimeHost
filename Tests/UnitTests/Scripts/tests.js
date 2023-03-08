@@ -39,7 +39,7 @@ describe("XMLHTTPRequest", function () {
             const xhr = new XMLHttpRequest();
             xhr.open(method, url);
             xhr.addEventListener("loadend", () => resolve(xhr));
-            !body ? xhr.send() : xhr.send(body);
+            xhr.send(body);
         });
     }
 
@@ -49,7 +49,7 @@ describe("XMLHTTPRequest", function () {
             xhr.open(method, url);
             headers.forEach((value, key) => xhr.setRequestHeader(key, value));
             xhr.addEventListener("loadend", () => resolve(xhr));
-            !body ? xhr.send() : xhr.send(body);
+            xhr.send(body);
         });
     }
 
