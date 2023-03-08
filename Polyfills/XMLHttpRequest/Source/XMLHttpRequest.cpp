@@ -82,12 +82,12 @@ namespace Babylon::Polyfills::Internal
                 InstanceAccessor("status", &XMLHttpRequest::GetStatus, nullptr),
                 InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
                 InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
+                InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
                 InstanceMethod("addEventListener", &XMLHttpRequest::AddEventListener),
                 InstanceMethod("removeEventListener", &XMLHttpRequest::RemoveEventListener),
                 InstanceMethod("abort", &XMLHttpRequest::Abort),
                 InstanceMethod("open", &XMLHttpRequest::Open),
                 InstanceMethod("send", &XMLHttpRequest::Send),
-                InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
             });
 
         if (env.Global().Get(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME).IsUndefined())
@@ -141,13 +141,6 @@ namespace Babylon::Polyfills::Internal
         m_request.ResponseType(ResponseType::StringToEnum(value.As<Napi::String>().Utf8Value()));
     }
 
-    Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
-    {
-        const auto headerName = info[0].As<Napi::String>().Utf8Value();
-        const auto header = m_request.GetResponseHeader(headerName);
-        return header ? Napi::Value::From(Env(), header.value()) : info.Env().Null();
-    }
-
     Napi::Value XMLHttpRequest::GetResponseURL(const Napi::CallbackInfo&)
     {
         return Napi::Value::From(Env(), m_request.ResponseUrl().data());
@@ -156,6 +149,13 @@ namespace Babylon::Polyfills::Internal
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
         return Napi::Value::From(Env(), arcana::underlying_cast(m_request.StatusCode()));
+    }
+
+    Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
+    {
+        const auto headerName = info[0].As<Napi::String>().Utf8Value();
+        const auto header = m_request.GetResponseHeader(headerName);
+        return header ? Napi::Value::From(Env(), header.value()) : info.Env().Null();
     }
 
     Napi::Value XMLHttpRequest::GetAllResponseHeaders(const Napi::CallbackInfo&)
