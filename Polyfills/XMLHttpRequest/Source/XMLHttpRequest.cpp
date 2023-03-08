@@ -248,7 +248,7 @@ namespace Babylon::Polyfills::Internal
 
         if (info.Length() > 0)
         {
-            if (!info[0].IsString())
+            if (!info[0].IsString() && !info[0].IsUndefined())
             {
                 throw Napi::Error::New(info.Env(), "Only strings are supported in XMLHttpRequest body");
             }
