@@ -163,7 +163,7 @@ namespace Babylon::Polyfills::Internal
         auto responseHeaders = m_request.GetAllResponseHeaders();
         Napi::Object responseHeadersObject = Napi::Object::New(Env());
 
-        for (auto&& iter : responseHeaders)
+        for (auto& iter : responseHeaders)
         {
             auto key = Napi::String::New(Env(), iter.first);
             auto value = Napi::String::New(Env(), iter.second);
