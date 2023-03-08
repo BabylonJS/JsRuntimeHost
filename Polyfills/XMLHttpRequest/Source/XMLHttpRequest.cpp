@@ -250,7 +250,7 @@ namespace Babylon::Polyfills::Internal
         {
             if (!info[0].IsString())
             {
-                throw Napi::Error:New(info.Env(), "Only strings are supported in XMLHttpRequest body");
+                throw Napi::Error::New(info.Env(), "Only strings are supported in XMLHttpRequest body");
             }
 
             std::string requestBody = info[0].As<Napi::String>().Utf8Value();
