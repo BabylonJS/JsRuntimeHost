@@ -13,3 +13,7 @@ endif()
 if(JSRUNTIMEHOST_POLYFILL_URL)
     add_subdirectory(URL)
 endif()
+
+if(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER)
+    add_subdirectory(AbortController)
+endif()

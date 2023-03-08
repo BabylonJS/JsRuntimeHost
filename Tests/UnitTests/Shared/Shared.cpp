@@ -4,6 +4,7 @@
 #include <Babylon/Polyfills/Scheduling.h>
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <Babylon/Polyfills/URL.h>
+#include <Babylon/Polyfills/AbortController.h>
 #include <future>
 
 const char* EnumToString(Babylon::Polyfills::Console::LogLevel logLevel)
@@ -35,6 +36,7 @@ int RunTests(Babylon::Polyfills::Console::CallbackT consoleCallback)
         Babylon::Polyfills::Console::Initialize(env, std::move(consoleCallback));
         Babylon::Polyfills::Scheduling::Initialize(env);
         Babylon::Polyfills::URL::Initialize(env);
+        Babylon::Polyfills::AbortController::Initialize(env);
 
         env.Global().Set("SetExitCode", Napi::Function::New(env, [&exitCode](const Napi::CallbackInfo& info)
         {
