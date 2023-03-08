@@ -111,7 +111,6 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponse(const Napi::CallbackInfo&)
     {
-        // check response type
         if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
         {
             return Napi::Value::From(Env(), m_request.ResponseString().data());
