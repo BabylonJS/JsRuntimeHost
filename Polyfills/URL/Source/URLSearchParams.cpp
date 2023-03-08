@@ -136,20 +136,11 @@ namespace Babylon::Polyfills::Internal
         {
             m_paramsVector.push_back(key);
         }
-       
     }
     
     Napi::Value URLSearchParams::Has(const Napi::CallbackInfo& info)
     {
         std::string key = info[0].As<Napi::String>();
         return Napi::Value::From(Env(), m_paramsMap.find(key) != m_paramsMap.end());
-    }
-}
-
-namespace Babylon::Polyfills::URLSearchParams
-{
-    void Initialize(Napi::Env env)
-    {
-        Internal::URLSearchParams::Initialize(env);
     }
 }

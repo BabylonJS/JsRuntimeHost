@@ -16,12 +16,12 @@ Partial implementation for [`URL`](https://developer.mozilla.org/en-US/docs/Web/
 # URLSearchParams
 Partial implementatioin for [`URLSearchParams`](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams)  
 
-## Supported:
+## Supported
 
 - [`get`](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/get)
 - [`set`](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/set)
 - [`has`](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams/has)
 
-## Not implemented:
+## Not implemented
 - URLSearchParams constructor is partially implemented, it does not support sequence of pairs and records
 - All other properties/methods not specified above

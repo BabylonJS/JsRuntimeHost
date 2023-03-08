@@ -229,13 +229,13 @@ describe("clearTimeout", function () {
 describe("URL", function () {
 
     // Currently all of the properties that the polyfill has implemented
-    function checkURL(
-        url,
-        href,
-        hostname,
-        origin,
-        pathname,
-        search) {
+    function checkURL(url, {
+            href,
+            hostname,
+            origin,
+            pathname,
+            search
+        }) {
         expect(url).to.have.property("hostname", hostname);
         expect(url).to.have.property("href", href);
         expect(url).to.have.property("origin", origin);
@@ -248,85 +248,78 @@ describe("URL", function () {
 
     it('should load URL with no pathname / search', function () {
         // Standard URL (No pathname, no search)
-        let url = new URL(baseUrl);
-        // => 'http://httpbin.org'
-        checkURL(url,
-            'http://httpbin.org',  // href
-            'httpbin.org',          // hostname
-            'http://httpbin.org',  // origin
-            '',                               // pathname
-            ''                                // search
-        );
+        const url = new URL(baseUrl);
+        checkURL(url, {
+            href: 'http://httpbin.org',  
+            hostname: 'httpbin.org',          
+            origin: 'http://httpbin.org',  
+            pathname: '',                               
+            search: ''
+        });
     });
 
     it("should load URL with pathname (no search)", function () {
         // Augment URL with pathname (no search)
-        url = new URL(`${baseUrl}/en-US/docs`);
-        // => 'http://httpbin.org/en-US/docs'
-        checkURL(url,
-            'http://httpbin.org/en-US/docs', // href
-            'httpbin.org',                    // hostname
-            'http://httpbin.org',            // origin
-            '/en-US/docs',                              // pathname
-            ''                                          // search
-        );
+        const url = new URL(`${baseUrl}/en-US/docs`);
+        checkURL(url, {
+            href: 'http://httpbin.org/en-US/docs', 
+            hostname: 'httpbin.org',                    
+            origin: 'http://httpbin.org',            
+            pathname: '/en-US/docs',                              
+            search: ''                                          
+        });
     })
 
     it("should load URL with pathname and search", function () {
         // Augment URL with pathname and search
-        url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
-        // => 'http://httpbin.org/en-US/docs?foo=1&bar=2'
-        checkURL(url,
-            'http://httpbin.org/en-US/docs?foo=1&bar=2',  // href
-            'httpbin.org',                                // hostname
-            'http://httpbin.org',                         // origin
-            '/en-US/docs',                                // pathname
-            '?foo=1&bar=2'                                // search
-        );
+        const url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
+        checkURL(url, {
+            href: 'http://httpbin.org/en-US/docs?foo=1&bar=2',  
+            hostname: 'httpbin.org',                                
+            origin: 'http://httpbin.org',                         
+            pathname: '/en-US/docs',                                
+            search: '?foo=1&bar=2'                                
+        });
     })
 
     it("should load URL with pathname and search with multiple key value pairs", function () {
-        url = new URL(`${baseUrl}/en-US/docs?c=3&b=2&a=1&d=4`);
-        checkURL(url,
-            'http://httpbin.org/en-US/docs?c=3&b=2&a=1&d=4', // href
-            'httpbin.org',                                   // hostname
-            'http://httpbin.org',                            // origin
-            '/en-US/docs',                                   // pathname
-            '?c=3&b=2&a=1&d=4'                               // search
-        );
+        const url = new URL(`${baseUrl}/en-US/docs?c=3&b=2&a=1&d=4`);
+        checkURL(url, {
+            href: 'http://httpbin.org/en-US/docs?c=3&b=2&a=1&d=4', 
+            hostname: 'httpbin.org',                                   
+            origin: 'http://httpbin.org',                            
+            pathname: '/en-US/docs',                                   
+            search: '?c=3&b=2&a=1&d=4'                               
+        });
     });
 
 
     it("should update href after URLSearchParams are changed", function () {
         // Augment URL with pathname and search
-        url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
-        // => 'http://httpbin.org/en-US/docs?foo=1&bar=2'
+        const url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
         url.searchParams.set('foo', 999);
         // href should change to reflect searchParams change
-        checkURL(url,
-            'http://httpbin.org/en-US/docs?foo=999&bar=2', // href
-            'httpbin.org',                                 // hostname
-            'http://httpbin.org',                          // origin
-            '/en-US/docs',                                 // pathname
-            '?foo=999&bar=2'                               // search
-        );
+        checkURL(url, {
+            href: 'http://httpbin.org/en-US/docs?foo=999&bar=2', 
+            hostname: 'httpbin.org',                                 
+            origin: 'http://httpbin.org',                          
+            pathname: '/en-US/docs',                                 
+            search: '?foo=999&bar=2'                               
+        });
     })
 
     it("should update href after URLSearchParams are changed (Starting with 0 params)", function () {
         // Augment URL with pathname and search
-        url = new URL(`${baseUrl}/en-US/docs`);
-        // => 'http://httpbin.org/en-US/docs?foo=1&bar=2'
-
+        const url = new URL(`${baseUrl}/en-US/docs`);
         url.searchParams.set('foo', 999);
-
         // href should change to reflect searchParams change
-        checkURL(url,
-            'http://httpbin.org/en-US/docs?foo=999', // href
-            'httpbin.org',                           // hostname
-            'http://httpbin.org',                    // origin
-            '/en-US/docs',                           // pathname
-            '?foo=999'                               // search
-        );
+        checkURL(url, {
+            href: 'http://httpbin.org/en-US/docs?foo=999', 
+            hostname: 'httpbin.org',                           
+            origin: 'http://httpbin.org',                    
+            pathname: '/en-US/docs',                           
+            search: '?foo=999'                               
+        });
     })
 })
 

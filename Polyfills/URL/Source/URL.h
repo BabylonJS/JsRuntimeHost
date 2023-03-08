@@ -18,7 +18,6 @@ namespace Babylon::Polyfills::Internal
         explicit URL(const Napi::CallbackInfo& info);
 
     private:
-
         Napi::Value GetSearch(const Napi::CallbackInfo& info);
         void SetSearch(const Napi::CallbackInfo& info, const Napi::Value& value);
 
@@ -39,6 +38,5 @@ namespace Babylon::Polyfills::Internal
         std::string m_pathname;
         std::string m_hostname;
         Napi::ObjectReference m_searchParamsReference;
-
     };
 }

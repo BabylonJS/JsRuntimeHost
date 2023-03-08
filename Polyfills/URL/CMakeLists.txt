@@ -4,8 +4,7 @@ set(SOURCES
     "Source/URL.cpp"
     "Source/URL.h"
     "Source/URLSearchParams.cpp"
-    "Source/URLSearchParams.h"
-    )
+    "Source/URLSearchParams.h")
 
 add_library(URL ${SOURCES})
 
