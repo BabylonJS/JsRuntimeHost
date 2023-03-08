@@ -118,7 +118,6 @@ namespace Babylon::Polyfills::Internal
         }
         else
         {
-            // if it is text, return responseText
             gsl::span<const std::byte> responseBuffer{ m_request.ResponseBuffer() };
             auto arrayBuffer{ Napi::ArrayBuffer::New(Env(), responseBuffer.size()) };
             std::memcpy(arrayBuffer.Data(), responseBuffer.data(), arrayBuffer.ByteLength());
@@ -248,13 +247,15 @@ namespace Babylon::Polyfills::Internal
 
         if (info.Length() > 0)
         {
-            if (!info[0].IsString() && !info[0].IsUndefined())
+            if (!info[0].IsString() && !info[0].IsUndefined() && !info[0].IsNull())
             {
                 throw Napi::Error::New(info.Env(), "Only strings are supported in XMLHttpRequest body");
             }
 
-            std::string requestBody = info[0].IsString() ? info[0].As<Napi::String>().Utf8Value() : std::string();
-            m_request.SetRequestBody(requestBody);
+            if (info[0].IsString())
+            {
+                m_request.SetRequestBody(info[0].As<Napi::String>().Utf8Value());
+            }
         }
 
         m_request.SendAsync().then(m_runtimeScheduler, arcana::cancellation::none(), [env{info.Env()}, this](arcana::expected<void, std::exception_ptr> result)
