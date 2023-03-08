@@ -28,7 +28,6 @@ namespace Babylon::Polyfills::Internal
 
     URLSearchParams::URLSearchParams(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<URLSearchParams>{info}
-        , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
         if (info.Length() == 0) 
         {
@@ -94,12 +93,7 @@ namespace Babylon::Polyfills::Internal
 
     std::string URLSearchParams::GetAllParams()
     {
-        std::stringstream resultStringStream("");
-
-        if (m_paramsVector.empty())
-        {
-            return resultStringStream.str();
-        }
+        std::stringstream resultStringStream;
 
         for (int i = 0; i < m_paramsVector.size(); i++)
         {
@@ -112,8 +106,8 @@ namespace Babylon::Polyfills::Internal
                 resultStringStream << "?";
             }
 
-            std::string key = m_paramsVector[i];
-            std::string value = m_paramsMap[key];
+            const std::string& key = m_paramsVector[i];
+            const std::string& value = m_paramsMap[key];
 
             resultStringStream << key;
             resultStringStream << "=";
@@ -128,21 +122,21 @@ namespace Babylon::Polyfills::Internal
     {
         if (info.Length() < 2) 
         {
-            return;
+            std::stringstream errorMessageStream;
+            errorMessageStream << "Failed to execute 'set' on 'URLSearchParams': 2 arguments required, but only ";
+            errorMessageStream << info.Length();
+            errorMessageStream << " present";
+            throw Napi::Error::New(info.Env(), errorMessageStream.str());
         }
 
         std::string key = info[0].As<Napi::String>();
         std::string value = info[1].ToString().Utf8Value();
 
-        if (m_paramsMap.find(key) == m_paramsMap.end()) 
+        if (m_paramsMap.insert_or_assign(key, value).second) 
         {
             m_paramsVector.push_back(key);
-            m_paramsMap[key] = value;
         }
-        else 
-        {
-            m_paramsMap[key] = value;
-        }
+       
     }
     
     Napi::Value URLSearchParams::Has(const Napi::CallbackInfo& info)

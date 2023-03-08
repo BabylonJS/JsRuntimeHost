@@ -1,7 +1,6 @@
 set(SOURCES 
     ${SOURCES}
     "Include/Babylon/Polyfills/URL.h"
-    "Include/Babylon/Polyfills/URLSearchParams.h"
     "Source/URL.cpp"
     "Source/URL.h"
     "Source/URLSearchParams.cpp"

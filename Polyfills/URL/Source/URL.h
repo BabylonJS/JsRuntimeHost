@@ -4,7 +4,6 @@
 
 #include <napi/napi.h>
 #include "URLSearchParams.h"
-#include "../Include/Babylon/Polyfills/URL.h"
 
 namespace Babylon::Polyfills::Internal
 {
@@ -33,7 +32,6 @@ namespace Babylon::Polyfills::Internal
         std::string GetSearchQuery();
         Napi::Value GetSearchParams(const Napi::CallbackInfo& info);
 
-        JsRuntimeScheduler m_runtimeScheduler;
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
         std::string m_search;
         std::string m_href;

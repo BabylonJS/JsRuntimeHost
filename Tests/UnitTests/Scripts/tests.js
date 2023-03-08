@@ -230,16 +230,16 @@ describe("URL", function () {
     }
 
     // Base URLs:
-    const baseUrl = 'https://developer.mozilla.org';
+    const baseUrl = 'http://httpbin.org';
 
     it('should load URL with no pathname / search', function () {
         // Standard URL (No pathname, no search)
         let url = new URL(baseUrl);
-        // => 'https://developer.mozilla.org'
+        // => 'http://httpbin.org'
         checkURL(url,
-            'https://developer.mozilla.org',  // href
-            'developer.mozilla.org',          // hostname
-            'https://developer.mozilla.org',  // origin
+            'http://httpbin.org',  // href
+            'httpbin.org',          // hostname
+            'http://httpbin.org',  // origin
             '',                               // pathname
             ''                                // search
         );
@@ -248,11 +248,11 @@ describe("URL", function () {
     it("should load URL with pathname (no search)", function () {
         // Augment URL with pathname (no search)
         url = new URL(`${baseUrl}/en-US/docs`);
-        // => 'https://developer.mozilla.org/en-US/docs'
+        // => 'http://httpbin.org/en-US/docs'
         checkURL(url,
-            'https://developer.mozilla.org/en-US/docs', // href
-            'developer.mozilla.org',                    // hostname
-            'https://developer.mozilla.org',            // origin
+            'http://httpbin.org/en-US/docs', // href
+            'httpbin.org',                    // hostname
+            'http://httpbin.org',            // origin
             '/en-US/docs',                              // pathname
             ''                                          // search
         );
@@ -261,24 +261,24 @@ describe("URL", function () {
     it("should load URL with pathname and search", function () {
         // Augment URL with pathname and search
         url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
-        // => 'https://developer.mozilla.org/en-US/docs?foo=1&bar=2'
+        // => 'http://httpbin.org/en-US/docs?foo=1&bar=2'
         checkURL(url,
-            'https://developer.mozilla.org/en-US/docs?foo=1&bar=2', // href
-            'developer.mozilla.org',                                // hostname
-            'https://developer.mozilla.org',                        // origin
-            '/en-US/docs',                                          // pathname
-            '?foo=1&bar=2'                                          // search
+            'http://httpbin.org/en-US/docs?foo=1&bar=2',  // href
+            'httpbin.org',                                // hostname
+            'http://httpbin.org',                         // origin
+            '/en-US/docs',                                // pathname
+            '?foo=1&bar=2'                                // search
         );
     })
 
     it("should load URL with pathname and search with multiple key value pairs", function () {
         url = new URL(`${baseUrl}/en-US/docs?c=3&b=2&a=1&d=4`);
         checkURL(url,
-            'https://developer.mozilla.org/en-US/docs?c=3&b=2&a=1&d=4', // href
-            'developer.mozilla.org',                                // hostname
-            'https://developer.mozilla.org',                        // origin
-            '/en-US/docs',                                          // pathname
-            '?c=3&b=2&a=1&d=4'                                          // search
+            'http://httpbin.org/en-US/docs?c=3&b=2&a=1&d=4', // href
+            'httpbin.org',                                   // hostname
+            'http://httpbin.org',                            // origin
+            '/en-US/docs',                                   // pathname
+            '?c=3&b=2&a=1&d=4'                               // search
         );
     });
 
@@ -286,32 +286,32 @@ describe("URL", function () {
     it("should update href after URLSearchParams are changed", function () {
         // Augment URL with pathname and search
         url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
-        // => 'https://developer.mozilla.org/en-US/docs?foo=1&bar=2'
+        // => 'http://httpbin.org/en-US/docs?foo=1&bar=2'
         url.searchParams.set('foo', 999);
         // href should change to reflect searchParams change
         checkURL(url,
-            'https://developer.mozilla.org/en-US/docs?foo=999&bar=2', // href
-            'developer.mozilla.org',                                  // hostname
-            'https://developer.mozilla.org',                          // origin
-            '/en-US/docs',                                            // pathname
-            '?foo=999&bar=2'                                          // search
+            'http://httpbin.org/en-US/docs?foo=999&bar=2', // href
+            'httpbin.org',                                 // hostname
+            'http://httpbin.org',                          // origin
+            '/en-US/docs',                                 // pathname
+            '?foo=999&bar=2'                               // search
         );
     })
 
     it("should update href after URLSearchParams are changed (Starting with 0 params)", function () {
         // Augment URL with pathname and search
         url = new URL(`${baseUrl}/en-US/docs`);
-        // => 'https://developer.mozilla.org/en-US/docs?foo=1&bar=2'
+        // => 'http://httpbin.org/en-US/docs?foo=1&bar=2'
 
         url.searchParams.set('foo', 999);
 
         // href should change to reflect searchParams change
         checkURL(url,
-            'https://developer.mozilla.org/en-US/docs?foo=999', // href
-            'developer.mozilla.org',                            // hostname
-            'https://developer.mozilla.org',                    // origin
-            '/en-US/docs',                                      // pathname
-            '?foo=999'                                          // search
+            'http://httpbin.org/en-US/docs?foo=999', // href
+            'httpbin.org',                           // hostname
+            'http://httpbin.org',                    // origin
+            '/en-US/docs',                           // pathname
+            '?foo=999'                               // search
         );
     })
 })
@@ -338,6 +338,10 @@ describe("URLSearchParams", function () {
     // -------------------------------- URLSearchParams Set --------------------------------
 
     let paramsSet = new URLSearchParams('');
+
+    it("should throw exception when trying to set with less than 2 parameters", function () {
+        expect(() => paramsSet.set()).to.throw();
+	})
 
     it("should add a number and retrieve it as a string from searchParams", function () {
         // Set Number
