@@ -19,8 +19,8 @@ namespace Babylon::Polyfills::Internal
         void Set(const Napi::CallbackInfo& info);
         Napi::Value Has(const Napi::CallbackInfo& info);
         Napi::Value Get(const Napi::CallbackInfo& info);
-        void parseKeyVal(const std::string& subStr);
-        void parseInputQueryStr(const std::string& queryStr);
+        void ParseKeyVal(const std::string& subStr);
+        void ParseInputQueryStr(const std::string& queryStr);
 
         std::unordered_map<std::string, std::string> m_paramsMap;
         std::vector<std::string> m_paramsVector;

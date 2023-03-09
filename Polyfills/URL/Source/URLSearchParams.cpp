@@ -34,10 +34,10 @@ namespace Babylon::Polyfills::Internal
             return;
         }
         std::string queryStr = info[0].As<Napi::String>();
-        parseInputQueryStr(queryStr);
+        ParseInputQueryStr(queryStr);
     }
 
-    void URLSearchParams::parseKeyVal(const std::string& subStr)
+    void URLSearchParams::ParseKeyVal(const std::string& subStr)
     {
         auto equalSign = subStr.find("=");
         if (equalSign != std::string::npos)
@@ -50,7 +50,7 @@ namespace Babylon::Polyfills::Internal
         }
     }
 
-    void URLSearchParams::parseInputQueryStr(const std::string& queryStr)
+    void URLSearchParams::ParseInputQueryStr(const std::string& queryStr)
     {
         // find all the &'s to determine where each param ends
         // got positions for substring
@@ -66,7 +66,7 @@ namespace Babylon::Polyfills::Internal
         {
             // get substring
             std::string mySub = queryStr.substr(start, end - start);
-            parseKeyVal(mySub);
+            ParseKeyVal(mySub);
 
             // update start, end
             start = end + 1;
@@ -74,7 +74,7 @@ namespace Babylon::Polyfills::Internal
         }
 
         // now need to parse the last key val pair
-        parseKeyVal(queryStr.substr(start));
+        ParseKeyVal(queryStr.substr(start));
     }
 
     Napi::Value URLSearchParams::Get(const Napi::CallbackInfo& info)
