@@ -7,6 +7,73 @@ Node-API contract from Node.js allows consumers of this library to interact with
 JavaScript engine with a consistent interface. This library also provides some optional
 polyfills that consumers can include if required.
 
+
+## **Building - All Development Platforms**
+
+**Required Tools:** [git](https://git-scm.com/), [CMake](https://cmake.org/), [node.js](https://nodejs.org/en/)
+
+The first step for all development environments and targets is to clone the `JSRuntimeHost` and the `UrlLib` repos. The `JSRuntimeHost` repo contains all the polyfills and the javascript engines, while the `UrlLib` repo contains platform specific code for the polyfills. 
+
+Use a
+git-enabled terminal to follow the steps below. The `--recursive` flag is necessary as
+Babylon Native makes extensive use of submodules for dependencies.
+
+```
+git clone --recursive https://github.com/zacary-brown/JsRuntimeHost.git
+git clone --recursive https://github.com/zacary-brown/UrlLib.git
+```
+
+Babylon Native requires Babylon.js. You will need to install NPM packages to resolve these dependencies. From the root of the `JsRuntimeHost` 
+repository on the command line, run the following commands:
+
+```
+cd Tests
+npm install
+```
+
+
+## **Building on Windows, Targeting Android**
+
+_Follow the steps from [All Development Platforms](#all-development-platforms) before proceeding._
+
+**Required Tools:**
+[Android Studio](https://developer.android.com/studio), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
+
+The minimal requirement target is Android 5.0.
+
+Only building with Android Studio is supported. CMake is not used directly. Instead, Gradle
+is used for building and CMake is automatically invocated for building the native part.
+An `.apk` that can be executed on your device or simulator is the output.
+
+
+First, download the latest release of Ninja, extract the binary, and add it to your system path.
+
+Once you have Android Studio downloaded, open it in Administrator Mode. Then, you need to set up an Android emulator if you do not have a physical Android device. You can do this by selecting `Tools` -> `Device Manager` and then selecting a device. (We are using Pixel 2 API 27). 
+
+Open the project located at
+`JsRuntimeHost\Tests\UnitTests\Android` with Android Studio (make sure Android Studio is in admin mode). Note that this can take a while to load. (The bottom right corner of the Android Studio window shows you what is currently being loaded.) 
+
+
+Then in the LEFT PANE, right click on `app`, and select `Run 'All Tests'`. If you don't have an Android device plugged in or no Android image in the Android emulator,
+that option will be greyed and inaccessible. 
+
+**Troubleshooting:**
+If the `app/cpp` folder on the left navigation pane is empty, select `File` -> `Sync project with gradle files` and try to re-run the project by selecting  `Run` -> `Run 'All Tests'`.
+
+Sometimes, you may need to clean the build. To do that, delete the `Debug` folder located at `JsRuntimeHost\Build\Android\Debug`.
+
+## Pulling your UrlLib branch from CMake
+
+Since the polyfills in this repo depend on UrlLib, but are split into
+different repos (JsRuntimeHost and UrlLib), we are using CMake at build time to pull 
+UrlLib into the local JsRuntimeHost build. In the root directory where this README.md is 
+there is also a CMakeLists.txt file. Inside of this CMake file there are two 
+**FetchContent_Declare()** commands declaring *arcana* and *UrlLib*. If you are testing 
+changes from UrlLib then you need to change the **GIT_REPOSITORY** variable to the 
+UrlLib repo/fork you are pulling from and **GIT_TAG** variable to the branch you are 
+testing starting with origin/{BranchName}. Ex. if your branch on UrlLib is called `Test` 
+your **GIT_TAG** would be `origin/Test`.
+
 ## Contributing
 
 Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for details on our code of conduct, and 
