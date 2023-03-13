@@ -10,6 +10,20 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     {
         throw std::runtime_error{"Failed to get Java VM"};
     }
+    // test code
+    jclass webSocketClass{env->FindClass("com/jsruntimehost/unittests/WebSocket")};
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+    }
+
+    jmethodID mid = env->GetMethodID(webSocketClass, "<init>", "()V");
+    jobject obj = env->NewObject(webSocketClass, mid);
+
+    jmethodID method{env->GetMethodID(webSocketClass, "liyaanMethod", "()V")};
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+    }
+    env->CallVoidMethod(obj, method);
 
     android::global::Initialize(javaVM, context);
 
