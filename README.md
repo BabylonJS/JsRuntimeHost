@@ -17,7 +17,7 @@ The first step for all development environments and targets is to clone this rep
 Use a git-enabled terminal to run the following command.
 
 ```
-git clone --recursive https://github.com/BabylonJS/JsRuntimeHost.git
+git clone https://github.com/BabylonJS/JsRuntimeHost.git
 ```
 
 The unit tests require some NPM packages. From the root of the repository on the command line, run the following commands:
