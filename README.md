@@ -21,8 +21,7 @@ Babylon Native makes extensive use of submodules for dependencies.
 git clone --recursive https://github.com/BabylonJS/JsRuntimeHost.git
 ```
 
-Babylon Native requires Babylon.js. You will need to install NPM packages to resolve these dependencies. From the root of the `JsRuntimeHost` 
-repository on the command line, run the following commands:
+The unit tests require some NPM packages. From the root of the repository on the command line, run the following commands:
 
 ```
 cd Tests
