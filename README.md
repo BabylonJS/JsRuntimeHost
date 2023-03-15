@@ -14,8 +14,7 @@ polyfills that consumers can include if required.
 
 The first step for all development environments and targets is to clone this repository. 
 
-Use a git-enabled terminal to follow the steps below. The `--recursive` flag is necessary as 
-Babylon Native makes extensive use of submodules for dependencies.
+Use a git-enabled terminal to run the following command.
 
 ```
 git clone --recursive https://github.com/BabylonJS/JsRuntimeHost.git
