@@ -52,7 +52,7 @@ Open the project located at
 
 Then in the LEFT PANE, right click on `app`, and select `Run 'All Tests'`, as displayed in the image below.
 
-![Run All Tests](./android_build.png)
+![Run All Tests](./Figures/android_build.png)
 
 If you don't have an Android device plugged in or no Android image in the Android emulator, that option will be greyed and inaccessible. 
 
