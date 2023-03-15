@@ -55,7 +55,7 @@ Then in the LEFT PANE, right click on `app`, and select `Run 'All Tests'`. If yo
 that option will be greyed and inaccessible. 
 
 **Troubleshooting:**
-If the `app/cpp` folder on the left navigation pane is empty, select `File` -> `Sync project with gradle files` and try to re-run the project by selecting  `Run` -> `Run 'All Tests'`.
+If the `app\cpp` folder on the left navigation pane is empty, select `File` -> `Sync Project with Gradle Files` and try to re-run the project by selecting `Run` -> `Run 'All Tests'`.
 
 Sometimes, you may need to clean the build. To do that, delete the `Debug` folder located at `JsRuntimeHost\Build\Android\Debug`.
 
