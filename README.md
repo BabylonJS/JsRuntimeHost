@@ -50,8 +50,11 @@ Open the project located at
 `JsRuntimeHost\Tests\UnitTests\Android` with Android Studio (make sure Android Studio is in admin mode). Note that this can take a while to load. (The bottom right corner of the Android Studio window shows you what is currently being loaded.) 
 
 
-Then in the LEFT PANE, right click on `app`, and select `Run 'All Tests'`. If you don't have an Android device plugged in or no Android image in the Android emulator,
-that option will be greyed and inaccessible. 
+Then in the LEFT PANE, right click on `app`, and select `Run 'All Tests'`, as displayed in the image below.
+
+![Run All Tests](./android_build.png)
+
+If you don't have an Android device plugged in or no Android image in the Android emulator, that option will be greyed and inaccessible. 
 
 **Troubleshooting:**
 If the `app\cpp` folder on the left navigation pane is empty, select `File` -> `Sync Project with Gradle Files` and try to re-run the project by selecting `Run` -> `Run 'All Tests'`.
