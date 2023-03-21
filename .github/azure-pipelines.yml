@@ -19,8 +19,8 @@ jobs:
   # Android
   - template: jobs/android.yml
     parameters:
-      name: Android_JSC
-      jsEngine: JSC
+      name: Android_JavaScriptCore
+      jsEngine: JavaScriptCore
 
   - template: jobs/android.yml
     parameters:

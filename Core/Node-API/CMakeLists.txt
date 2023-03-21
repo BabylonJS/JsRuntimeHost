@@ -92,7 +92,7 @@ if(NAPI_BUILD_ABI)
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
-    elseif()
+    else()
         message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
     endif()
 
