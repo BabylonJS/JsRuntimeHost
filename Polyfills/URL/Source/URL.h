@@ -9,9 +9,8 @@ namespace Babylon::Polyfills::Internal
 {
     class URL final : public Napi::ObjectWrap<URL>
     {
-        static constexpr auto JS_URL_CONSTRUCTOR_NAME = "URL";
-
     public:
+        static constexpr auto JS_URL_CONSTRUCTOR_NAME = "URL";
         static void Initialize(Napi::Env env);
         static URL& GetFromJavaScript(Napi::Env env);
 
