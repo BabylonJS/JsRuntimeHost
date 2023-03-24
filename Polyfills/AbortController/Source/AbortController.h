@@ -10,7 +10,6 @@ namespace Babylon::Polyfills::Internal
     class AbortController final : public Napi::ObjectWrap<AbortController>
     {
     public:
-        static constexpr auto JS_ABORT_CONTROLLER_CONSTRUCTOR_NAME = "AbortController";
         static void Initialize(Napi::Env env);
 
         explicit AbortController(const Napi::CallbackInfo& info);

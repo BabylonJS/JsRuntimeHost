@@ -5,6 +5,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
+    static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
     namespace
     {
         namespace ResponseType

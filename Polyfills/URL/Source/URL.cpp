@@ -3,6 +3,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
+    static constexpr auto JS_URL_CONSTRUCTOR_NAME = "URL";
     void URL::Initialize(Napi::Env env)
     {
         if (env.Global().Get(JS_URL_CONSTRUCTOR_NAME).IsUndefined())

@@ -12,7 +12,6 @@ namespace Babylon::Polyfills::Internal
     class XMLHttpRequest final : public Napi::ObjectWrap<XMLHttpRequest>
     {
     public:
-        static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
         static void Initialize(Napi::Env env);
 
         explicit XMLHttpRequest(const Napi::CallbackInfo& info);

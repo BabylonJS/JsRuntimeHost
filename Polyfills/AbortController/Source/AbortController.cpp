@@ -2,6 +2,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
+    static constexpr auto JS_ABORT_CONTROLLER_CONSTRUCTOR_NAME = "AbortController";
     void AbortController::Initialize(Napi::Env env)
     {
         if (env.Global().Get(JS_ABORT_CONTROLLER_CONSTRUCTOR_NAME).IsUndefined())
