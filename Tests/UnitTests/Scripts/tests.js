@@ -1,8 +1,5 @@
 ﻿// Set this to true to make attaching a debugging easier.
-const debug = true;
-
-// Milliseconds to delay before running the tests when debug is true.
-const debugDelay = 10000;
+const waitForDebugger = true;
 
 // TODO: use premade reporter (once Console Polyfill is fixed)
 function BabylonReporter(runner) {
@@ -455,11 +452,7 @@ describe("URLSearchParams", function () {
     });
 });
 
-setTimeout(function () {
-    if (debug) {
-        debugger;
-    }
-
+function runTests() {
     mocha.run(failures => {
         // Test program will wait for code to be set before exiting
         if (failures > 0) {
@@ -470,4 +463,21 @@ setTimeout(function () {
             SetExitCode(0);
         }
     });
-}, debug ? debugDelay : 0);
+}
+
+if (waitForDebugger) {
+    function waitLoop() {
+        const start = Date.now();
+        debugger;
+        if (Date.now() - start < 100) {
+            setTimeout(waitLoop, 200);
+        } else {
+            runTests();
+        }
+    }
+
+    console.log("Waiting for debugger...");
+    waitLoop();
+} else {
+    runTests();
+}
