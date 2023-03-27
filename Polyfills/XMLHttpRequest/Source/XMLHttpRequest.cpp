@@ -5,7 +5,6 @@
 
 namespace Babylon::Polyfills::Internal
 {
-    static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
     namespace
     {
         namespace ResponseType
@@ -62,6 +61,7 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Initialize(Napi::Env env)
     {
+        static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
         if (env.Global().Get(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME).IsUndefined())
         {
             Napi::Function func = DefineClass(
