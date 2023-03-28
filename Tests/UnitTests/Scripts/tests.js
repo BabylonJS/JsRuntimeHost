@@ -1,5 +1,5 @@
 ﻿// Set this to true to make attaching a debugging easier.
-const waitForDebugger = true;
+const waitForDebugger = false;
 
 // TODO: use premade reporter (once Console Polyfill is fixed)
 function BabylonReporter(runner) {
