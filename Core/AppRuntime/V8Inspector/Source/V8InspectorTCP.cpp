@@ -3,16 +3,16 @@
 // This code is based on the old node inspector implementation. See NOTICE.md for Node.js' project license details
 #include "V8InspectorTCP.h"
 
+#include <asio/write.hpp>
 #include <memory>
 
 namespace Babylon
 {
-
     tcp_server::tcp_server(unsigned short port, ConnectionCallback callback, void* data)
         : io_service_()
         , acceptor_(io_service_)
         , socket_(io_service_)
-        , connectioncallback_(callback)
+        , connectionCallback_(callback)
         , callbackData_(data)
     {
         asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
@@ -45,7 +45,7 @@ namespace Babylon
             [this, self](asio::error_code ec) {
                 if (!ec)
                 {
-                    connectioncallback_(std::make_shared<tcp_connection>(std::move(socket_)), callbackData_);
+                    connectionCallback_(std::make_shared<tcp_connection>(std::move(socket_)), callbackData_);
                 }
 
                 do_accept();
@@ -65,7 +65,6 @@ namespace Babylon
                 if (!ec)
                 {
                     std::vector<char> vc;
-                    //const char* start = boost::asio::buffer_cast<const char*>(input_buffer_.data());
                     vc.reserve(bytes_transferred);
                     for (size_t c = 0; c < bytes_transferred; c++)
                     {
@@ -94,57 +93,10 @@ namespace Babylon
             });
     }
 
-    // !!COPY
     void tcp_connection::write_async(std::vector<char> message)
     {
-
-        {
-            std::lock_guard<std::mutex> guard(queueAccessMutex);
-            outQueue.push(std::move(message));
-        }
-
-        do_write(false);
-    }
-
-    void tcp_connection::do_write(bool cont)
-    {
-
-        std::vector<char> message;
-        {
-            std::lock_guard<std::mutex> guard(queueAccessMutex);
-
-            // New message but the last write is going on.
-            if (!cont && writing_)
-                return;
-
-            if (outQueue.empty())
-            {
-                writing_ = false;
-                return;
-            }
-            message = outQueue.front();
-            outQueue.pop();
-
-            writing_ = true;
-        }
-
-        auto self(shared_from_this());
-
-        messageToWrite_ = std::move(message);
-
-        std::string str;
-        std::transform(messageToWrite_.begin(), messageToWrite_.end(), std::back_inserter(str), [](char c) { return c; });
-
-        socket_.async_send(asio::buffer(messageToWrite_),
-            [this, self](asio::error_code ec, std::size_t bytes_transferred) {
-                if (!ec)
-                {
-                    std::ostringstream stream;
-                    stream << "Writing completed .. " << bytes_transferred << " bytes.";
-
-                    self->do_write(true);
-                }
-
+        async_write(socket_, asio::buffer(message),
+            [self = shared_from_this(), message = std::move(message)](asio::error_code ec, std::size_t bytes_transferred) {
                 if (ec == asio::error::operation_aborted)
                 {
                     std::abort();
@@ -163,5 +115,4 @@ namespace Babylon
         if (ec)
             std::abort();
     }
-
 }

@@ -11,8 +11,6 @@
 #include <cstdint>
 #include <cstring>
 
-//#include <http.h>
-
 typedef llhttp_type_t parser_type_t;
 typedef llhttp_errno_t parser_errno_t;
 typedef llhttp_settings_t parser_settings_t;
@@ -67,7 +65,7 @@ namespace Babylon {
 class TcpHolder : public std::enable_shared_from_this<TcpHolder> {
  public:
   void SetHandler(ProtocolHandler* handler);
-  int WriteRaw(const std::vector<char>& buffer/*, uv_write_cb write_cb*/);
+  int WriteRaw(std::vector<char> buffer);
 
   void read_loop();
 
@@ -96,7 +94,7 @@ class ProtocolHandler {
   virtual void AcceptUpgrade(const std::string& accept_key) = 0;
   virtual void OnData(std::vector<char>* data) = 0;
   virtual void OnEof() = 0;
-  virtual void Write(const std::vector<char> data) = 0;
+  virtual void Write(std::vector<char> data) = 0;
   virtual void CancelHandshake() = 0;
 
   std::string GetHost() const;
@@ -106,7 +104,7 @@ class ProtocolHandler {
   }
 
  protected:
-  int WriteRaw(const std::vector<char>& buffer/*, uv_write_cb write_cb*/);
+  int WriteRaw(std::vector<char> buffer);
   InspectorSocket::Delegate* delegate();
 
   InspectorSocket* const inspector_;
@@ -363,9 +361,9 @@ class WsHandler : public ProtocolHandler {
     } while (processed > 0 && !data->empty());
   }
 
-  void Write(const std::vector<char> data) override {
+  void Write(std::vector<char> data) override {
     std::vector<char> output = encode_frame_hybi17(data);
-    WriteRaw(output/*, WriteRequest::Cleanup*/);
+    WriteRaw(std::move(output));
   }
 
  private:
@@ -463,7 +461,7 @@ class HttpHandler : public ProtocolHandler {
                  accept_string + sizeof(accept_string));
     reply.insert(reply.end(), accept_ws_suffix,
                  accept_ws_suffix + sizeof(accept_ws_suffix) - 1);
-    if (WriteRaw(reply/*, WriteRequest::Cleanup*/) >= 0) {
+    if (WriteRaw(std::move(reply)) >= 0) {
       inspector_->SwitchProtocol(std::make_unique<WsHandler>(inspector_, std::move(tcp_)));
     } else {
       tcp_.reset();
@@ -515,8 +513,8 @@ class HttpHandler : public ProtocolHandler {
     }
   }
 
-  void Write(const std::vector<char> data) override {
-    WriteRaw(data/*, WriteRequest::Cleanup*/);
+  void Write(std::vector<char> data) override {
+    WriteRaw(std::move(data));
   }
 
  private:
@@ -608,9 +606,8 @@ ProtocolHandler::ProtocolHandler(InspectorSocket* inspector,
   tcp_->SetHandler(this);
 }
 
-int ProtocolHandler::WriteRaw(const std::vector<char>& buffer/*,
-                              uv_write_cb write_cb*/) {
-  return tcp_->WriteRaw(buffer/*, write_cb*/);
+int ProtocolHandler::WriteRaw(std::vector<char> buffer) {
+  return tcp_->WriteRaw(std::move(buffer)/*, write_cb*/);
 }
 
 InspectorSocket::Delegate* ProtocolHandler::delegate() {
@@ -642,7 +639,7 @@ void TcpHolder::SetHandler(ProtocolHandler* handler) {
   handler_ = handler;
 }
 
-int TcpHolder::WriteRaw(const std::vector<char>& buffer/*, uv_write_cb write_cb*/) {
+int TcpHolder::WriteRaw(std::vector<char> buffer) {
 #if DUMP_WRITES
   printf("%s (%ld bytes):\n", __FUNCTION__, buffer.size());
   dump_hex(buffer.data(), buffer.size());
@@ -656,7 +653,7 @@ int TcpHolder::WriteRaw(const std::vector<char>& buffer/*, uv_write_cb write_cb*
   if (err < 0)
     delete wr;
   return err < 0;*/
-  connection_->write_async(buffer);
+  connection_->write_async(std::move(buffer));
   return 0;
 }
 

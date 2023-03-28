@@ -13,7 +13,7 @@
 #include <v8.h>
 #include <libplatform/libplatform.h>
 
-#ifdef V8_DEBUGGING
+#ifdef ENABLE_V8_INSPECTOR
 #include <V8InspectorAgent.h>
 #endif
 
@@ -80,14 +80,14 @@ namespace Babylon
 
             Napi::Env env = Napi::V8::Attach(context);
 
-#ifdef V8_DEBUGGING
+#ifdef ENABLE_V8_INSPECTOR
             V8InspectorAgent agent{module.Platform(), isolate, context, "Babylon"};
             agent.start(5643, "JsRuntimeHost");
 #endif
 
             Run(env);
 
-#ifdef V8_DEBUGGING
+#ifdef ENABLE_V8_INSPECTOR
             agent.stop();
 #endif
 
