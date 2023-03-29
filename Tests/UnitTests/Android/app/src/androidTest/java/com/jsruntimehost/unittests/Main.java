@@ -1,4 +1,4 @@
-package com.jsruntimehost.unittests;
+package com.jsruntimehost;
 
 import android.content.Context;
 
@@ -30,16 +30,18 @@ public class Main {
 
 
 
-       try
-       {
-           TimeUnit.SECONDS.sleep(30);
-       }  catch (InterruptedException e) {
-        e.printStackTrace();
-    }
+
         System.out.println("TESTINGGGG.");
 
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
         assertEquals("com.jsruntimehost.unittests", appContext.getPackageName());
         assertEquals(0, Native.javaScriptTests(appContext));
+
+        try
+        {
+            TimeUnit.SECONDS.sleep(5);
+        }  catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 }
