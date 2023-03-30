@@ -26,8 +26,12 @@ namespace Babylon::Polyfills::Internal
 
     void AbortController::Abort(const Napi::CallbackInfo&)
     {
-        m_signal.Set("aborted", true);
-        m_signal.Get("onabort").As<Napi::Function>().Call({});
+        AbortSignal* sig = AbortSignal::Unwrap(m_signal.Value());
+
+        if (sig != nullptr)
+        {
+            sig->Abort();
+        }
     }
 
     AbortController::AbortController(const Napi::CallbackInfo& info)

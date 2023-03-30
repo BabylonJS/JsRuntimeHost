@@ -26,6 +26,18 @@ namespace Babylon::Polyfills::Internal
     {
     }
 
+    void AbortSignal::Abort()
+    {
+        m_aborted = true;
+
+        if (!m_onabort.Value().IsNull() && !m_onabort.Value().IsUndefined())
+        {
+            m_onabort.Call({});
+        }
+
+        RaiseEvent("abort");
+    }
+
     Napi::Value AbortSignal::GetAborted(const Napi::CallbackInfo&)
     {
         return Napi::Value::From(Env(), m_aborted);
@@ -90,6 +102,19 @@ namespace Babylon::Polyfills::Internal
                     eventHandlerRefs.erase(it);
                     break;
                 }
+            }
+        }
+    }
+
+    void AbortSignal::RaiseEvent(const char* eventType)
+    {
+        auto it = m_eventHandlerRefs.find(eventType);
+        if (it != m_eventHandlerRefs.end())
+        {
+            const auto& eventHandlerRefs = it->second;
+            for (const auto& eventHandlerRef : eventHandlerRefs)
+            {
+                eventHandlerRef.Call({});
             }
         }
     }
