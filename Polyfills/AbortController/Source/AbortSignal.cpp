@@ -30,9 +30,10 @@ namespace Babylon::Polyfills::Internal
     {
         m_aborted = true;
 
-        if (!m_onabort.Value().IsNull() && !m_onabort.Value().IsUndefined())
+        auto onabort = m_onabort.Value();
+        if (!onabort.IsNull() && !onabort.IsUndefined())
         {
-            m_onabort.Call({});
+            onabort.Call({});
         }
 
         RaiseEvent("abort");
