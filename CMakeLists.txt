@@ -36,6 +36,7 @@ option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include Babylon Native Polyfill Schedu
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include Babylon Native Polyfill XMLHttpRequest." ON)
 option(JSRUNTIMEHOST_POLYFILL_URL "Include Babylon Native Polyfill URL and URLSearchParams." ON)
 option(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER "Include Babylon Native Polyfills AbortController and AbortSignal." ON)
+option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include Babylon Native Polyfill WebSocket." ON)
 
 ## Tests
 option(JSRUNTIMEHOST_TESTS "Include Babylon Native Tests." ON)
@@ -58,8 +59,8 @@ endif()
 if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     FetchContent_Declare(
         UrlLib
-        GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-        GIT_TAG        58b2e8fa88cd8633cfd946ec14a77247ed3bdc17)
+        GIT_REPOSITORY https://github.com/lmaskati/UrlLib.git
+        GIT_TAG        origin/lmaskati/webSocket)
 
     message(STATUS "Fetching UrlLib")
     FetchContent_MakeAvailable(UrlLib)
