@@ -49,29 +49,12 @@ Open the project located at
 
 Then in the LEFT PANE, right click on `app`, and select `Run 'All Tests'`, as displayed in the image below.
 
-![Run All Tests](./Figures/android_build.png)
+![Run All Tests](./Documentation/Images/android_build.png)
 
 If you don't have an Android device plugged in or no Android image in the Android emulator, that option will be greyed and inaccessible. 
 
 **Troubleshooting:**
 If the `app\cpp` folder on the left navigation pane is empty, select `File` -> `Sync Project with Gradle Files` and try to re-run the project by selecting `Run` -> `Run 'All Tests'`.
-
-## **Debugging - Android**
-
-### Step 1:
-Download and unzip ADB and run the following commands in that folder while your android device is plugged in
-```
-adb forward tcp:5643 tcp:5643
-adb reverse tcp:8000 tcp:8000
-```
-
-Note, every time you unplug and re-plug your device these ADB commands need to be run again. (Tested with a physical android device, not an emulator)
-
-### Step 2:
-Currently a bug, but line 574 in file V8InspectorAgent.cpp needs to be commented out
-```
-// CHECK_EQ(State::kAccepting, state_);
-```
 
 ## Contributing
 
