@@ -10,6 +10,15 @@ Click `Configure...` and in the target discovery settings add an entry `localhos
 ## Setting Up To Debug
 Make sure to change the line in [tests.js](https://github.com/BabylonJS/JsRuntimeHost/blob/f487c7b3f89b407e95a53543a06a34f1a1fbb860/Tests/UnitTests/Scripts/tests.js#L2) to true, or else the DevTools won't have enough time to attach to the Javascript Instance. If you are debugging your own script, you can also use [setTimeout()](https://developer.mozilla.org/en-US/docs/web/api/settimeout) to delay the execution of the code you are trying to debug while you wait to attach the debugger.
 
+## Debugging on Android/Emulator
+
+Download and unzip [ADB](https://developer.android.com/tools/releases/platform-tools) and run the following commands in that folder while your android device is plugged in (or emulator is on in Android Studio)
+```
+adb forward tcp:5643 tcp:5643
+```
+
+Note, every time you unplug and re-plug your device these ADB commands need to be run again.
+
 ## Click Inspect
 Run the UnitTests application and wait for the DevTools page to recognize the inspector server spun up by the app. Once you see the app pop up in the list of Remote Targets, you may click inspect to open up a DevTools window.
 
@@ -26,13 +35,3 @@ Once you have the DevTools window open, you can use it in the same way as if you
 For more information, see this documentation from Google on [how to debug JavaScript using Chrome DevTools](https://developer.chrome.com/docs/devtools/javascript/).
 
 ![DevTools window](Images/DevTools/chrome-debugger.png)
-
-## Debugging on Android
-
-Download and unzip [ADB](https://developer.android.com/tools/releases/platform-tools) and run the following commands in that folder while your android device is plugged in (or emulator is on in Android Studio)
-```
-adb forward tcp:5643 tcp:5643
-adb reverse tcp:8000 tcp:8000
-```
-
-Note, every time you unplug and re-plug your device these ADB commands need to be run again.
