@@ -10,11 +10,6 @@ Click `Configure...` and in the target discovery settings add an entry `localhos
 ## Setting Up To Debug
 Make sure to change the line in [tests.js](https://github.com/BabylonJS/JsRuntimeHost/blob/f487c7b3f89b407e95a53543a06a34f1a1fbb860/Tests/UnitTests/Scripts/tests.js#L2) to true, or else the DevTools won't have enough time to attach to the Javascript Instance. If you are debugging your own script, you can also use [setTimeout()](https://developer.mozilla.org/en-US/docs/web/api/settimeout) to delay the execution of the code you are trying to debug while you wait to attach the debugger.
 
-Also, currently a bug, but line 574 in file [V8InspectorAgent.cpp](https://github.com/BabylonJS/JsRuntimeHost/blob/f487c7b3f89b407e95a53543a06a34f1a1fbb860/Core/AppRuntime/V8Inspector/Source/V8InspectorAgent.cpp#L574) needs to be commented out if it hasn't been already.
-```
-CHECK_EQ(State::kAccepting, state_);
-```
-
 ## Click Inspect
 Run the UnitTests application and wait for the DevTools page to recognize the inspector server spun up by the app. Once you see the app pop up in the list of Remote Targets, you may click inspect to open up a DevTools window.
 
@@ -34,7 +29,7 @@ If you have issues loading some of your Javascript files double check that this 
 
 ## Debugging on Android
 
-Download and unzip ADB and run the following commands in that folder while your android device is plugged in (or emulator is on in Android Studio)
+Download and unzip [ADB](https://developer.android.com/tools/releases/platform-tools) and run the following commands in that folder while your android device is plugged in (or emulator is on in Android Studio)
 ```
 adb forward tcp:5643 tcp:5643
 adb reverse tcp:8000 tcp:8000

@@ -37,16 +37,27 @@ describe("AbortController", function () {
         const controller = new AbortController();
         expect(controller.signal.aborted).to.equal(false);
 
+        let cb1 = false, cb2 = false;
+
         // Expect aborted to be true after abort()
         controller.signal.onabort = () => {
             expect(controller.signal.aborted).to.equal(true);
-            // no done(); .onabort is always called first
+            cb1 = true;
+
+            if (cb1 && cb2) {
+                done();
+            }
         }
 
         controller.signal.addEventListener('abort', () => {
             expect(controller.signal.aborted).to.equal(true);
-            done(); // Last callback that's not .onabort
+            cb2 = true;
+
+            if (cb1 && cb2) {
+                done();
+            }
         })
+
         controller.abort();
     });
 
