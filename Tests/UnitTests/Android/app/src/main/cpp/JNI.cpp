@@ -1,30 +1,21 @@
 #include <jni.h>
 #include <Android/log.h>
 #include <AndroidExtensions/Globals.h>
+#include <AndroidExtensions/JavaWrappers.h>
+
 #include <Shared/Shared.h>
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass clazz, jobject context) {
+
     JavaVM* javaVM{};
     if (env->GetJavaVM(&javaVM) != JNI_OK)
     {
         throw std::runtime_error{"Failed to get Java VM"};
     }
-    // test code
+
     jclass webSocketClass{env->FindClass("com/jsruntimehost/unittests/WebSocket")};
-    if (env->ExceptionCheck()) {
-        env->ExceptionDescribe();
-    }
-
-    jmethodID mid = env->GetMethodID(webSocketClass, "<init>", "()V");
-    jobject obj = env->NewObject(webSocketClass, mid);
-
-    jmethodID method{env->GetMethodID(webSocketClass, "liyaanMethod", "()V")};
-    if (env->ExceptionCheck()) {
-        env->ExceptionDescribe();
-    }
-    env->CallVoidMethod(obj, method);
-
+    java::websocket::WebSocketClient::InitializeJavaWebSocketClass(webSocketClass, env);
     android::global::Initialize(javaVM, context);
 
     auto consoleCallback = [](const char* message, Babylon::Polyfills::Console::LogLevel level)
@@ -43,5 +34,7 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
         }
     };
 
-    return RunTests(consoleCallback);
+    auto testResult = RunTests(consoleCallback);
+    java::websocket::WebSocketClient::DestructJavaWebSocketClass(env);
+    return testResult;
 }

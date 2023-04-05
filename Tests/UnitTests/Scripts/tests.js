@@ -261,6 +261,60 @@ describe("clearTimeout", function () {
     });
 });
 
+describe("WebSocket", function () {
+    it("should connect correctly with one websocket connection", function (done) {
+        const ws = new WebSocket('wss://ws.postman-echo.com/raw');
+        const testMessage = "testMessage";
+        ws.onopen = () => {
+            expect(ws).to.have.property('readyState', 1);
+            expect(ws).to.have.property('url', 'wss://ws.postman-echo.com/raw');
+            ws.send(testMessage);
+        }
+
+        ws.onmessage = (msg) => {
+            expect(msg.data).to.equal(testMessage);
+            ws.close();
+        }
+
+        ws.onclose = () => {
+            expect(ws).to.have.property('readyState', 3);
+            done();
+        }
+    });
+    
+    it("should connect correctly with multiple websocket connections", function (done) {
+        const testMessage1 = "testMessage1";
+        const testMessage2 = "testMessage2";
+
+        const ws1 = new WebSocket('wss://ws.postman-echo.com/raw');
+        ws1.onopen = () => {
+            ws1.send(testMessage1);
+        }
+
+        ws1.onmessage = (msg) => {
+            expect(msg.data).to.equal(testMessage1);
+            ws1.close();
+        }
+    
+        const ws2 = new WebSocket('wss://ws.postman-echo.com/raw');
+        ws2.onopen = () => {
+            expect(ws2).to.have.property('readyState', 1);
+            expect(ws2).to.have.property('url', 'wss://ws.postman-echo.com/raw');
+            ws2.send(testMessage2);
+        }
+
+        ws2.onmessage = (msg) => {
+            expect(msg.data).to.equal(testMessage2);
+            ws2.close();
+        }
+
+        ws2.onclose = () => {
+            expect(ws2).to.have.property('readyState', 3);
+            done();
+        }
+    });
+})    
+
 // URL
 describe("URL", function () {
 
@@ -286,10 +340,10 @@ describe("URL", function () {
         // Standard URL (No pathname, no search)
         const url = new URL(baseUrl);
         checkURL(url, {
-            href: 'http://httpbin.org',  
-            hostname: 'httpbin.org',          
-            origin: 'http://httpbin.org',  
-            pathname: '',                               
+            href: 'http://httpbin.org',
+            hostname: 'httpbin.org',
+            origin: 'http://httpbin.org',
+            pathname: '',
             search: ''
         });
     });
@@ -298,11 +352,11 @@ describe("URL", function () {
         // Augment URL with pathname (no search)
         const url = new URL(`${baseUrl}/en-US/docs`);
         checkURL(url, {
-            href: 'http://httpbin.org/en-US/docs', 
-            hostname: 'httpbin.org',                    
-            origin: 'http://httpbin.org',            
-            pathname: '/en-US/docs',                              
-            search: ''                                          
+            href: 'http://httpbin.org/en-US/docs',
+            hostname: 'httpbin.org',
+            origin: 'http://httpbin.org',
+            pathname: '/en-US/docs',
+            search: ''
         });
     })
 
@@ -310,22 +364,22 @@ describe("URL", function () {
         // Augment URL with pathname and search
         const url = new URL(`${baseUrl}/en-US/docs?foo=1&bar=2`);
         checkURL(url, {
-            href: 'http://httpbin.org/en-US/docs?foo=1&bar=2',  
-            hostname: 'httpbin.org',                                
-            origin: 'http://httpbin.org',                         
-            pathname: '/en-US/docs',                                
-            search: '?foo=1&bar=2'                                
+            href: 'http://httpbin.org/en-US/docs?foo=1&bar=2',
+            hostname: 'httpbin.org',
+            origin: 'http://httpbin.org',
+            pathname: '/en-US/docs',
+            search: '?foo=1&bar=2'
         });
     })
 
     it("should load URL with pathname and search with multiple key value pairs", function () {
         const url = new URL(`${baseUrl}/en-US/docs?c=3&b=2&a=1&d=4`);
         checkURL(url, {
-            href: 'http://httpbin.org/en-US/docs?c=3&b=2&a=1&d=4', 
-            hostname: 'httpbin.org',                                   
-            origin: 'http://httpbin.org',                            
-            pathname: '/en-US/docs',                                   
-            search: '?c=3&b=2&a=1&d=4'                               
+            href: 'http://httpbin.org/en-US/docs?c=3&b=2&a=1&d=4',
+            hostname: 'httpbin.org',
+            origin: 'http://httpbin.org',
+            pathname: '/en-US/docs',
+            search: '?c=3&b=2&a=1&d=4'
         });
     });
 
@@ -336,11 +390,11 @@ describe("URL", function () {
         url.searchParams.set('foo', 999);
         // href should change to reflect searchParams change
         checkURL(url, {
-            href: 'http://httpbin.org/en-US/docs?foo=999&bar=2', 
-            hostname: 'httpbin.org',                                 
-            origin: 'http://httpbin.org',                          
-            pathname: '/en-US/docs',                                 
-            search: '?foo=999&bar=2'                               
+            href: 'http://httpbin.org/en-US/docs?foo=999&bar=2',
+            hostname: 'httpbin.org',
+            origin: 'http://httpbin.org',
+            pathname: '/en-US/docs',
+            search: '?foo=999&bar=2'
         });
     })
 
@@ -350,11 +404,11 @@ describe("URL", function () {
         url.searchParams.set('foo', 999);
         // href should change to reflect searchParams change
         checkURL(url, {
-            href: 'http://httpbin.org/en-US/docs?foo=999', 
-            hostname: 'httpbin.org',                           
-            origin: 'http://httpbin.org',                    
-            pathname: '/en-US/docs',                           
-            search: '?foo=999'                               
+            href: 'http://httpbin.org/en-US/docs?foo=999',
+            hostname: 'httpbin.org',
+            origin: 'http://httpbin.org',
+            pathname: '/en-US/docs',
+            search: '?foo=999'
         });
     })
 })

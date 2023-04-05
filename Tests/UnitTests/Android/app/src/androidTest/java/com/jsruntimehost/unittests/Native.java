@@ -1,4 +1,4 @@
-package com.jsruntimehost;
+package com.jsruntimehost.unittests;
 
 import android.content.Context;
 
