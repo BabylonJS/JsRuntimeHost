@@ -26,7 +26,7 @@ Run the UnitTests application and wait for the DevTools page to recognize the in
 
 ## DevTool Settings
 
-If you have issues loading some of your Javascript files double check that this setting is enabled. Go into the settings by clicking on the gear in the top right corner and check this box in the preferences tab.
+There is also a setting that needs to be enabled in the DevTools. Go into the settings by clicking on the gear in the top right corner and check this box in the preferences tab.
 
 ![DevTools window](Images/DevTools/devtools-settings.png)
 
