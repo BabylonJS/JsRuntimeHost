@@ -61,41 +61,36 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Initialize(Napi::Env env)
     {
-        Napi::HandleScope scope{env};
-
         static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
-
-        Napi::Function func = DefineClass(
-            env,
-            JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME,
-            {
-                StaticValue("UNSENT", Napi::Value::From(env, 0)),
-                StaticValue("OPENED", Napi::Value::From(env, 1)),
-                StaticValue("HEADERS_RECEIVED", Napi::Value::From(env, 2)),
-                StaticValue("LOADING", Napi::Value::From(env, 3)),
-                StaticValue("DONE", Napi::Value::From(env, 4)),
-                InstanceAccessor("readyState", &XMLHttpRequest::GetReadyState, nullptr),
-                InstanceAccessor("response", &XMLHttpRequest::GetResponse, nullptr),
-                InstanceAccessor("responseText", &XMLHttpRequest::GetResponseText, nullptr),
-                InstanceAccessor("responseType", &XMLHttpRequest::GetResponseType, &XMLHttpRequest::SetResponseType),
-                InstanceAccessor("responseURL", &XMLHttpRequest::GetResponseURL, nullptr),
-                InstanceAccessor("status", &XMLHttpRequest::GetStatus, nullptr),
-                InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
-                InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
-                InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
-                InstanceMethod("addEventListener", &XMLHttpRequest::AddEventListener),
-                InstanceMethod("removeEventListener", &XMLHttpRequest::RemoveEventListener),
-                InstanceMethod("abort", &XMLHttpRequest::Abort),
-                InstanceMethod("open", &XMLHttpRequest::Open),
-                InstanceMethod("send", &XMLHttpRequest::Send),
-            });
-
         if (env.Global().Get(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME).IsUndefined())
         {
+            Napi::Function func = DefineClass(
+                env,
+                JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME,
+                {
+                    StaticValue("UNSENT", Napi::Value::From(env, 0)),
+                    StaticValue("OPENED", Napi::Value::From(env, 1)),
+                    StaticValue("HEADERS_RECEIVED", Napi::Value::From(env, 2)),
+                    StaticValue("LOADING", Napi::Value::From(env, 3)),
+                    StaticValue("DONE", Napi::Value::From(env, 4)),
+                    InstanceAccessor("readyState", &XMLHttpRequest::GetReadyState, nullptr),
+                    InstanceAccessor("response", &XMLHttpRequest::GetResponse, nullptr),
+                    InstanceAccessor("responseText", &XMLHttpRequest::GetResponseText, nullptr),
+                    InstanceAccessor("responseType", &XMLHttpRequest::GetResponseType, &XMLHttpRequest::SetResponseType),
+                    InstanceAccessor("responseURL", &XMLHttpRequest::GetResponseURL, nullptr),
+                    InstanceAccessor("status", &XMLHttpRequest::GetStatus, nullptr),
+                    InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
+                    InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
+                    InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
+                    InstanceMethod("addEventListener", &XMLHttpRequest::AddEventListener),
+                    InstanceMethod("removeEventListener", &XMLHttpRequest::RemoveEventListener),
+                    InstanceMethod("abort", &XMLHttpRequest::Abort),
+                    InstanceMethod("open", &XMLHttpRequest::Open),
+                    InstanceMethod("send", &XMLHttpRequest::Send),
+                });
+
             env.Global().Set(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME, func);
         }
-
-        JsRuntime::NativeObject::GetFromJavaScript(env).Set(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME, func);
     }
 
     XMLHttpRequest::XMLHttpRequest(const Napi::CallbackInfo& info)
@@ -117,8 +112,8 @@ namespace Babylon::Polyfills::Internal
         }
         else
         {
-            gsl::span<const std::byte> responseBuffer{ m_request.ResponseBuffer() };
-            auto arrayBuffer{ Napi::ArrayBuffer::New(Env(), responseBuffer.size()) };
+            gsl::span<const std::byte> responseBuffer{m_request.ResponseBuffer()};
+            auto arrayBuffer{Napi::ArrayBuffer::New(Env(), responseBuffer.size())};
             std::memcpy(arrayBuffer.Data(), responseBuffer.data(), arrayBuffer.ByteLength());
             return std::move(arrayBuffer);
         }
@@ -257,8 +252,7 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        m_request.SendAsync().then(m_runtimeScheduler, arcana::cancellation::none(), [env{info.Env()}, this](arcana::expected<void, std::exception_ptr> result)
-        {
+        m_request.SendAsync().then(m_runtimeScheduler, arcana::cancellation::none(), [env{info.Env()}, this](arcana::expected<void, std::exception_ptr> result) {
             if (result.has_error())
             {
                 Napi::Error::New(env, result.error()).ThrowAsJavaScriptException();

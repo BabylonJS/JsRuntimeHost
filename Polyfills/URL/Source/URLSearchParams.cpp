@@ -2,34 +2,29 @@
 #include <string>
 #include <sstream>
 
-
 namespace Babylon::Polyfills::Internal
 {
     void URLSearchParams::Initialize(Napi::Env env)
     {
-        Napi::HandleScope scope{env};
-
-        Napi::Function func = DefineClass(
-            env,
-            JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME,
-            {
-                InstanceMethod("get", &URLSearchParams::Get),
-                InstanceMethod("set", &URLSearchParams::Set),
-                InstanceMethod("has", &URLSearchParams::Has),
-            });
-
         if (env.Global().Get(JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME).IsUndefined())
         {
+            Napi::Function func = DefineClass(
+                env,
+                JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME,
+                {
+                    InstanceMethod("get", &URLSearchParams::Get),
+                    InstanceMethod("set", &URLSearchParams::Set),
+                    InstanceMethod("has", &URLSearchParams::Has),
+                });
+
             env.Global().Set(JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME, func);
         }
-
-        JsRuntime::NativeObject::GetFromJavaScript(env).Set(JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME, func);
     }
 
     URLSearchParams::URLSearchParams(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<URLSearchParams>{info}
     {
-        if (info.Length() == 0) 
+        if (info.Length() == 0)
         {
             return;
         }
@@ -58,7 +53,7 @@ namespace Babylon::Polyfills::Internal
         {
             return;
         }
-        
+
         size_t start = queryStr[0] == '?' ? 1 : 0;
         size_t end = queryStr.find("&");
         // find the first &, in a while loop
@@ -83,7 +78,7 @@ namespace Babylon::Polyfills::Internal
 
         auto element = m_paramsMap.find(key);
 
-        // element is not found 
+        // element is not found
         if (element == m_paramsMap.end())
         {
             return Env().Null();
@@ -97,11 +92,11 @@ namespace Babylon::Polyfills::Internal
 
         for (int i = 0; i < m_paramsVector.size(); i++)
         {
-            if (i > 0) 
+            if (i > 0)
             {
                 resultStringStream << "&";
             }
-            else 
+            else
             {
                 resultStringStream << "?";
             }
@@ -112,15 +107,14 @@ namespace Babylon::Polyfills::Internal
             resultStringStream << key;
             resultStringStream << "=";
             resultStringStream << value;
-        } 
+        }
 
         return resultStringStream.str();
     }
 
-
     void URLSearchParams::Set(const Napi::CallbackInfo& info)
     {
-        if (info.Length() < 2) 
+        if (info.Length() < 2)
         {
             std::stringstream errorMessageStream;
             errorMessageStream << "Failed to execute 'set' on 'URLSearchParams': 2 arguments required, but only ";
@@ -132,12 +126,12 @@ namespace Babylon::Polyfills::Internal
         std::string key = info[0].As<Napi::String>();
         std::string value = info[1].ToString().Utf8Value();
 
-        if (m_paramsMap.insert_or_assign(key, value).second) 
+        if (m_paramsMap.insert_or_assign(key, value).second)
         {
             m_paramsVector.push_back(key);
         }
     }
-    
+
     Napi::Value URLSearchParams::Has(const Napi::CallbackInfo& info)
     {
         std::string key = info[0].As<Napi::String>();
