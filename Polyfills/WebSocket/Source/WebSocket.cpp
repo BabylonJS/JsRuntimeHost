@@ -3,8 +3,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
-
-void WebSocket::Initialize(Napi::Env env)
+    void WebSocket::Initialize(Napi::Env env)
     {
         Napi::HandleScope scope{env};
 
@@ -51,6 +50,7 @@ void WebSocket::Initialize(Napi::Env env)
                 }
             });
         };
+
         auto onCloseLambda = [this]()
         {
             m_runtimeScheduler([this]()
@@ -65,7 +65,7 @@ void WebSocket::Initialize(Napi::Env env)
                 }
             });
         };
-        
+
         auto onMessageLambda = [this](std::string message)
         {
             m_runtimeScheduler([this,message=std::move(message)]()
