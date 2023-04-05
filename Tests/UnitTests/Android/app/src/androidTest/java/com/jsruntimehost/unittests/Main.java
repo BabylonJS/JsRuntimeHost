@@ -22,6 +22,7 @@ public class Main {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
         assertEquals("com.jsruntimehost.unittests", appContext.getPackageName());
+        
         assertEquals(0, Native.javaScriptTests(appContext));
     }
 }

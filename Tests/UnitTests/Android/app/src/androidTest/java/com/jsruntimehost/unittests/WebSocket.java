@@ -5,7 +5,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 
 public class WebSocket extends WebSocketClient {
-    public WebSocket(String url) throws URISyntaxException {
+    public WebSocket(String url) throws URISyntaxException 
+    {
         super(new URI(url));
     }
 
