@@ -16,7 +16,8 @@ public class WebSocket extends WebSocketClient {
     }
 
     @Override
-    public void onMessage(String message) {
+    public void onMessage(String message)
+    {
         this.messageCallback(message);
     }
 

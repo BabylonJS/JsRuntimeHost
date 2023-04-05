@@ -30,4 +30,4 @@ target_link_libraries(UnitTestsJNI
     PRIVATE URL
     PRIVATE UrlLib
     PRIVATE XMLHttpRequest
-    PRIVATE PRIVATE WebSocket)
+    PRIVATE WebSocket)

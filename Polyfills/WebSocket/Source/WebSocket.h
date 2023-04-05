@@ -4,19 +4,15 @@
 #include <UrlLib/UrlLib.h>
 #include <napi/napi.h>
 
-
 namespace Babylon::Polyfills::Internal
 {
-
     class WebSocket final : public Napi::ObjectWrap<WebSocket>
     {
     public:
         static void Initialize(Napi::Env env);
-
         explicit WebSocket(const Napi::CallbackInfo& info);
 
     private:
-        
         Napi::Value GetReadyState(const Napi::CallbackInfo& info);
         Napi::Value GetURL(const Napi::CallbackInfo& info);
 
@@ -36,6 +32,5 @@ namespace Babylon::Polyfills::Internal
         Napi::FunctionReference m_onerror;
         
         UrlLib::WebSocket m_webSocket;
-
     };
 }
