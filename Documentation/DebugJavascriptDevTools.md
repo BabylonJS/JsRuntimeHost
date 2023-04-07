@@ -17,7 +17,7 @@ Download and unzip [ADB](https://developer.android.com/tools/releases/platform-t
 adb forward tcp:5643 tcp:5643
 ```
 
-Note, every time you unplug and re-plug your device these ADB commands need to be run again.
+Note, every time the Android device is unpluggeg and re-plugged, this ADB command need to be run again.
 
 ## Click Inspect
 Run the UnitTests application and wait for the DevTools page to recognize the inspector server spun up by the app. Once you see the app pop up in the list of Remote Targets, you may click inspect to open up a DevTools window.
