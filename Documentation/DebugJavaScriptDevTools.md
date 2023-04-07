@@ -3,7 +3,7 @@ You can use Chromium DevTools to debug your JavaScript while running with the V8
 
 ## Add the Remote Target URL
 On whichever Chromium-based browser you're using (Edge or Chrome), navigate to `about://inspect`.
-Click `Configure...` and in the target discovery settings add an entry `localhost:{5643}`.
+Click `Configure...` and in the target discovery settings add an entry `localhost:5643`.
 
 ![Target discovery settings](Images/DevTools/chrome-targets.png)
 
