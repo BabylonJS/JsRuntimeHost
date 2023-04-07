@@ -66,12 +66,12 @@ describe("AbortController", function () {
         expect(controller.signal.aborted).to.equal(false);
 
         // If this function is unsuccessfully removed it will assert when called
-        function Throw() {
+        const onAbort = () => {
             expect(controller.signal.aborted).to.equal(false);
-        }
+        };
 
-        controller.signal.addEventListener('abort', Throw);
-        controller.signal.removeEventListener('abort', Throw);
+        controller.signal.addEventListener('abort', onAbort);
+        controller.signal.removeEventListener('abort', onAbort);
 
         controller.abort();
 
