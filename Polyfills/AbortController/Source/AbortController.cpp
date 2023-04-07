@@ -1,4 +1,5 @@
 #include "AbortController.h"
+#include <cassert>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -27,28 +28,15 @@ namespace Babylon::Polyfills::Internal
     void AbortController::Abort(const Napi::CallbackInfo&)
     {
         AbortSignal* sig = AbortSignal::Unwrap(m_signal.Value());
-
-        if (sig != nullptr)
-        {
-            sig->Abort();
-        }
-        else
-        {
-            throw std::runtime_error("AbortSignal should not be null");
-        }
+        
+        assert(sig != nullptr);
+        sig->Abort();
     }
 
     AbortController::AbortController(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<AbortController>{info}
     {
         m_signal = Napi::Persistent(info.Env().Global().Get(AbortSignal::JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).As<Napi::Function>().New({}));
-
-        const auto& sig = m_signal.Value();
-
-        if (sig.IsNull() || sig.IsUndefined())
-        {
-            throw std::runtime_error("AbortSignal should not be null/undefined");
-        }
     }
 }
 
