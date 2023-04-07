@@ -12,7 +12,7 @@ Make sure to change the line in [tests.js](https://github.com/BabylonJS/JsRuntim
 
 ## Debugging on Android/Emulator
 
-Download and unzip [ADB](https://developer.android.com/tools/releases/platform-tools) and run the following commands in that folder while your android device is plugged in (or emulator is on in Android Studio)
+Install [ADB](https://developer.android.com/tools/releases/platform-tools) and run the following command with an Android device plugged in or Android emulator running.
 ```
 adb forward tcp:5643 tcp:5643
 ```
