@@ -26,7 +26,7 @@ Run the UnitTests application and wait for the DevTools page to recognize the in
 
 ## DevTool Settings
 
-There is also a setting that needs to be enabled in the DevTools. Go into the settings by clicking on the gear in the top right corner and check this box in the preferences tab.
+There is also a setting that needs to be enabled in the DevTools. Go into the settings by clicking on the gear in the top right corner and check this box in the preferences tab. This only needs to be done once.
 
 ![DevTools window](Images/DevTools/devtools-settings.png)
 
