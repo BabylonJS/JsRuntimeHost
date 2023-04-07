@@ -3,12 +3,12 @@ You can use Chromium DevTools to debug your JavaScript while running with the V8
 
 ## Add the Remote Target URL
 On whichever Chromium-based browser you're using (Edge or Chrome), navigate to `about://inspect`.
-Click `Configure...` and in the target discovery settings add an entry `localhost:{port}`, where `{port}` is consistent with the one supplied to the call in [AppRuntime_V8.cpp](https://github.com/BabylonJS/JsRuntimeHost/blob/f487c7b3f89b407e95a53543a06a34f1a1fbb860/Core/AppRuntime/Source/AppRuntime_V8.cpp#L85) and [AppRuntime_JSI.cpp](https://github.com/BabylonJS/JsRuntimeHost/blob/09c5acc49a6a64dec0e62075aebac6ad0a32aa93/Core/AppRuntime/Source/AppRuntime_JSI.cpp#L39).
+Click `Configure...` and in the target discovery settings add an entry `localhost:{5643}`.
 
 ![Target discovery settings](Images/DevTools/chrome-targets.png)
 
 ## Setting Up To Debug
-Make sure to change the line in [tests.js](https://github.com/BabylonJS/JsRuntimeHost/blob/f487c7b3f89b407e95a53543a06a34f1a1fbb860/Tests/UnitTests/Scripts/tests.js#L2) to true, or else the DevTools won't have enough time to attach to the Javascript Instance. If you are debugging your own script, you can also use [setTimeout()](https://developer.mozilla.org/en-US/docs/web/api/settimeout) to delay the execution of the code you are trying to debug while you wait to attach the debugger.
+Make sure to change the line in [tests.js](https://github.com/BabylonJS/JsRuntimeHost/blob/f487c7b3f89b407e95a53543a06a34f1a1fbb860/Tests/UnitTests/Scripts/tests.js#L2) to true, or else the DevTools won't have enough time to attach to the JavaScript Instance. If you are debugging your own script, you can also use [setTimeout()](https://developer.mozilla.org/en-US/docs/web/api/settimeout) to delay the execution of the code you are trying to debug while you wait to attach the debugger.
 
 ## Debugging on Android/Emulator
 
@@ -17,7 +17,7 @@ Install [ADB](https://developer.android.com/tools/releases/platform-tools) and r
 adb forward tcp:5643 tcp:5643
 ```
 
-Note, every time the Android device is unpluggeg and re-plugged, this ADB command need to be run again.
+Note, every time the Android device is unplugged and re-plugged, this ADB command need to be run again.
 
 ## Click Inspect
 Run the UnitTests application and wait for the DevTools page to recognize the inspector server spun up by the app. Once you see the app pop up in the list of Remote Targets, you may click inspect to open up a DevTools window.
