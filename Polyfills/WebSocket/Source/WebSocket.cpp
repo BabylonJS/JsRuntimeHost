@@ -42,6 +42,7 @@ namespace Babylon::Polyfills::Internal
     {
         auto onOpenLambda = [this]()
         {
+            m_readyState = ReadyState::Open;
             m_runtimeScheduler([this]()
             {
                 if(!m_onopen.IsEmpty())
@@ -53,6 +54,7 @@ namespace Babylon::Polyfills::Internal
 
         auto onCloseLambda = [this]()
         {
+            m_readyState = ReadyState::Closed;
             m_runtimeScheduler([this]()
             {
                 Napi::Object closeEvent = Napi::Object::New(Env());
@@ -90,12 +92,14 @@ namespace Babylon::Polyfills::Internal
                 }
             });
         };
-        
-        m_webSocket.Open(info[0].As<Napi::String>(), onOpenLambda, onCloseLambda, onMessageLambda, onErrorLambda);
+
+        m_url = info[0].As<Napi::String>();
+        m_webSocket.Open(m_url, onOpenLambda, onCloseLambda, onMessageLambda, onErrorLambda);
     }
 
     void WebSocket::Close(const Napi::CallbackInfo&)
     {
+        m_readyState = ReadyState::Closing;
         m_webSocket.Close();
     }
 
@@ -107,13 +111,12 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value WebSocket::GetReadyState(const Napi::CallbackInfo& )
     {
-        UrlLib::ReadyState ws_readyState = m_webSocket.GetReadyState();
-        return Napi::Value::From(Env(), static_cast<int>(ws_readyState));
+        return Napi::Value::From(Env(), arcana::underlying_cast(m_readyState));
     }
 
     Napi::Value WebSocket::GetURL(const Napi::CallbackInfo& )
     {
-        return Napi::Value::From(Env(), m_webSocket.GetURL());
+        return Napi::Value::From(Env(), m_url);
     }
 
     void WebSocket::SetOnOpen(const Napi::CallbackInfo& , const Napi::Value& value)

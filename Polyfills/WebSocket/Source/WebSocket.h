@@ -13,6 +13,14 @@ namespace Babylon::Polyfills::Internal
         explicit WebSocket(const Napi::CallbackInfo& info);
 
     private:
+        enum class ReadyState
+        {
+            Connecting = 0,
+            Open = 1,
+            Closing = 2,
+            Closed = 3
+        };
+
         Napi::Value GetReadyState(const Napi::CallbackInfo& info);
         Napi::Value GetURL(const Napi::CallbackInfo& info);
 
@@ -32,5 +40,7 @@ namespace Babylon::Polyfills::Internal
         Napi::FunctionReference m_onerror;
         
         UrlLib::WebSocket m_webSocket;
+        std::string m_url{};
+        ReadyState m_readyState{ReadyState::Connecting};
     };
 }
