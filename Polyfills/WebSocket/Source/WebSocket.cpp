@@ -122,14 +122,22 @@ namespace Babylon::Polyfills::Internal
         m_webSocket.Open();
     }
 
-    void WebSocket::Close(const Napi::CallbackInfo&)
+    void WebSocket::Close(const Napi::CallbackInfo &info)
     {
+        if (m_readyState == ReadyState::Closed || m_readyState == ReadyState::Closing)
+        {
+            throw Napi::Error::New(info.Env(), "Close has already been called.");
+        }
         m_readyState = ReadyState::Closing;
         m_webSocket.Close();
     }
 
     void WebSocket::Send(const Napi::CallbackInfo &info)
     {
+        if (m_readyState != ReadyState::Open)
+        {
+            throw Napi::Error::New(info.Env(), "Websocket readyState is not open.");
+        }
         std::string message = info[0].As<Napi::String>();
         m_webSocket.Send(message);
     }
