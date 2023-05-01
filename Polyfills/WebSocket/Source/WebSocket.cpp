@@ -19,10 +19,10 @@ namespace Babylon::Polyfills::Internal
                     StaticValue("CLOSED", Napi::Value::From(env, 3)),
                     InstanceAccessor("readyState", &WebSocket::GetReadyState, nullptr),
                     InstanceAccessor("url", &WebSocket::GetURL, nullptr),
-                    InstanceAccessor("onopen", nullptr, &WebSocket::SetOnOpen),
-                    InstanceAccessor("onclose", nullptr, &WebSocket::SetOnClose),
-                    InstanceAccessor("onmessage", nullptr, &WebSocket::SetOnMessage),
-                    InstanceAccessor("onerror", nullptr, &WebSocket::SetOnError),
+                    InstanceAccessor("onopen", &WebSocket::GetOnOpen, &WebSocket::SetOnOpen),
+                    InstanceAccessor("onclose", &WebSocket::GetOnClose, &WebSocket::SetOnClose),
+                    InstanceAccessor("onmessage", &WebSocket::GetOnMessage, &WebSocket::SetOnMessage),
+                    InstanceAccessor("onerror", &WebSocket::GetOnError, &WebSocket::SetOnError),
                     InstanceMethod("close", &WebSocket::Close),
                     InstanceMethod("send", &WebSocket::Send),
                 });
@@ -150,22 +150,90 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::SetOnOpen(const Napi::CallbackInfo& , const Napi::Value& value)
     {
-        m_onopen = Napi::Persistent(value.As<Napi::Function>());
+        if (value.IsNull() || value.IsUndefined())
+        {
+            m_onopen.Reset();
+        }
+        else
+        {
+            m_onopen = Napi::Persistent(value.As<Napi::Function>());
+        }
     }
     
     void WebSocket::SetOnClose(const Napi::CallbackInfo& , const Napi::Value& value)
     {
-        m_onclose = Napi::Persistent(value.As<Napi::Function>());
+        if (value.IsNull() || value.IsUndefined())
+        {
+            m_onclose.Reset();
+        }
+        else
+        {
+            m_onclose = Napi::Persistent(value.As<Napi::Function>());
+        }
     }
 
     void WebSocket::SetOnMessage(const Napi::CallbackInfo& , const Napi::Value& value)
     {
-        m_onmessage = Napi::Persistent(value.As<Napi::Function>());
+        if (value.IsNull() || value.IsUndefined())
+        {
+            m_onmessage.Reset();
+        }
+        else
+        {
+            m_onmessage = Napi::Persistent(value.As<Napi::Function>());
+        }
     }
     
     void WebSocket::SetOnError(const Napi::CallbackInfo& , const Napi::Value& value)
     {
-        m_onerror = Napi::Persistent(value.As<Napi::Function>());
+        if (value.IsNull() || value.IsUndefined())
+        {
+            m_onerror.Reset();
+        }
+        else
+        {
+            m_onerror = Napi::Persistent(value.As<Napi::Function>());
+        }
+    }
+
+    Napi::Value WebSocket::GetOnOpen(const Napi::CallbackInfo&)
+    {
+        if (m_onopen.IsEmpty())
+        {
+            return Napi::Value::From(Env(), Env().Null());
+        }
+
+        return Napi::Value::From(Env(), m_onopen.Value());
+    }
+
+    Napi::Value WebSocket::GetOnClose(const Napi::CallbackInfo&)
+    {
+        if (m_onclose.IsEmpty())
+        {
+            return Napi::Value::From(Env(), Env().Null());
+        }
+
+        return Napi::Value::From(Env(), m_onclose.Value());
+    }
+
+    Napi::Value WebSocket::GetOnMessage(const Napi::CallbackInfo&)
+    {
+        if (m_onmessage.IsEmpty())
+        {
+            return Napi::Value::From(Env(), Env().Null());
+        }
+
+        return Napi::Value::From(Env(), m_onmessage.Value());
+    }
+
+    Napi::Value WebSocket::GetOnError(const Napi::CallbackInfo&)
+    {
+        if (m_onerror.IsEmpty())
+        {
+            return Napi::Value::From(Env(), Env().Null());
+        }
+
+        return Napi::Value::From(Env(), m_onerror.Value());
     }
 }
 

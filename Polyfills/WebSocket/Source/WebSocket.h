@@ -29,6 +29,11 @@ namespace Babylon::Polyfills::Internal
         void SetOnMessage(const Napi::CallbackInfo& info, const Napi::Value& value);
         void SetOnError(const Napi::CallbackInfo& info, const Napi::Value& value);
 
+        Napi::Value GetOnOpen(const Napi::CallbackInfo& info);
+        Napi::Value GetOnClose(const Napi::CallbackInfo& info);
+        Napi::Value GetOnMessage(const Napi::CallbackInfo& info);
+        Napi::Value GetOnError(const Napi::CallbackInfo& info);
+
         void Close(const Napi::CallbackInfo& info);
         void Send(const Napi::CallbackInfo& info);
 
