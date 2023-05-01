@@ -72,6 +72,11 @@ namespace Babylon::Polyfills::Internal
                                   Napi::Error::New(env, std::current_exception())
                                       .ThrowAsJavaScriptException();
                               }
+
+                              m_onopen.Reset();
+                              m_onclose.Reset();
+                              m_onmessage.Reset();
+                              m_onerror.Reset();
                           });
                       },
                       [this, env = info.Env()](std::string message)
