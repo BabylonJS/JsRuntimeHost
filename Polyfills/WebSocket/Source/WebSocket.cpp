@@ -5,34 +5,30 @@ namespace Babylon::Polyfills::Internal
 {
     void WebSocket::Initialize(Napi::Env env)
     {
-        Napi::HandleScope scope{env};
-
         static constexpr auto JS_WEB_SOCKET_CONSTRUCTOR_NAME = "WebSocket";
-
-        Napi::Function func = DefineClass(
-            env,
-            JS_WEB_SOCKET_CONSTRUCTOR_NAME,
-            {
-                StaticValue("CONNECTING", Napi::Value::From(env, 0)),
-                StaticValue("OPEN", Napi::Value::From(env, 1)),
-                StaticValue("CLOSING", Napi::Value::From(env, 2)),
-                StaticValue("CLOSED", Napi::Value::From(env, 3)),
-                InstanceAccessor("readyState", &WebSocket::GetReadyState, nullptr),
-                InstanceAccessor("url", &WebSocket::GetURL, nullptr),
-                InstanceAccessor("onopen", nullptr, &WebSocket::SetOnOpen),
-                InstanceAccessor("onclose", nullptr, &WebSocket::SetOnClose),
-                InstanceAccessor("onmessage", nullptr, &WebSocket::SetOnMessage),
-                InstanceAccessor("onerror", nullptr, &WebSocket::SetOnError),
-                InstanceMethod("close", &WebSocket::Close),
-                InstanceMethod("send", &WebSocket::Send),
-            });
 
         if (env.Global().Get(JS_WEB_SOCKET_CONSTRUCTOR_NAME).IsUndefined())
         {
+            Napi::Function func = DefineClass(
+                env,
+                JS_WEB_SOCKET_CONSTRUCTOR_NAME,
+                {
+                    StaticValue("CONNECTING", Napi::Value::From(env, 0)),
+                    StaticValue("OPEN", Napi::Value::From(env, 1)),
+                    StaticValue("CLOSING", Napi::Value::From(env, 2)),
+                    StaticValue("CLOSED", Napi::Value::From(env, 3)),
+                    InstanceAccessor("readyState", &WebSocket::GetReadyState, nullptr),
+                    InstanceAccessor("url", &WebSocket::GetURL, nullptr),
+                    InstanceAccessor("onopen", nullptr, &WebSocket::SetOnOpen),
+                    InstanceAccessor("onclose", nullptr, &WebSocket::SetOnClose),
+                    InstanceAccessor("onmessage", nullptr, &WebSocket::SetOnMessage),
+                    InstanceAccessor("onerror", nullptr, &WebSocket::SetOnError),
+                    InstanceMethod("close", &WebSocket::Close),
+                    InstanceMethod("send", &WebSocket::Send),
+                });
+
             env.Global().Set(JS_WEB_SOCKET_CONSTRUCTOR_NAME, func);
         }
-
-        JsRuntime::NativeObject::GetFromJavaScript(env).Set(JS_WEB_SOCKET_CONSTRUCTOR_NAME, func);
     }
 
     WebSocket::WebSocket(const Napi::CallbackInfo& info)
@@ -84,10 +80,10 @@ namespace Babylon::Polyfills::Internal
                           {
                               try
                               {
-                                  Napi::Object messageEvent = Napi::Object::New(Env());
-                                  messageEvent.Set("data", message);
                                   if(!m_onmessage.IsEmpty())
                                   {
+                                      Napi::Object messageEvent = Napi::Object::New(Env());
+                                      messageEvent.Set("data", message);
                                       m_onmessage.Call({messageEvent});
                                   }
                               }
