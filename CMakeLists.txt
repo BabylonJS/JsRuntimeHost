@@ -67,7 +67,7 @@ if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     FetchContent_Declare(
         UrlLib
         GIT_REPOSITORY https://github.com/lmaskati/UrlLib.git
-        GIT_TAG        origin/lmaskati/webSocket)
+        GIT_TAG        origin/lmaskati/errorHandling)
 
     message(STATUS "Fetching UrlLib")
     FetchContent_MakeAvailable(UrlLib)
