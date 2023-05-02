@@ -165,8 +165,8 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::OpenCallback()
     {
-        m_readyState = ReadyState::Open;
         m_runtimeScheduler([this]() {
+            m_readyState = ReadyState::Open;
             try
             {
                 if (!m_onopen.IsEmpty())
