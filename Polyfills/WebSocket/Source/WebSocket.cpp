@@ -184,8 +184,8 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::CloseCallback()
     {
-        m_readyState = ReadyState::Closed;
         m_runtimeScheduler([this]() {
+            m_readyState = ReadyState::Closed;
             try
             {
                 Napi::Object closeEvent = Napi::Object::New(Env());
