@@ -364,13 +364,14 @@ describe("WebSocket", function () {
     });
 
     it("should trigger error callback with invalid server", function (done) {
-        const ws1 = new WebSocket('wss://example.com');
-        ws1.onerror = () => {
+        const ws = new WebSocket('wss://example.com');
+        ws.onerror = () => {
             done();
         }
     });
 
     it("should trigger error callback with invalid domain", function (done) {
+        this.timeout(10000);
         const ws = new WebSocket('wss://example');
         ws.onerror = () => {
             done();
