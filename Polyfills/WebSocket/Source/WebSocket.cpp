@@ -1,6 +1,5 @@
 #include "WebSocket.h"
 #include <Babylon/JsRuntime.h>
-#include <functional>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -37,10 +36,10 @@ namespace Babylon::Polyfills::Internal
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
         , m_webSocket(
               info[0].As<Napi::String>(),
-              std::bind(&WebSocket::OpenCallback, this),
-              std::bind(&WebSocket::CloseCallback, this),
-              std::bind(&WebSocket::MessageCallback, this, std::placeholders::_1),
-              std::bind(&WebSocket::ErrorCallback, this))
+              [this] { OpenCallback(); },
+              [this] { CloseCallback(); },
+              [this](std::string message) { MessageCallback(message); },
+              [this] { ErrorCallback(); })
     {
         m_url = info[0].As<Napi::String>();
         m_webSocket.Open();
@@ -166,97 +165,85 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::OpenCallback()
     {
-        auto openLambda = [this, env = Env()]() {
-            m_readyState = ReadyState::Open;
-            m_runtimeScheduler([this, env]() {
-                try
+        m_readyState = ReadyState::Open;
+        m_runtimeScheduler([this]() {
+            try
+            {
+                if (!m_onopen.IsEmpty())
                 {
-                    if (!m_onopen.IsEmpty())
-                    {
-                        m_onopen.Call({});
-                    }
+                    m_onopen.Call({});
                 }
-                catch (...)
-                {
-                    Napi::Error::New(env, std::current_exception())
-                        .ThrowAsJavaScriptException();
-                }
-            });
-        };
-        openLambda();
+            }
+            catch (...)
+            {
+                Napi::Error::New(Env(), std::current_exception())
+                    .ThrowAsJavaScriptException();
+            }
+        });
     };
 
     void WebSocket::CloseCallback()
     {
-        auto closeLambda = [this, env = Env()]() {
-            m_readyState = ReadyState::Closed;
-            m_runtimeScheduler([this, env]() {
-                try
+        m_readyState = ReadyState::Closed;
+        m_runtimeScheduler([this]() {
+            try
+            {
+                Napi::Object closeEvent = Napi::Object::New(Env());
+                if (!m_onclose.IsEmpty())
                 {
-                    Napi::Object closeEvent = Napi::Object::New(Env());
-                    if (!m_onclose.IsEmpty())
-                    {
-                        m_onclose.Call({closeEvent});
-                    }
+                    m_onclose.Call({closeEvent});
                 }
-                catch (...)
-                {
-                    Napi::Error::New(env, std::current_exception())
-                        .ThrowAsJavaScriptException();
-                }
+            }
+            catch (...)
+            {
+                Napi::Error::New(Env(), std::current_exception())
+                    .ThrowAsJavaScriptException();
+            }
 
-                m_onopen.Reset();
-                m_onclose.Reset();
-                m_onmessage.Reset();
-                m_onerror.Reset();
-            });
-        };
-        closeLambda();
+            m_onopen.Reset();
+            m_onclose.Reset();
+            m_onmessage.Reset();
+            m_onerror.Reset();
+        });
     }
 
     void WebSocket::MessageCallback(std::string message)
     {
-        auto messageLambda = [this, env = Env()](std::string message) {
-            m_runtimeScheduler([this, env, message = std::move(message)]() {
-                try
+        m_runtimeScheduler([this, message = std::move(message)]() {
+            try
+            {
+                if (!m_onmessage.IsEmpty())
                 {
-                    if (!m_onmessage.IsEmpty())
-                    {
-                        Napi::Object messageEvent = Napi::Object::New(Env());
-                        messageEvent.Set("data", message);
-                        m_onmessage.Call({messageEvent});
-                    }
+                    Napi::Object messageEvent = Napi::Object::New(Env());
+                    messageEvent.Set("data", message);
+                    m_onmessage.Call({messageEvent});
                 }
-                catch (...)
-                {
-                    Napi::Error::New(env, std::current_exception())
-                        .ThrowAsJavaScriptException();
-                }
-            });
-        };
-        messageLambda(message);
+            }
+            catch (...)
+            {
+                Napi::Error::New(Env(), std::current_exception())
+                    .ThrowAsJavaScriptException();
+            }
+        });
     }
 
     void WebSocket::ErrorCallback()
     {
-        auto errorLambda = [this, env = Env()]() {
-            m_runtimeScheduler([this, env]() {
-                try
+        m_runtimeScheduler([this]() {
+            try
+            {
+                if (!m_onerror.IsEmpty())
                 {
-                    if (!m_onerror.IsEmpty())
-                    {
-                        Napi::Object errorEvent = Napi::Object::New(Env());
-                        m_onerror.Call({errorEvent});
-                    }
+                    Napi::Object errorEvent = Napi::Object::New(Env());
+                    m_onerror.Call({errorEvent});
                 }
-                catch (...)
-                {
-                    Napi::Error::New(env, std::current_exception())
-                        .ThrowAsJavaScriptException();
-                }
-            });
-        };
-        errorLambda();
+            }
+            catch (...)
+            {
+                Napi::Error::New(Env(), std::current_exception())
+                    .ThrowAsJavaScriptException();
+            }
+        });
     }
 }
 
