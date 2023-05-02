@@ -98,9 +98,9 @@ namespace Babylon::Polyfills::Internal
                   m_runtimeScheduler([this, env]() {
                       try
                       {
-                          Napi::Object errorEvent = Napi::Object::New(Env());
                           if (!m_onerror.IsEmpty())
                           {
+                              Napi::Object errorEvent = Napi::Object::New(Env());
                               m_onerror.Call({errorEvent});
                           }
                       }
