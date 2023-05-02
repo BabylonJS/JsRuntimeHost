@@ -34,6 +34,11 @@ namespace Babylon::Polyfills::Internal
         Napi::Value GetOnMessage(const Napi::CallbackInfo& info);
         Napi::Value GetOnError(const Napi::CallbackInfo& info);
 
+        void OpenCallback();
+        void CloseCallback();
+        void MessageCallback(std::string message);
+        void ErrorCallback();
+
         void Close(const Napi::CallbackInfo& info);
         void Send(const Napi::CallbackInfo& info);
 
@@ -43,7 +48,7 @@ namespace Babylon::Polyfills::Internal
         Napi::FunctionReference m_onclose;
         Napi::FunctionReference m_onmessage;
         Napi::FunctionReference m_onerror;
-        
+
         UrlLib::WebSocket m_webSocket;
         std::string m_url{};
         ReadyState m_readyState{ReadyState::Connecting};
