@@ -1,7 +1,7 @@
 [![Build Status](https://dev.azure.com/babylonjs/ContinousIntegration/_apis/build/status/JsRuntimeHost%20CI?branchName=main)](https://dev.azure.com/babylonjs/ContinousIntegration/_build/latest?definitionId=22&branchName=main)
 
 # JavaScript Runtime Host
-The JsRuntimeHost is a library that provides cross-platform C++ JavaScript hosting for
+JsRuntimeHost is a library that provides cross-platform C++ JavaScript hosting for
 any JavaScript engines with Node-API support such as Chakra, V8, or JavaScriptCore. The
 Node-API contract from Node.js allows consumers of this library to interact with the
 JavaScript engine with a consistent interface. This library also provides some optional
