@@ -66,8 +66,8 @@ endif()
 if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     FetchContent_Declare(
         UrlLib
-        GIT_REPOSITORY https://github.com/lmaskati/UrlLib.git
-        GIT_TAG 477224e2ca12952015a2439637f7f957b28e0408)
+        GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
+        GIT_TAG f4bae6043c690132a6b219ec80f68f0c252aaa7d)
 
     message(STATUS "Fetching UrlLib")
     FetchContent_MakeAvailable(UrlLib)
