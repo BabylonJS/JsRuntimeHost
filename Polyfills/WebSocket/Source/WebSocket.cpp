@@ -37,9 +37,9 @@ namespace Babylon::Polyfills::Internal
         , m_webSocket(
               info[0].As<Napi::String>(),
               [this] { OpenCallback(); },
-              [this](int code, const std::string reason) { CloseCallback(code, reason); },
-              [this](const std::string message) { MessageCallback(message); },
-              [this](const std::string message) { ErrorCallback(message); })
+              [this](int code, const std::string& reason) { CloseCallback(code, reason); },
+              [this](const std::string& message) { MessageCallback(message); },
+              [this](const std::string& message) { ErrorCallback(message); })
         , m_url(info[0].As<Napi::String>())
     {
         m_webSocket.Open();
@@ -184,7 +184,7 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::CloseCallback(int code, const std::string& reason)
     {
-        m_runtimeScheduler([this, code, reason = std::move(reason)]() {
+        m_runtimeScheduler([this, code, reason]() {
             m_readyState = ReadyState::Closed;
             try
             {
@@ -211,7 +211,7 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::MessageCallback(const std::string& message)
     {
-        m_runtimeScheduler([this, message = std::move(message)]() {
+        m_runtimeScheduler([this, message]() {
             try
             {
                 if (!m_onmessage.IsEmpty())
@@ -231,7 +231,7 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::ErrorCallback(const std::string& message)
     {
-        m_runtimeScheduler([this, message = std::move(message)]() {
+        m_runtimeScheduler([this, message]() {
             try
             {
                 if (!m_onerror.IsEmpty())
