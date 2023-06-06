@@ -7,6 +7,13 @@ endif()
 
 include(FetchContent)
 
+# CMakeExtensions
+include(FetchContent)
+FetchContent_Declare(cmake-extensions
+        GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
+        GIT_TAG 17baf9e349afea90677e69cdd273d773c894f7b5)
+FetchContent_MakeAvailable(cmake-extensions)
+
 if(IOS)
     FetchContent_Declare(ios-cmake
         GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
@@ -104,14 +111,6 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
 
         set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
     endif()
-endif()
-
-# Common Variables
-
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
-    set(NPM_COMMAND "npm.cmd")
-else()
-    set(NPM_COMMAND "npm")
 endif()
 
 # Subdirectories
