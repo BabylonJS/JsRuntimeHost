@@ -11,7 +11,7 @@ include(FetchContent)
 include(FetchContent)
 FetchContent_Declare(cmake-extensions
         GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-        GIT_TAG 17baf9e349afea90677e69cdd273d773c894f7b5)
+        GIT_TAG 7bdd0664181ce3d90dc94474464cea9b25b22db7)
 FetchContent_MakeAvailable(cmake-extensions)
 
 if(IOS)
