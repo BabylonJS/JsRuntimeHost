@@ -1,9 +1,5 @@
-parameters:
-- name: name
-  type: string
-
 jobs:
-- job: ${{parameters.name}}
+- job: ubuntu
   timeoutInMinutes: 15
 
   pool:
