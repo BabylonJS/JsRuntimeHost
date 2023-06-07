@@ -12,7 +12,8 @@ set(SOURCES
     "Source/V8InspectorUtils.cpp")
 
 add_library(v8inspector ${SOURCES})
-warnings_as_errors(v8inspector)
+# V8 and V8Inspector have unused parameters. Unable to set warning as error.
+#warnings_as_errors(v8inspector)
 
 target_include_directories(v8inspector
     PUBLIC "Include"
