@@ -33,9 +33,12 @@ if(APPLE)
         set(SOURCES ${SOURCES}
             macOS/App.mm)
     endif()
-else()
+elseif(WIN32)
     set(SOURCES ${SOURCES}
         Win32/App.cpp)
+elseif(UNIX AND NOT ANDROID)
+    set(SOURCES ${SOURCES}
+        Linux/App.cpp)
 endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${EXTERNAL_SCRIPTS})

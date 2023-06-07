@@ -11,11 +11,12 @@ jobs:
       sudo apt-get install libjavascriptcoregtk-4.0-dev libgl1-mesa-dev libcurl4-openssl-dev ninja-build
     displayName: 'Install packages'
 
-  - script: cmake -B Build/ubuntu
+  - script: cmake -B Build/ubuntu -GNinja -DJSCORE_LIBRARY=/usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.0.so -DNAPI_JAVASCRIPT_ENGINE=JavaScriptCore -DCMAKE_BUILD_TYPE=RelWithDebInfo
     displayName: 'Configure CMake'
 
   - script: |
-      cmake -GNinja -DJSCORE_LIBRARY=/usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.0.so -DNAPI_JAVASCRIPT_ENGINE=JavaScriptCore -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBGFX_CONFIG_DEBUG=ON
+      cd Build/ubuntu
+      ninja
     displayName: 'Build Solution'
 
   - script: ./UnitTests
