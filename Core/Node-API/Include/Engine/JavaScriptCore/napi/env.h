@@ -1,13 +1,11 @@
 #pragma once
 
-#include "env.h"
+#include <napi/env_shared.h>
 #include <JavaScriptCore/JavaScript.h>
 
-namespace Napi::JavaScriptCore
+namespace Napi
 {
   Napi::Env Attach(JSGlobalContextRef);
-
-  void Detach(Napi::Env);
 
   JSGlobalContextRef GetContext(Napi::Env);
 }

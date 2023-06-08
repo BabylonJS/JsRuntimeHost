@@ -10,19 +10,29 @@ jobs:
     parameters:
       name: Win32_x86
       platform: win32
+      jsEngine: Chakra
 
   - template: jobs/win32.yml
     parameters:
       name: Win32_x64
       platform: x64
+      jsEngine: Chakra
+
+  - template: jobs/win32.yml
+    parameters:
+      name: Win32_x64
+      platform: x64
+      jsEngine: JSI
 
   # Android
   - template: jobs/android.yml
     parameters:
+      name: Android_JSC
       jsEngine: JavaScriptCore
 
   - template: jobs/android.yml
     parameters:
+      name: Android_V8
       jsEngine: V8
 
   # macOS

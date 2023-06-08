@@ -1,13 +1,15 @@
 set(SOURCES
-    "Include/napi/env.h"
-    "Include/napi/js_native_api.h"
-    "Include/napi/js_native_api_types.h"
-    "Include/napi/napi.h"
-    "Include/napi/napi-inl.h"
+    "Include/Engine/${NAPI_JAVASCRIPT_ENGINE}/napi/env.h"
+    "Include/Shared/napi/env_shared.h"
+    "Include/Shared/napi/js_native_api.h"
+    "Include/Shared/napi/js_native_api_types.h"
+    "Include/Shared/napi/napi.h"
+    "Include/Shared/napi/napi-inl.h"
     "Source/env.cc")
 
 set(INCLUDE_DIRECTORIES
-    PUBLIC "Include")
+    PUBLIC "Include/Shared"
+    PUBLIC "Include/Engine/${NAPI_JAVASCRIPT_ENGINE}")
 
 if(NAPI_BUILD_ABI)
     if(ANDROID)
