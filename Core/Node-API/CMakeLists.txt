@@ -1,3 +1,14 @@
+# Set per-platform defaults if unspecified.
+if(WIN32)
+    set(NAPI_JAVASCRIPT_ENGINE "Chakra" CACHE STRING "JavaScript engine for Node-API")
+elseif(APPLE)
+    set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
+elseif(UNIX)
+    set(NAPI_JAVASCRIPT_ENGINE "V8" CACHE STRING "JavaScript engine for Node-API")
+else()
+    message(FATAL_ERROR "Unable to select Node-API JavaScript engine for platform")
+endif()
+
 set(SOURCES
     "Include/Engine/${NAPI_JAVASCRIPT_ENGINE}/napi/env.h"
     "Include/Shared/napi/env_shared.h"
@@ -30,17 +41,6 @@ if(NAPI_BUILD_ABI)
 
             file(COPY "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${name}-android/dist/include" DESTINATION ${output_directory})
         endfunction()
-    endif()
-
-    # Set per-platform defaults if unspecified.
-    if(WIN32)
-        set(NAPI_JAVASCRIPT_ENGINE "Chakra" CACHE STRING "JavaScript engine for Node-API")
-    elseif(APPLE)
-        set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
-    elseif(UNIX)
-        set(NAPI_JAVASCRIPT_ENGINE "V8" CACHE STRING "JavaScript engine for Node-API")
-    else()
-        message(FATAL_ERROR "Unable to select Node-API JavaScript engine for platform")
     endif()
 
     if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra")
