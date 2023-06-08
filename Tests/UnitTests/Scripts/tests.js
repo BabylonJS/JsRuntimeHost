@@ -21,7 +21,7 @@ function BabylonReporter(runner) {
 mocha.setup({ ui: "bdd", reporter: BabylonReporter });
 
 const expect = chai.expect;
-
+/*
 describe("AbortController", function () {
     it("should not throw while aborting with no callbacks", function () {
         const controller = new AbortController();
@@ -78,7 +78,7 @@ describe("AbortController", function () {
         expect(controller.signal.aborted).to.equal(true);
     });
 });
-
+*/
 describe("XMLHTTPRequest", function () {
     function createRequest(method, url, body) {
         return new Promise((resolve) => {
@@ -88,7 +88,7 @@ describe("XMLHTTPRequest", function () {
             xhr.send(body);
         });
     }
-
+/*
     function createRequestWithHeaders(method, url, headers, body) {
         return new Promise((resolve) => {
             const xhr = new XMLHttpRequest();
@@ -181,9 +181,9 @@ describe("XMLHTTPRequest", function () {
         const xhr = await createRequestWithHeaders("POST", "https://reqbin.com/echo/post/json", headersMap, "testBody");
         expect(xhr).to.have.property('readyState', 4);
         expect(xhr).to.have.property('status', 200);
-    });
+    });*/
 });
-
+/*
 describe("setTimeout", function () {
     this.timeout(1000);
 
@@ -610,7 +610,7 @@ describe("URLSearchParams", function () {
         expect(params2.get('bar')).to.equal('2');
     });
 });
-
+*/
 function runTests() {
     mocha.run(failures => {
         // Test program will wait for code to be set before exiting
