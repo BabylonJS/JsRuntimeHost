@@ -5,28 +5,7 @@ pr:
 - main
 
 jobs:
-  # WIN32
-  - template: jobs/win32.yml
-    parameters:
-      name: Win32_x86
-      platform: win32
-
-  - template: jobs/win32.yml
-    parameters:
-      name: Win32_x64
-      platform: x64
-
   # Android
   - template: jobs/android.yml
     parameters:
-      jsEngine: JavaScriptCore
-
-  - template: jobs/android.yml
-    parameters:
       jsEngine: V8
-
-  # macOS
-  - template: jobs/macos.yml
-
-  # iOS
-  - template: jobs/ios.yml
