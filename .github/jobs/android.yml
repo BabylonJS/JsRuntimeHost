@@ -40,7 +40,8 @@ jobs:
       cd Tests/UnitTests/Android/app/build/outputs/apk
       $ANDROID_HOME/platform-tools/adb install -r androidTest/debug/app-debug-androidTest.apk
       $ANDROID_HOME/platform-tools/adb shell pm list instrumentation
-      $ANDROID_HOME/platform-tools/adb shell am instrument -w com.jsruntimehost.unittests.test/androidx.test.runner.AndroidJUnitRunner
+      sleep 1
+      $ANDROID_HOME/platform-tools/adb shell am instrument -w "com.jsruntimehost.unittests.test/androidx.test.runner.AndroidJUnitRunner"
     displayName: 'install / run Test app'
 
   - script: |
