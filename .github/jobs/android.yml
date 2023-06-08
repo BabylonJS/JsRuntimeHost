@@ -7,7 +7,7 @@ jobs:
   timeoutInMinutes: 30
 
   pool:
-    vmImage: ubuntu-latest
+    vmImage: macos-latest
 
   steps:
   - script: |
