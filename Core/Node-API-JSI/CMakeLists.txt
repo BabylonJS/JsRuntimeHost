@@ -20,10 +20,8 @@ if(NOT TARGET jsi)
             set(PLATFORM_FOLDER "win32")
         endif()
 
-        # TODO: Pull in v8jsi symbols once they're packaged with the debug build.
         set(V8JSI_LIB_PATH_DEBUG "${V8JSI_PACKAGE_PATH}/lib/${PLATFORM_FOLDER}/Debug/${CPU_ARCH}/v8jsi.dll.lib")
         set(V8JSI_LIB_PATH_RELEASE "${V8JSI_PACKAGE_PATH}/lib/${PLATFORM_FOLDER}/Release/${CPU_ARCH}/v8jsi.dll.lib")
-        set(V8JSI_DLL_PATH "${V8JSI_PACKAGE_PATH}/lib/${PLATFORM_FOLDER}/$<IF:$<CONFIG:Debug>,Debug,Release>/${CPU_ARCH}/v8jsi.dll")
         set(V8JSI_DLL_PATH_DEBUG "${V8JSI_PACKAGE_PATH}/lib/${PLATFORM_FOLDER}/Debug/${CPU_ARCH}/v8jsi.dll")
         set(V8JSI_DLL_PATH_RELEASE "${V8JSI_PACKAGE_PATH}/lib/${PLATFORM_FOLDER}/Release/${CPU_ARCH}/v8jsi.dll")
 
@@ -32,20 +30,26 @@ if(NOT TARGET jsi)
             IMPORTED_IMPLIB_DEBUG ${V8JSI_LIB_PATH_DEBUG}
             IMPORTED_IMPLIB_RELEASE ${V8JSI_LIB_PATH_RELEASE}
             IMPORTED_IMPLIB_MINSIZEREL ${V8JSI_LIB_PATH_RELEASE}
-            IMPORTED_IMPLIB_RELWITHDEBINFO ${V8JSI_LIB_PATH_RELEASE})
+            IMPORTED_IMPLIB_RELWITHDEBINFO ${V8JSI_LIB_PATH_RELEASE}
+            IMPORTED_LOCATION_DEBUG ${V8JSI_DLL_PATH_DEBUG}
+            IMPORTED_LOCATION_RELEASE ${V8JSI_DLL_PATH_RELEASE}
+            IMPORTED_LOCATION_MINSIZEREL ${V8JSI_DLL_PATH_RELEASE}
+            IMPORTED_LOCATION_RELWITHDEBINFO ${V8JSI_DLL_PATH_RELEASE})
 
-        target_include_directories(v8jsi INTERFACE "${V8JSI_PACKAGE_PATH}/build/native/include")
-        target_include_directories(v8jsi INTERFACE "${V8JSI_PACKAGE_PATH}/build/native/jsi")
-        set(NAPI_JAVASCRIPT_RUNTIME_OUTPUT_ARTIFACTS_DEBUG ${V8JSI_DLL_PATH_DEBUG} CACHE STRING "N-API runtime output artifacts (debug)")
-        set(NAPI_JAVASCRIPT_RUNTIME_OUTPUT_ARTIFACTS_RELEASE ${V8JSI_DLL_PATH_RELEASE} CACHE STRING "N-API runtime output artifacts (release)")
-        set(NAPI_JAVASCRIPT_RUNTIME_OUTPUT_ARTIFACTS ${V8JSI_DLL_PATH} CACHE STRING "N-API runtime output artifacts")
+        target_include_directories(v8jsi
+            INTERFACE "${V8JSI_PACKAGE_PATH}/build/native/include"
+            INTERFACE "${V8JSI_PACKAGE_PATH}/build/native/jsi")
+
         target_compile_definitions(v8jsi INTERFACE V8JSI_ENABLE_INSPECTOR)
 
         add_library(jsi "${V8JSI_PACKAGE_PATH}/build/native/jsi/jsi/jsi.cpp")
+
         target_include_directories(jsi 
             PUBLIC "${V8JSI_PACKAGE_PATH}/build/native/include"
             PUBLIC "${V8JSI_PACKAGE_PATH}/build/native/jsi")
+
         target_link_libraries(jsi PUBLIC v8jsi)
+
         set_property(TARGET jsi PROPERTY FOLDER Dependencies)
     else()
         message(FATAL_ERROR "jsi target is required")

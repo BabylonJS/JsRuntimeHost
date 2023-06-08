@@ -52,7 +52,9 @@ target_link_libraries(UnitTests
     PRIVATE WebSocket
     ${ADDITIONAL_LIBRARIES})
 
-add_test(NAME UnitTests COMMAND UnitTests)
+add_custom_command(TARGET UnitTests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:UnitTests> $<TARGET_FILE_DIR:UnitTests>
+  COMMAND_EXPAND_LISTS)
 
 if(IOS)
     set_target_properties(UnitTests PROPERTIES
