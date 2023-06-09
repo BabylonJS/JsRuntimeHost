@@ -31,18 +31,9 @@ jobs:
       gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
       workingDirectory: 'Tests/UnitTests/Android'
       options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}}'
-      tasks: 'app:assembleAndroidTest'
+      tasks: 'connectedAndroidTest'
       jdkVersionOption: 1.11
-    displayName: 'Build debug'
-
-
-  - script: |
-      cd Tests/UnitTests/Android/app/build/outputs/apk
-      $ANDROID_HOME/platform-tools/adb install -r androidTest/debug/app-debug-androidTest.apk
-      $ANDROID_HOME/platform-tools/adb shell pm list instrumentation
-      sleep 1
-      $ANDROID_HOME/platform-tools/adb shell am instrument -w "com.jsruntimehost.unittests.test/androidx.test.runner.AndroidJUnitRunner"
-    displayName: 'install / run Test app'
+    displayName: 'Run Connected Android Test'
 
   - script: |
       export results=$(find ./app/build/outputs/androidTest-results -name "*.txt")
