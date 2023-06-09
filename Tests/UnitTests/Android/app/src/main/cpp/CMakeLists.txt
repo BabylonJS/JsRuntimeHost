@@ -8,6 +8,7 @@ project(UnitTestsJNI)
 get_filename_component(UNIT_TESTS_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
 get_filename_component(REPO_ROOT_DIR "${UNIT_TESTS_DIR}/../.." ABSOLUTE)
 
+add_subdirectory(${cmake-extensions_SOURCE_DIR})
 npm(install "${UNIT_TESTS_DIR}/../" "UnitTests")
 
 set(JSRUNTIMEHOST_TESTS OFF) # Turn off the tests folder for Android Studio path
