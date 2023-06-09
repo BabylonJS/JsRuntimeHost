@@ -11,7 +11,6 @@ endif()
 
 set(SOURCES
     "Include/Engine/${NAPI_JAVASCRIPT_ENGINE}/napi/env.h"
-    "Include/Shared/napi/env_shared.h"
     "Include/Shared/napi/js_native_api.h"
     "Include/Shared/napi/js_native_api_types.h"
     "Include/Shared/napi/napi.h"
