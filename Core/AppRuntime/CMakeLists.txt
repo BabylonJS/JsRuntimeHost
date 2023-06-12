@@ -15,7 +15,7 @@ set(SOURCES
 
 add_library(AppRuntime ${SOURCES})
 # V8 has unused parameters. Unable to set warning as error.
-if(NAPI_JAVASCRIPT_ENGINE NOT STREQUAL "V8")
+if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
     warnings_as_errors(JsRuntime)
 endif()
 

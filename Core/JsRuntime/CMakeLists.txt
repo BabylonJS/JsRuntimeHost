@@ -5,7 +5,7 @@ set(SOURCES
 
 add_library(JsRuntime ${SOURCES})
 # unused parameters in v8.h
-if(NAPI_JAVASCRIPT_ENGINE NOT STREQUAL "V8")
+if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
     warnings_as_errors(JsRuntime)
 endif()
 
