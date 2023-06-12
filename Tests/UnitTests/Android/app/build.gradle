@@ -91,4 +91,8 @@ task copyScripts {
     }
 }
 
-bundleDebug.dependsOn(copyScripts)
+afterEvaluate {
+    assembleDebug.doLast {
+        tasks.copyScripts.execute()
+    }
+}
