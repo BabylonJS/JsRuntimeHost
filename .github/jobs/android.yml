@@ -12,12 +12,6 @@ jobs:
     vmImage: macos-latest
 
   steps:
-#  - task: Npm@1
-#    inputs:
-#      command: 'install'
-#      workingDir: 'Tests'
-#    displayName: 'Install NPM packages'
-#
   - script: |
       echo Install Android image
       echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
@@ -33,21 +27,6 @@ jobs:
       $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo '.'; sleep 1; done'
       $ANDROID_HOME/platform-tools/adb devices
     displayName: 'Start Android Emulator'
-
-  - task: Gradle@3
-    inputs:
-      gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
-      workingDirectory: 'Tests/UnitTests/Android'
-      options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}}'
-      tasks: 'assembleDebug'
-      jdkVersionOption: 1.11
-    displayName: 'assemble debug'
-
-  - script: |
-      ls
-      ls Tests
-      ls Tests/node_modules
-    displayName: 'npm result test'
 
   - task: Gradle@3
     inputs:
