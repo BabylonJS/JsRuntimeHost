@@ -20,5 +20,5 @@ jobs:
     displayName: 'Build Solution'
 
   - script: ./UnitTests
-    workingDirectory: 'Build/ubuntu/Tests/UnitTests/RelWithDebInfo'
+    workingDirectory: 'Build/ubuntu/Tests/UnitTests'
     displayName: 'Run Tests'
