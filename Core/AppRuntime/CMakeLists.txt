@@ -23,10 +23,6 @@ target_include_directories(AppRuntime
     PRIVATE "Include/Babylon"
     INTERFACE "Include")
 
-if(UNIX AND NOT APPLE AND NOT ANDROID)
-    target_include_directories(AppRuntime INTERFACE "/usr/include/webkitgtk-4.0")
-endif()
-
 target_link_libraries(AppRuntime
     PRIVATE arcana
     PUBLIC JsRuntime)
