@@ -4,7 +4,10 @@ set(SOURCES
     "Source/JsRuntime.cpp")
 
 add_library(JsRuntime ${SOURCES})
-warnings_as_errors(JsRuntime)
+# unused parameters in v8.h
+if(NAPI_JAVASCRIPT_ENGINE NOT STREQUAL "V8")
+    warnings_as_errors(JsRuntime)
+endif()
 
 target_include_directories(JsRuntime PRIVATE "Include/Babylon")
 target_include_directories(JsRuntime PUBLIC "Include")

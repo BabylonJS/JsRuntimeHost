@@ -13,7 +13,9 @@ set(SOURCES
 
 add_library(v8inspector ${SOURCES})
 # V8 and V8Inspector have unused parameters. Unable to set warning as error.
-#warnings_as_errors(v8inspector)
+if(NAPI_JAVASCRIPT_ENGINE NOT STREQUAL "V8")
+    warnings_as_errors(JsRuntime)
+endif()
 
 target_include_directories(v8inspector
     PUBLIC "Include"
