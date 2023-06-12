@@ -113,3 +113,7 @@ target_link_libraries(napi ${LINK_LIBRARIES})
 
 set_property(TARGET napi PROPERTY FOLDER Dependencies)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
+
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    target_include_directories(napi PUBLIC "/usr/include/webkitgtk-4.0/")
+endif()
