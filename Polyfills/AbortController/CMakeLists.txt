@@ -6,7 +6,10 @@ set(SOURCES
     "Source/AbortSignal.h")
 
 add_library(AbortController ${SOURCES})
-warnings_as_errors(AbortController)
+# unused parameters in v8.h
+if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+    warnings_as_errors(AbortController)
+endif()
 
 target_include_directories(AbortController PUBLIC "Include")
 
