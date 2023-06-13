@@ -12,10 +12,7 @@ set(SOURCES
     "Source/V8InspectorUtils.cpp")
 
 add_library(v8inspector ${SOURCES})
-# V8 and V8Inspector have unused parameters. Unable to set warning as error.
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-    warnings_as_errors(JsRuntime)
-endif()
+warnings_as_errors(JsRuntime)
 
 target_include_directories(v8inspector
     PUBLIC "Include"

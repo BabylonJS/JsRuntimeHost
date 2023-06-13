@@ -3,10 +3,7 @@ set(SOURCES
     "Source/ScriptLoader.cpp")
 
 add_library(ScriptLoader ${SOURCES})
-# unused parameters in v8.h
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-    warnings_as_errors(ScriptLoader)
-endif()
+warnings_as_errors(ScriptLoader)
 
 target_include_directories(ScriptLoader PUBLIC "Include")
 

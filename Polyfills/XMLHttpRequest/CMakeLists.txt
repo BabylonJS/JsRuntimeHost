@@ -4,10 +4,7 @@ set(SOURCES
     "Source/XMLHttpRequest.h")
 
 add_library(XMLHttpRequest ${SOURCES})
-# unused parameters in v8.h
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-    warnings_as_errors(XMLHttpRequest)
-endif()
+warnings_as_errors(XMLHttpRequest)
 
 target_include_directories(XMLHttpRequest PUBLIC "Include")
 

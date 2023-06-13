@@ -5,10 +5,7 @@ set(SOURCES
     "Source/WebSocket.h")
 
 add_library(WebSocket ${SOURCES})
-# unused parameters in v8.h
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-    warnings_as_errors(WebSocket)
-endif()
+warnings_as_errors(WebSocket)
 
 target_include_directories(WebSocket PUBLIC "Include")
 

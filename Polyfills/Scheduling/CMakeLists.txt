@@ -6,10 +6,7 @@ set(SOURCES
     "Source/Scheduling.cpp")
 
 add_library(Scheduling ${SOURCES})
-# unused parameters in v8.h
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-    warnings_as_errors(Scheduling)
-endif()
+warnings_as_errors(Scheduling)
 
 target_include_directories(Scheduling
     PUBLIC "Include")

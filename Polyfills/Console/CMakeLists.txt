@@ -3,10 +3,7 @@ set(SOURCES
     "Source/Console.cpp")
 
 add_library(Console ${SOURCES})
-# unused parameters in v8.h
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-    warnings_as_errors(Console)
-endif()
+warnings_as_errors(Console)
 
 target_include_directories(Console PUBLIC "Include")
 
