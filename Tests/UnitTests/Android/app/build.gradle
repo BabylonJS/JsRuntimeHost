@@ -70,42 +70,37 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-task copyScripts {
-    copy
-    {
-        from "../../../node_modules/chai"
-        include "chai.js"
-        into 'src/main/assets/Scripts'
-    }
-    copy
-    {
-        from "../../../node_modules/mocha"
-        include "mocha.js"
-        into 'src/main/assets/Scripts'
-    }
-    copy
-    {
-        from '../../Scripts'
-        include "*.js"
-        into 'src/main/assets/Scripts'
+task copyScripts{
+    doLast {
+        // run copy at execution phase because npm command is not done at configuration phase
+        copy
+        {
+            from "../../../node_modules/chai"
+            include "chai.js"
+            into 'src/main/assets/Scripts'
+        }
+        copy
+        {
+            from "../../../node_modules/mocha"
+            include "mocha.js"
+            into 'src/main/assets/Scripts'
+        }
+        copy
+        {
+            from '../../Scripts'
+            include "*.js"
+            into 'src/main/assets/Scripts'
+        }
     }
 }
 
 // Run copyScripts task after CMake external build
+// And make sure merging assets into output is performed after the scripts copy
 tasks.whenTaskAdded { task ->
-    if (task.name == 'externalNativeBuildDebug') {
+    if (task.name == 'mergeDebugNativeLibs') {
         task.finalizedBy(copyScripts)
     }
-}
-
-// force copyFile to reevaluate
-gradle.taskGraph.whenReady { taskGraph ->
-  def tasks = taskGraph.getAllTasks()
-  tasks.each {
-    def taskName = it.getName()
-    if(taskName == 'copyScripts') {
-      it.setOnlyIf { true }
-      it.outputs.upToDateWhen { false }
+    if (task.name == 'mergeDebugAssets') {
+        task.dependsOn(copyScripts)
     }
-  }
 }
