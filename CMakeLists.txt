@@ -52,7 +52,7 @@ if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     FetchContent_Declare(
         UrlLib
         GIT_REPOSITORY https://github.com/CedricGuillemet/UrlLib.git
-        GIT_TAG 818919352afc7c2423717e5877b2e9e84901fc7f)
+        GIT_TAG e9a6757903fe5876cf11ba2b0da1abea7d62e470)
 
     message(STATUS "Fetching UrlLib")
     FetchContent_MakeAvailable(UrlLib)
