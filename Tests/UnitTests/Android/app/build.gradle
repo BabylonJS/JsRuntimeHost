@@ -97,3 +97,15 @@ tasks.whenTaskAdded { task ->
         task.finalizedBy(copyScripts)
     }
 }
+
+// force copyFile to reevaluate
+gradle.taskGraph.whenReady { taskGraph ->
+  def tasks = taskGraph.getAllTasks()
+  tasks.each {
+    def taskName = it.getName()
+    if(taskName == 'copyScripts') {
+      it.setOnlyIf { true }
+      it.outputs.upToDateWhen { false }
+    }
+  }
+}
