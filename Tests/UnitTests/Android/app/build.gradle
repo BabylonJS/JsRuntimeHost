@@ -26,7 +26,7 @@ android {
                 arguments (
                     "-DANDROID_STL=c++_shared",
                     "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
-                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=OFF"
+                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
                 )
             }
         }
@@ -70,7 +70,7 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-task copyScripts{
+task copyScripts {
     doLast {
         // run copy at execution phase because npm command is not done at configuration phase
         copy

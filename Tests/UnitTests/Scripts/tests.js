@@ -309,7 +309,7 @@ describe("clearTimeout", function () {
 
 
 // Websocket
-if (RuntimeHostPlatform !== "Unix") {
+if (hostPlatform !== "Unix") {
     describe("WebSocket", function () {
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket('wss://ws.postman-echo.com/raw');

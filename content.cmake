@@ -4,10 +4,12 @@ include(FetchContent)
 
 # CMakeExtensions
 include(FetchContent)
+message(STATUS "Fetching CMakeExtensions")
 FetchContent_Declare(cmake-extensions
-        GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-        GIT_TAG 7bdd0664181ce3d90dc94474464cea9b25b22db7)
+    GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
+    GIT_TAG 7bdd0664181ce3d90dc94474464cea9b25b22db7)
 FetchContent_MakeAvailable(cmake-extensions)
+message(STATUS "Fetching CMakeExtensions - done")
 
 if(IOS)
     FetchContent_Declare(ios-cmake

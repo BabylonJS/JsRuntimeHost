@@ -72,7 +72,9 @@ if(NAPI_BUILD_ABI)
                 PUBLIC ${JAVASCRIPTCORE_LIBRARY})
         elseif(UNIX)
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
-                PUBLIC ${JSCORE_LIBRARY})
+                PUBLIC ${JAVASCRIPTCORE_LIBRARY})
+            set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
+                PUBLIC "/usr/include/webkitgtk-4.0/")
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
@@ -113,7 +115,3 @@ target_link_libraries(napi ${LINK_LIBRARIES})
 
 set_property(TARGET napi PROPERTY FOLDER Dependencies)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
-
-if(UNIX AND NOT APPLE AND NOT ANDROID)
-    target_include_directories(napi PUBLIC "/usr/include/webkitgtk-4.0/")
-endif()

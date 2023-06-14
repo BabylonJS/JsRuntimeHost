@@ -81,6 +81,7 @@ else()
 endif()
 
 set_property(TARGET UnitTests PROPERTY FOLDER Tests)
-add_definitions(-DJSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
+target_compile_definitions(UnitTests PUBLIC -DJSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
+
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SCRIPTS})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/../node_modules PREFIX node_modules FILES ${EXTERNAL_SCRIPTS})

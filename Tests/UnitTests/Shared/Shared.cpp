@@ -44,7 +44,7 @@ int RunTests(Babylon::Polyfills::Console::CallbackT consoleCallback)
             exitCode.set_value(info[0].As<Napi::Number>().Int32Value());
         }, "SetExitCode"));
 
-        env.Global().Set("RuntimeHostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
+        env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
     });
 
     Babylon::ScriptLoader loader{runtime};
