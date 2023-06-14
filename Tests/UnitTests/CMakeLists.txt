@@ -55,7 +55,6 @@ target_link_libraries(UnitTests
     PRIVATE WebSocket
     ${ADDITIONAL_LIBRARIES})
 
-
 # See https://gitlab.kitware.com/cmake/cmake/-/issues/23543
 # If we can set minimum required to 3.26+, then we can use the `copy -t` syntax instead.
 add_custom_command(TARGET UnitTests POST_BUILD
@@ -81,7 +80,7 @@ else()
 endif()
 
 set_property(TARGET UnitTests PROPERTY FOLDER Tests)
-target_compile_definitions(UnitTests PUBLIC -DJSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
+target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SCRIPTS})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/../node_modules PREFIX node_modules FILES ${EXTERNAL_SCRIPTS})
