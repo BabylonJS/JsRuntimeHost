@@ -3,17 +3,15 @@ cmake_minimum_required(VERSION 3.18)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+project(UnitTestsJNI)
+
 get_filename_component(UNIT_TESTS_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
 get_filename_component(REPO_ROOT_DIR "${UNIT_TESTS_DIR}/../.." ABSOLUTE)
 
-include("${REPO_ROOT_DIR}/content.cmake")
-
-project(UnitTestsJNI)
-
-npm(install "${UNIT_TESTS_DIR}/../" "UnitTests")
-
 set(JSRUNTIMEHOST_TESTS OFF) # Turn off the tests folder for Android Studio path
 add_subdirectory(${REPO_ROOT_DIR} "${CMAKE_CURRENT_BINARY_DIR}/JsRuntimeHost")
+
+npm(install "${UNIT_TESTS_DIR}/../" "UnitTests")
 
 add_library(UnitTestsJNI SHARED
     JNI.cpp
