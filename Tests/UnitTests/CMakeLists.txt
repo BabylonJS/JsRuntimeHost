@@ -42,6 +42,7 @@ elseif(UNIX AND NOT ANDROID)
 endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${EXTERNAL_SCRIPTS})
+target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 
 target_link_libraries(UnitTests
     PRIVATE AppRuntime
@@ -80,7 +81,6 @@ else()
 endif()
 
 set_property(TARGET UnitTests PROPERTY FOLDER Tests)
-target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SCRIPTS})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/../node_modules PREFIX node_modules FILES ${EXTERNAL_SCRIPTS})
