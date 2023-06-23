@@ -14,12 +14,12 @@ jobs:
     vmImage: windows-latest
 
   steps:
-  - script: cmake -B Build/uwp -A ${{parameters.platform}} -D NAPI_JAVASCRIPT_ENGINE=${{parameters.jsEngine}} -D CMAKE_SYSTEM_NAME=WindowsStore -D CMAKE_SYSTEM_VERSION=10.0 
+  - script: cmake -B Build/UWP -A ${{parameters.platform}} -D NAPI_JAVASCRIPT_ENGINE=${{parameters.jsEngine}} -D CMAKE_SYSTEM_NAME=WindowsStore -D CMAKE_SYSTEM_VERSION=10.0 
     displayName: 'Configure CMake'
 
   - task: MSBuild@1
     inputs:
-      solution: 'Build/uwp/JsRuntimeHost.sln'
+      solution: 'Build/UWP/JsRuntimeHost.sln'
       maximumCpuCount: true
       configuration: 'Debug'
     displayName: 'Build Solution'
