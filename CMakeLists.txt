@@ -87,9 +87,9 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
 endif()
 
 # Fetching content
-message(STATUS "Fetching ${CONTENT_TO_FETCH}")
+message(STATUS "Fetching for ${CMAKE_PROJECT_NAME} : ${CONTENT_TO_FETCH}")
 FetchContent_MakeAvailable(${CONTENT_TO_FETCH})
-message(STATUS "Fetching ${CONTENT_TO_FETCH} - done")
+message(STATUS "${CMAKE_PROJECT_NAME} content fetched.")
 
 # Set properties after fetching content
 if(NOT TARGET arcana)
