@@ -73,19 +73,12 @@ endif()
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
     if(NOT TARGET asio)
         set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} asio)
-
-        add_library(asio INTERFACE)
-        target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
-
-        set_property(TARGET asio PROPERTY FOLDER Dependencies)
     endif()
 
     if(NOT TARGET llhttp_static)
         set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
         set(BUILD_STATIC_LIBS ON CACHE INTERNAL "")
         set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} llhttp)
-
-        set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
     endif()
 endif()
 
@@ -107,6 +100,17 @@ if(IOS)
     set(CMAKE_TOOLCHAIN_FILE "${ios-cmake_SOURCE_DIR}/ios.toolchain.cmake" CACHE PATH "")
     set(PLATFORM "OS64COMBINED" CACHE STRING "")
     set(DEPLOYMENT_TARGET "12" CACHE STRING "")
+endif()
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
+    if(NOT TARGET asio)
+        add_library(asio INTERFACE)
+        target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
+        set_property(TARGET asio PROPERTY FOLDER Dependencies)
+    endif()
+    if(NOT TARGET llhttp_static)
+        set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
+    endif()
 endif()
 
 # Subdirectories
