@@ -29,7 +29,10 @@ FetchContent_Declare(llhttp
 set(CONTENT_TO_FETCH cmake-extensions)
 
 if(IOS)
-    set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} ios-cmake)
+    FetchContent_MakeAvailable(ios-cmake)
+    set(CMAKE_TOOLCHAIN_FILE "${ios-cmake_SOURCE_DIR}/ios.toolchain.cmake" CACHE PATH "")
+    set(PLATFORM "OS64COMBINED" CACHE STRING "")
+    set(DEPLOYMENT_TARGET "12" CACHE STRING "")
 endif()
 
 # Project
@@ -95,12 +98,6 @@ endif()
 
 if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
-endif()
-
-if(IOS)
-    set(CMAKE_TOOLCHAIN_FILE "${ios-cmake_SOURCE_DIR}/ios.toolchain.cmake" CACHE PATH "")
-    set(PLATFORM "OS64COMBINED" CACHE STRING "")
-    set(DEPLOYMENT_TARGET "12" CACHE STRING "")
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
