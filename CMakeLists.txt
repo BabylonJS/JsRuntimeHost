@@ -32,6 +32,7 @@ if(IOS)
     set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} ios-cmake)
 endif()
 
+# Project
 project(JsRuntimeHost)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
