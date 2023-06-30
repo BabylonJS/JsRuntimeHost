@@ -67,14 +67,10 @@ option(NAPI_BUILD_ABI "Build the ABI layer." ON)
 
 if(NOT TARGET arcana)
     set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} arcana)
-
-    set_property(TARGET arcana PROPERTY FOLDER Dependencies)
 endif()
 
 if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} UrlLib)
-
-    set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
@@ -94,6 +90,20 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
 
         set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
     endif()
+endif()
+
+# Fetching content
+message(STATUS "Fetching ${CONTENT_TO_FETCH}")
+FetchContent_MakeAvailable(${CONTENT_TO_FETCH})
+message(STATUS "Fetching ${CONTENT_TO_FETCH} - done")
+
+# Set properties after fetching content
+if(NOT TARGET arcana)
+    set_property(TARGET arcana PROPERTY FOLDER Dependencies)
+endif()
+
+if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
+    set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
 endif()
 
 # Subdirectories
@@ -120,8 +130,3 @@ add_subdirectory(Polyfills)
 if(JSRUNTIMEHOST_TESTS)
     add_subdirectory(Tests)
 endif()
-
-# Fetching content
-message(STATUS "Fetching ${CONTENT_TO_FETCH}")
-FetchContent_MakeAvailable(${CONTENT_TO_FETCH})
-message(STATUS "Fetching ${CONTENT_TO_FETCH} - done")
