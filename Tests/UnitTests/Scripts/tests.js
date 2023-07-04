@@ -1,7 +1,7 @@
 ﻿// Set this to true to make attaching a debugging easier.
 const waitForDebugger = false;
 
-mocha.setup({ ui: "bdd", reporter: "list", color: true });
+mocha.setup({ ui: "bdd", reporter: "tap", retries: 5 });
 
 const expect = chai.expect;
 
