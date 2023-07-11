@@ -95,6 +95,41 @@ if(NAPI_BUILD_ABI)
 
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
                 PUBLIC "${V8_ANDROID_DIR}/jni/${ANDROID_ABI}/libv8android.so")
+        elseif(WIN32)
+            set_cpu_platform_arch()
+            set(V8_VERSION "8.4.371.15")
+            #install_v8_nuget(${V8_VERSION} ${CPU_ARCH})
+            download_nuget()
+            set(V8_PACKAGE_PATH "${NUGET_PATH}/packages/v8-v142-${CPU_ARCH}.${V8_VERSION}")
+            set(V8_PACKAGE_PATH "${NUGET_PATH}/packages/v8-v142-${CPU_ARCH}.${V8_VERSION}")
+            set(V8_REDIST_PACKAGE_PATH "${NUGET_PATH}/packages/v8.redist-v142-${CPU_ARCH}.${V8_VERSION}")
+
+            add_library(v8_libbase SHARED IMPORTED)
+            set_target_properties(v8_libbase PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8_libbase.dll.lib")
+            add_library(v8_libplatform SHARED IMPORTED)
+            set_target_properties(v8_libplatform PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8_libplatform.dll.lib")
+            add_library(v8 SHARED IMPORTED)
+            set_target_properties(v8 PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8.dll.lib")
+            target_link_libraries(v8 INTERFACE v8_libbase INTERFACE v8_libplatform)
+            target_include_directories(v8 INTERFACE "${V8_PACKAGE_PATH}/include")
+            set(LINK_LIBRARIES v8)
+
+            set(NAPI_JAVASCRIPT_RUNTIME_OUTPUT_ARTIFACTS
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/icudtl.dat"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/icui18n.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/icuuc.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8_libbase.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8_libplatform.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/zlib.dll"
+                CACHE STRING "N-API runtime output artifacts")
+            
+            if (CPU_ARCH STREQUAL "x64")
+                # Enable V8 Pointer Compression
+                # https://v8.dev/blog/pointer-compression
+                # https://stackoverflow.com/q/62921373
+                set(NAPI_DEFINITIONS V8_COMPRESS_POINTERS)
+            endif()
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
@@ -109,7 +144,8 @@ add_library(napi ${SOURCES})
 
 target_compile_definitions(napi
     PUBLIC NODE_ADDON_API_DISABLE_DEPRECATED
-    PUBLIC NODE_ADDON_API_DISABLE_NODE_SPECIFIC)
+    PUBLIC NODE_ADDON_API_DISABLE_NODE_SPECIFIC
+    ${NAPI_DEFINITIONS})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
