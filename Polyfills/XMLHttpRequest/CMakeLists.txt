@@ -8,7 +8,7 @@ warnings_as_errors(XMLHttpRequest)
 
 target_include_directories(XMLHttpRequest PUBLIC "Include")
 
-target_link_libraries(XMLHttpRequest
+target_link_to_dependencies(XMLHttpRequest
     PUBLIC JsRuntime
     PRIVATE arcana
     PRIVATE UrlLib)

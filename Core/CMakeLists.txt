@@ -13,3 +13,5 @@ endif()
 if(JSRUNTIMEHOST_CORE_SCRIPTLOADER)
     add_subdirectory(ScriptLoader)
 endif()
+
+add_on_linked_as_dependency_cmake_file(napi "${CMAKE_CURRENT_SOURCE_DIR}/OnLinkedAsDependency.cmake")

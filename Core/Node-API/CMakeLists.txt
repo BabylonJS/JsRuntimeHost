@@ -148,7 +148,7 @@ target_compile_definitions(napi
     ${NAPI_DEFINITIONS})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
-target_link_libraries(napi ${LINK_LIBRARIES})
+target_link_to_dependencies(napi ${LINK_LIBRARIES})
 
 set_property(TARGET napi PROPERTY FOLDER Dependencies)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})

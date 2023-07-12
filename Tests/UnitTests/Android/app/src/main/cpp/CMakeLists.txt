@@ -22,7 +22,7 @@ target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNT
 target_include_directories(UnitTestsJNI
     PRIVATE ${UNIT_TESTS_DIR})
 
-target_link_libraries(UnitTestsJNI
+target_link_to_dependencies(UnitTestsJNI
     PRIVATE log
     PRIVATE AndroidExtensions
     PRIVATE AppRuntime

@@ -44,7 +44,7 @@ endif()
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${EXTERNAL_SCRIPTS})
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 
-target_link_libraries(UnitTests
+target_link_to_dependencies(UnitTests
     PRIVATE AppRuntime
     PRIVATE Console
     PRIVATE AbortController
