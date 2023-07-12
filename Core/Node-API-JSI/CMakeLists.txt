@@ -48,7 +48,7 @@ if(NOT TARGET jsi)
             PUBLIC "${V8JSI_PACKAGE_PATH}/build/native/include"
             PUBLIC "${V8JSI_PACKAGE_PATH}/build/native/jsi")
 
-        target_link_to_dependencies(jsi PUBLIC v8jsi)
+        target_link_libraries(jsi PUBLIC v8jsi)
 
         set_property(TARGET jsi PROPERTY FOLDER Dependencies)
     else()
@@ -59,7 +59,7 @@ endif()
 target_include_directories(napi
     PUBLIC "include")
 
-target_link_to_dependencies(napi
+target_link_libraries(napi
     PUBLIC jsi)
 
 if(WIN32)

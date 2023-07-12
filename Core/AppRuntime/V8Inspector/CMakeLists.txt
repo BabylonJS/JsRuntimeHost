@@ -21,7 +21,7 @@ target_include_directories(v8inspector
 target_compile_definitions(v8inspector
     PRIVATE ASIO_STANDALONE)
 
-target_link_to_dependencies(v8inspector
+target_link_libraries(v8inspector
     PRIVATE asio
     PRIVATE llhttp_static
     PRIVATE napi)

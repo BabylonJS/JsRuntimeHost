@@ -11,7 +11,7 @@ warnings_as_errors(Scheduling)
 target_include_directories(Scheduling
     PUBLIC "Include")
 
-target_link_to_dependencies(Scheduling
+target_link_libraries(Scheduling
     PUBLIC napi
     PRIVATE JsRuntime)
 

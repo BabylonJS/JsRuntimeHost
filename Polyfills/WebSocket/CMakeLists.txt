@@ -9,7 +9,7 @@ warnings_as_errors(WebSocket)
 
 target_include_directories(WebSocket PUBLIC "Include")
 
-target_link_to_dependencies(WebSocket
+target_link_libraries(WebSocket
     PUBLIC JsRuntime
     PRIVATE arcana
     PRIVATE UrlLib)

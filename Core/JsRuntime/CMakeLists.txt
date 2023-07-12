@@ -18,6 +18,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 
 add_library(JsRuntimeInternal INTERFACE)
 target_include_directories(JsRuntimeInternal INTERFACE "Source")
-target_link_to_dependencies(JsRuntimeInternal
+target_link_libraries(JsRuntimeInternal
     INTERFACE JsRuntime
     INTERFACE arcana)

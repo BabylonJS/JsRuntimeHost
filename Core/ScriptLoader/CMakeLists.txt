@@ -7,7 +7,7 @@ warnings_as_errors(ScriptLoader)
 
 target_include_directories(ScriptLoader PUBLIC "Include")
 
-target_link_to_dependencies(ScriptLoader
+target_link_libraries(ScriptLoader
     PUBLIC napi
     PRIVATE arcana
     PRIVATE UrlLib)

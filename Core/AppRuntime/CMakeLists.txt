@@ -27,13 +27,13 @@ target_link_to_dependencies(AppRuntime
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
     add_subdirectory(V8Inspector)
 
-    target_link_to_dependencies(AppRuntime
+    target_link_libraries(AppRuntime
         PRIVATE v8inspector)
 
     target_compile_definitions(AppRuntime
         PRIVATE ENABLE_V8_INSPECTOR)
 
-    target_link_to_dependencies(AppRuntime
+    target_link_libraries(AppRuntime
         PRIVATE v8inspector)
 endif()
 
