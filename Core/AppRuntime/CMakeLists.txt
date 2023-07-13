@@ -20,7 +20,7 @@ target_include_directories(AppRuntime
     PRIVATE "Include/Babylon"
     INTERFACE "Include")
 
-target_link_to_dependencies(AppRuntime
+target_link_libraries(AppRuntime
     PRIVATE arcana
     PUBLIC JsRuntime)
 

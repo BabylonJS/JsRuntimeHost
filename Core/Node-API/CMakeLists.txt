@@ -112,17 +112,25 @@ if(NAPI_BUILD_ABI)
             set_target_properties(v8 PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8.dll.lib")
             target_link_libraries(v8 INTERFACE v8_libbase INTERFACE v8_libplatform)
             target_include_directories(v8 INTERFACE "${V8_PACKAGE_PATH}/include")
-            set(LINK_LIBRARIES v8)
-
-            set(NAPI_JAVASCRIPT_RUNTIME_OUTPUT_ARTIFACTS
+            
+            set(V8_DIST
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icudtl.dat"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icui18n.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icuuc.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8_libbase.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8_libplatform.dll"
-                "${V8_REDIST_PACKAGE_PATH}/lib/Release/zlib.dll"
-                CACHE STRING "N-API runtime output artifacts")
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/zlib.dll")
+
+            # only 1 imported location per library -> Adding 1 library per file
+            foreach(V8FILE ${V8_DIST} )
+                get_filename_component(V8FILE_NAME "${V8FILE}" NAME_WE)
+                add_library("v8::${V8FILE_NAME}" SHARED IMPORTED)
+                set_target_properties("v8::${V8FILE_NAME}" PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8_libbase.dll.lib")
+                set_target_properties("v8::${V8FILE_NAME}" PROPERTIES IMPORTED_LOCATION ${V8FILE})
+            endforeach()
+
+            set(LINK_LIBRARIES v8 v8::icudtl v8::icui18n v8::icuuc v8::v8 v8::v8_libbase v8::v8_libplatform v8::zlib)
             
             if (CPU_ARCH STREQUAL "x64")
                 # Enable V8 Pointer Compression
@@ -148,7 +156,7 @@ target_compile_definitions(napi
     ${NAPI_DEFINITIONS})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
-target_link_to_dependencies(napi ${LINK_LIBRARIES})
+target_link_libraries(napi ${LINK_LIBRARIES})
 
 set_property(TARGET napi PROPERTY FOLDER Dependencies)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})

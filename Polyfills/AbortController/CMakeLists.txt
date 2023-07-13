@@ -10,7 +10,7 @@ warnings_as_errors(AbortController)
 
 target_include_directories(AbortController PUBLIC "Include")
 
-target_link_to_dependencies(AbortController
+target_link_libraries(AbortController
     PUBLIC JsRuntime)
 
 set_property(TARGET AbortController PROPERTY FOLDER Polyfills)
