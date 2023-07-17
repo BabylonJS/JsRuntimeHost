@@ -98,7 +98,6 @@ if(NAPI_BUILD_ABI)
         elseif(WIN32)
             set_cpu_platform_arch()
             set(V8_VERSION "8.4.371.15")
-            #install_v8_nuget(${V8_VERSION} ${CPU_ARCH})
             download_nuget()
             set(V8_PACKAGE_PATH "${NUGET_PATH}/packages/v8-v142-${CPU_ARCH}.${V8_VERSION}")
             set(V8_PACKAGE_PATH "${NUGET_PATH}/packages/v8-v142-${CPU_ARCH}.${V8_VERSION}")
@@ -123,20 +122,27 @@ if(NAPI_BUILD_ABI)
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/zlib.dll")
 
             # only 1 imported location per library -> Adding 1 library per file
-            foreach(V8FILE ${V8_DIST} )
+            foreach(V8FILE ${V8_DIST})
                 get_filename_component(V8FILE_NAME "${V8FILE}" NAME_WE)
                 add_library("v8::${V8FILE_NAME}" SHARED IMPORTED)
                 set_target_properties("v8::${V8FILE_NAME}" PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8_libbase.dll.lib")
                 set_target_properties("v8::${V8FILE_NAME}" PROPERTIES IMPORTED_LOCATION ${V8FILE})
             endforeach()
 
-            set(LINK_LIBRARIES v8 v8::icudtl v8::icui18n v8::icuuc v8::v8 v8::v8_libbase v8::v8_libplatform v8::zlib)
+            set(LINK_LIBRARIES ${LINK_LIBRARIES}
+                PRIVATE v8::icudtl
+                PRIVATE v8::icui18n
+                PRIVATE v8::icuuc
+                PRIVATE v8::v8
+                PRIVATE v8::v8_libbase
+                PRIVATE v8::v8_libplatform
+                PRIVATE v8::zlib)
             
             if (CPU_ARCH STREQUAL "x64")
                 # Enable V8 Pointer Compression
                 # https://v8.dev/blog/pointer-compression
                 # https://stackoverflow.com/q/62921373
-                set(NAPI_DEFINITIONS V8_COMPRESS_POINTERS)
+                set(NAPI_DEFINITIONS PRIVATE V8_COMPRESS_POINTERS)
             endif()
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
