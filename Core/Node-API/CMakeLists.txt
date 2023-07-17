@@ -139,7 +139,7 @@ if(NAPI_BUILD_ABI)
                 PRIVATE v8::v8_libplatform
                 PRIVATE v8::zlib)
             
-            if (CPU_ARCH STREQUAL "x64")
+            if(CPU_ARCH STREQUAL "x64")
                 # Enable V8 Pointer Compression
                 # https://v8.dev/blog/pointer-compression
                 # https://stackoverflow.com/q/62921373
