@@ -130,6 +130,7 @@ if(NAPI_BUILD_ABI)
             endforeach()
 
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
+                PRIVATE v8
                 PRIVATE v8::icudtl
                 PRIVATE v8::icui18n
                 PRIVATE v8::icuuc
