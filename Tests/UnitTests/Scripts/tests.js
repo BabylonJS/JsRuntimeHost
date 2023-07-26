@@ -597,7 +597,7 @@ describe("URLSearchParams", function () {
 function runTests() {
     mocha.run(failures => {
         // Test program will wait for code to be set before exiting
-        setTimeout(()=>{
+        setTimeout(() => {
             if (failures > 0) {
                 // Failure
                 SetExitCode(1);
