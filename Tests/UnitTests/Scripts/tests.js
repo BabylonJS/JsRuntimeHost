@@ -605,7 +605,7 @@ function runTests() {
                 // Success
                 SetExitCode(0);
             }
-        }, 0);
+        }, 100);
     });
 }
 
