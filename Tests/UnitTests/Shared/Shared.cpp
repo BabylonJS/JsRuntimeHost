@@ -41,6 +41,8 @@ int RunTests(Babylon::Polyfills::Console::CallbackT consoleCallback)
         env.Global().Set("SetExitCode", Napi::Function::New(env, [&exitCode](const Napi::CallbackInfo& info)
         {
             Napi::Env env = info.Env();
+            // no timeout allowed after exit is asked!
+            Napi::Eval(env, "setTimeout=function(){};", "");
             exitCode.set_value(info[0].As<Napi::Number>().Int32Value());
         }, "SetExitCode"));
 
