@@ -172,10 +172,14 @@ namespace Babylon::Polyfills::Internal
     void WebSocket::OpenCallback()
     {
         m_runtimeScheduler([this, cancellationSource{m_cancellationSource}]() {
+            if (cancellationSource->cancelled())
+            {
+                return;
+            }
             m_readyState = ReadyState::Open;
             try
             {
-                if (!cancellationSource->cancelled() && !m_onopen.IsEmpty())
+                if (!m_onopen.IsEmpty())
                 {
                     m_onopen.Call({});
                 }
