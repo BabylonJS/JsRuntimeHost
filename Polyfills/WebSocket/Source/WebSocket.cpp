@@ -226,6 +226,10 @@ namespace Babylon::Polyfills::Internal
     void WebSocket::MessageCallback(const std::string& message)
     {
         m_runtimeScheduler([this, message, cancellationSource{m_cancellationSource}]() {
+            if (cancellationSource->cancelled())
+            {
+                return;
+            }
             try
             {
                 if (!m_onmessage.IsEmpty())
@@ -249,6 +253,10 @@ namespace Babylon::Polyfills::Internal
     void WebSocket::ErrorCallback(const std::string& message)
     {
         m_runtimeScheduler([this, message, cancellationSource{m_cancellationSource}]() {
+            if (cancellationSource->cancelled())
+            {
+                return;
+            }
             try
             {
                 if (!m_onerror.IsEmpty())
