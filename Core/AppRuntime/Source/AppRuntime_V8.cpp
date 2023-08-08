@@ -69,7 +69,7 @@ namespace Babylon
 #ifdef ENABLE_V8_INSPECTOR
         Module& module = 
 #endif 
-		Module::Initialize(executablePath);
+        Module::Initialize(executablePath);
         v8::Isolate::CreateParams create_params;
         create_params.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
         v8::Isolate* isolate = v8::Isolate::New(create_params);
