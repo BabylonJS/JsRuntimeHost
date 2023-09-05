@@ -102,7 +102,6 @@ namespace Babylon
         std::shared_ptr<tcp_server> tcp_server_;
 
         int next_session_id_;
-        FILE* out_;
         ServerState state_;
 
         std::map<int, std::pair<std::string, std::unique_ptr<SocketSession>>> connected_sessions_;
