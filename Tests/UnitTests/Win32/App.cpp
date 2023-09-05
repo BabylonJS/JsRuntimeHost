@@ -2,12 +2,9 @@
 
 int main()
 {
-    for (int i = 0; i < 1000; i++)
+    return RunTests([](const char* message, Babylon::Polyfills::Console::LogLevel logLevel)
     {
-        RunTests([](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
-            fprintf(stdout, "[%s] %s", EnumToString(logLevel), message);
-            fflush(stdout);
-        });
-    }
-    return 0;
+        fprintf(stdout, "[%s] %s", EnumToString(logLevel), message);
+        fflush(stdout);
+    });
 }

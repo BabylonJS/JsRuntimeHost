@@ -195,7 +195,6 @@ namespace Babylon
         : delegate_(std::move(delegate))
         , port_(port)
         , next_session_id_(0)
-        , out_(out)
     {
         state_ = ServerState::kNew;
     }
