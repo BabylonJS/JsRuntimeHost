@@ -351,6 +351,7 @@ namespace Babylon
 
     void InspectorSocketServer::Stop()
     {
+        std::lock_guard<std::mutex> guard{m_mutex};
         if (state_ == ServerState::kStopped)
             return;
         CHECK_EQ(state_, ServerState::kRunning);

@@ -108,6 +108,7 @@ namespace Babylon
         ServerState state_;
 
         std::map<int, std::pair<std::string, std::unique_ptr<SocketSession>>> connected_sessions_;
+        mutable std::mutex m_mutex;
     };
 
 } // namespace inspector
