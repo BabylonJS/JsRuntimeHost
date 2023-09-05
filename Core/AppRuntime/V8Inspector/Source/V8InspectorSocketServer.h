@@ -50,8 +50,7 @@ namespace Babylon
     class InspectorSocketServer
     {
     public:
-        InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, unsigned short port,
-            FILE* out = stderr);
+        InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, unsigned short port);
         ~InspectorSocketServer();
 
         // Start listening on host/port

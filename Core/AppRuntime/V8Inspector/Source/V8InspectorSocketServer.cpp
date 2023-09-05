@@ -191,7 +191,7 @@ namespace Babylon
     };
 
     InspectorSocketServer::InspectorSocketServer(
-        std::unique_ptr<InspectorAgentDelegate>&& delegate, unsigned short port, FILE* out)
+        std::unique_ptr<InspectorAgentDelegate>&& delegate, unsigned short port)
         : delegate_(std::move(delegate))
         , port_(port)
         , next_session_id_(0)
