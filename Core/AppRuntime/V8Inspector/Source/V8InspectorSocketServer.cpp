@@ -230,6 +230,10 @@ namespace Babylon
 
     void InspectorSocketServer::SessionTerminated(int session_id)
     {
+        if (this->state_ == ServerState::kStopped)
+        {
+            return;
+        }
         if (Session(session_id) == nullptr)
         {
             return;

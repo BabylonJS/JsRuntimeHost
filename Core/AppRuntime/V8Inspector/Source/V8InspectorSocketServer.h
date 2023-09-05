@@ -84,8 +84,6 @@ namespace Babylon
         static void SocketClosedCallback(void* callbackData_);
 
     private:
-        static void CloseServerSocket(ServerSocket*);
-
         void SendListResponse(InspectorSocket* socket, const std::string& host, SocketSession* session);
         std::string GetFrontendURL(bool is_compat, const std::string& formatted_address);
         bool TargetExists(const std::string& id);
