@@ -5,7 +5,7 @@ endif()
 set(SCRIPTS
 "Scripts/tests.js")
 
-if(NOT ANDROID AND NOT IOS)
+if(APPLE OR UNIX OR WIN32)
     set(SCRIPTS ${SCRIPTS}
         "Scripts/symlink_target.js")
 endif()
@@ -84,7 +84,7 @@ else()
             MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT}")
     endforeach()
 
-    if(NOT ANDROID)
+    if(APPLE OR UNIX OR WIN32)
         add_custom_command(TARGET UnitTests POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Scripts/symlink_target.js" "${CMAKE_CFG_INTDIR}/Scripts/symlink_1.js")
         add_custom_command(TARGET UnitTests POST_BUILD

@@ -166,7 +166,7 @@ describe("XMLHTTPRequest", function () {
     //    expect(xhr).to.have.property('status', 200);
     //});
 
-    if (hostPlatform !== "Android" && hostPlatform !== "iOS") {
+    if (hostPlatform === "macOS" || hostPlatform === "Unix" || hostPlatform === "Win32") {
         it("should load URL pointing to symlink", async function () {
             this.timeout(1000);
             console.log(`hostPlatform: ${hostPlatform}`);
