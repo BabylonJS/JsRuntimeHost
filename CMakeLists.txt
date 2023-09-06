@@ -19,7 +19,7 @@ FetchContent_Declare(arcana
     GIT_TAG 10d167ffe0f86b2ddaccd93fd78ff2240cbb0c49)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG f09f431f24cac7ffb0f17e5a83ce6c2f11d29e31)
+    GIT_TAG e519cd6c05d28d6888661d9ffc901882179e5818)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
