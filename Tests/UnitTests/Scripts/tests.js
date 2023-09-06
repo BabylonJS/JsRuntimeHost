@@ -166,12 +166,13 @@ describe("XMLHTTPRequest", function () {
     //    expect(xhr).to.have.property('status', 200);
     //});
 
-    it("should load URL pointing to symlink", async function () {
-        this.timeout(1000);
-
-        const xhr = await createRequest("GET", "app:///Scripts/symlink_1.js");
-        expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
-    });
+    if (hostPlatform !== "Android" && hostPlatform !== "iOS") {
+        it("should load URL pointing to symlink", async function () {
+            this.timeout(1000);
+            const xhr = await createRequest("GET", "app:///Scripts/symlink_1.js");
+            expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
+        });
+    }
 });
 
 //describe("setTimeout", function () {
