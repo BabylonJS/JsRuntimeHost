@@ -17,7 +17,6 @@ add_library(UnitTestsJNI SHARED
     JNI.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
     ${UNIT_TESTS_DIR}/Shared/Shared.cpp)
-message("JSRUNTIMEHOST_PLATFORM: ${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 
 target_include_directories(UnitTestsJNI
