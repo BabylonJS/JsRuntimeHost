@@ -169,6 +169,7 @@ describe("XMLHTTPRequest", function () {
     if (hostPlatform !== "Android" && hostPlatform !== "iOS") {
         it("should load URL pointing to symlink", async function () {
             this.timeout(1000);
+            console.log(`hostPlatform: ${hostPlatform}`);
             const xhr = await createRequest("GET", "app:///Scripts/symlink_1.js");
             expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
         });
