@@ -3,7 +3,7 @@ if(WINDOWS_STORE)
 endif()
 
 set(SCRIPTS
-"Scripts/tests.js")
+    "Scripts/tests.js")
 
 if(APPLE OR UNIX OR WIN32)
     set(SCRIPTS ${SCRIPTS}
