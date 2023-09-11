@@ -108,9 +108,7 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
         add_library(asio INTERFACE)
         target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
         set_property(TARGET asio PROPERTY FOLDER Dependencies)
-        
     endif()
-
     if(NOT TARGET llhttp_static)
         set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
     endif()
