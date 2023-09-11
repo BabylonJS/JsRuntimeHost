@@ -47,7 +47,6 @@ namespace
         
         std::string formattedString = "";
         if (info.Length() > 0) {
-            //firstString = info[0].ToString().Utf8Value();
             formattedString = info[0].ToString().Utf8Value();
             // check if this string has substitutions or not
             std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
