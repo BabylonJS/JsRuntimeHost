@@ -37,10 +37,6 @@ namespace
         }
     }
 
-    auto TransformArgs(const Napi::CallbackInfo& info) {
-        const size_t size = info.Length();
-    }
-
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
     {
         
