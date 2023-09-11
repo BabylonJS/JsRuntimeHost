@@ -3,6 +3,10 @@
 #include <array>
 #include <functional>
 #include <sstream>
+#include <regex>
+#include <vector>
+
+#include <fmt/printf.h>
 
 namespace
 {
@@ -34,20 +38,66 @@ namespace
         }
     }
 
+    auto TransformArgs(const Napi::CallbackInfo& info) {
+        const size_t size = info.Length();
+    }
+
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
     {
-        std::stringstream ss{};
-        for (size_t i = 0; i < info.Length(); i++)
-        {
-            if (i > 0)
-            {
-                ss << " ";
-            }
-            ss << info[i].ToString().Utf8Value().c_str();
-        }
-        ss << std::endl;
+        
+        std::string formattedString = "";
+        if (info.Length() > 0) {
+            //firstString = info[0].ToString().Utf8Value();
+            formattedString = info[0].ToString().Utf8Value();
+            // check if this string has substitutions or not
+            std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
+            std::smatch matches;
+            
+            // for each argument beyond the first (which is the string itself, try to find a substitution string)
+            for (size_t i = 1; i < info.Length(); i++) {
+                Napi::Value v = info[i];
 
-        callback(ss.str().c_str(), logLevel);
+                // check if there's a corresponding match to this argument
+                if (std::regex_search(formattedString, matches, toSub)) {
+                    auto match = matches[0].str();
+                    std::string converted;
+                    // perform proper formatting
+                    if (match == "%o" || match == "%O" || match == "%s") {
+                        // object: for now just turn into [Object object]
+                        converted = v.ToString().Utf8Value();
+                    }
+                    else if (match.find("f") != std::string::npos) {
+                        // if we have the float specified, force convert to a float
+                        Napi::Number number = v.ToNumber();
+                        // number cases
+                        converted = fmt::sprintf(match, number.DoubleValue());
+                    }
+                    else {
+                        // last case: int specifier
+                        Napi::Number number = v.ToNumber();
+                        // number cases
+                        converted = fmt::sprintf(match, number.Int64Value());
+                    }
+                    // if converted is nan or -nan, rewrite as NaN to match the javascript format
+                    if (converted == "nan" || converted == "-nan") {
+                        converted = "NaN";
+                    }
+
+                    // replace converted on the original match place
+                    size_t start_pos = formattedString.find(match);
+                    if (start_pos != std::string::npos) {
+                        formattedString.replace(start_pos, match.length(), converted);
+                    }
+                }
+                else {
+                    // if there's no corresponding match, just append to the string
+                    formattedString = formattedString + " " + v.ToString().Utf8Value();
+                }
+            }
+        }
+        formattedString = formattedString + "\n";
+
+        callback(formattedString.c_str(), logLevel);
     }
 
     void AddMethod(Napi::Object& console, const char* functionName, Babylon::Polyfills::Console::LogLevel logLevel, Babylon::Polyfills::Console::CallbackT callback)

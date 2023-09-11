@@ -594,6 +594,33 @@ describe("URLSearchParams", function () {
     });
 });
 
+
+describe("Console", function () {
+    it("should log a simple console log string without error", function () {
+        expect(() => console.log("I am a test string")).to.not.throw();
+    });
+    it("should log sequence of strings", function () {
+        expect(() => console.log("I", "am", "a", "test", "string", 2, 2.345, { foo: 'bar' })).to.not.throw();
+    });
+    it("Should log string substitutions", function () {
+        expect(() => console.log("String sub: %s, float sub: %.2f, int sub: %2.d", "string", 3.1457, 3.1457)).to.not.throw();
+    });
+    it("Should allow numbers to substitute strings", function () {
+        expect(() => console.log("Print these numbers! %s %s", 1.2345, 1)).to.not.throw();
+    });
+    it("Should allow strings to substitute numbers", function () {
+        expect(() => console.log("Print these strings! %f %d", "foo", "bar")).to.not.throw();
+    });
+    it("Should allow for less substitution arguments than parameters", function () {
+        expect(() => console.log("%s", "I am a string", 12345)).to.not.throw();
+    });
+    it("Should allow for more substitution arguments than parameters", function () {
+        expect(() => console.log("%s %s", "I am a string")).to.not.throw();
+    });
+    it("Should allow for other letters prefixed by % without substitution", function () {
+        expect(() => console.log("%y %s %k", "I am a string")).to.not.throw();
+    });
+});
 function runTests() {
     mocha.run(failures => {
         // Test program will wait for code to be set before exiting

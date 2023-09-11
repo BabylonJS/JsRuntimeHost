@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 # Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24
-if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
     cmake_policy(SET CMP0135 NEW)
 endif()
 
@@ -25,8 +25,11 @@ FetchContent_Declare(asio
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
 FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
+FetchContent_Declare(fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG a0b8a92e3d1532361c2f7feb63babc5c18d00ef2)
 
-set(CONTENT_TO_FETCH cmake-extensions)
+set(CONTENT_TO_FETCH cmake-extensions fmt)
 
 if(IOS)
     FetchContent_MakeAvailable(ios-cmake)
@@ -45,12 +48,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Options
 
-## Core
+# # Core
 option(JSRUNTIMEHOST_CORE_APPRUNTIME "Include JsRuntimeHost Core AppRuntime" ON)
 option(JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR "Include the V8 inspector protocol required to debug JavaScript with a V8 debugger." ON)
 option(JSRUNTIMEHOST_CORE_SCRIPTLOADER "Include JsRuntimeHost Core ScriptLoader" ON)
 
-## Polyfills
+# # Polyfills
 option(JSRUNTIMEHOST_POLYFILL_CONSOLE "Include JsRuntimeHost Polyfill Console." ON)
 option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include JsRuntimeHost Polyfill Scheduling." ON)
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include JsRuntimeHost Polyfill XMLHttpRequest." ON)
@@ -58,14 +61,13 @@ option(JSRUNTIMEHOST_POLYFILL_URL "Include JsRuntimeHost Polyfill URL and URLSea
 option(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER "Include JsRuntimeHost Polyfills AbortController and AbortSignal." ON)
 option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include JsRuntimeHost Polyfill WebSocket." ON)
 
-## Tests
+# # Tests
 option(JSRUNTIMEHOST_TESTS "Include JsRuntimeHost Tests." ON)
 
-## Node-API
+# # Node-API
 option(NAPI_BUILD_ABI "Build the ABI layer." ON)
 
 # Dependencies
-
 if(NOT TARGET arcana)
     set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} arcana)
 endif()
@@ -106,13 +108,13 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
         target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
         set_property(TARGET asio PROPERTY FOLDER Dependencies)
     endif()
+
     if(NOT TARGET llhttp_static)
         set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
     endif()
 endif()
 
 # Subdirectories
-
 if(ANDROID)
     set(JSRUNTIMEHOST_PLATFORM "Android")
 elseif(IOS)
