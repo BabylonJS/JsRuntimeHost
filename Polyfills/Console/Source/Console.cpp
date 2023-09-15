@@ -4,8 +4,7 @@
 #include <functional>
 #include <sstream>
 #include <regex>
-
-#include <fmt/printf.h>
+#include <stdio.h>
 
 namespace
 {
@@ -53,30 +52,35 @@ namespace
 
                 // check if there's a corresponding match to this argument
                 if (std::regex_search(formattedString, matches, toSub)) {
-                    auto match = matches[0].str();
+                    std::string match = matches[0].str();
                     std::string converted;
                     // perform proper formatting
                     if (match == "%o" || match == "%O" || match == "%s") {
                         // object: for now just turn into [Object object]
                         converted = v.ToString().Utf8Value();
                     }
-                    else if (match.find("f") != std::string::npos) {
+                    else if (v.IsNumber() && v.ToString().Utf8Value() != "NaN") {
+                        // number formatting
                         // if we have the float specified, force convert to a float
                         Napi::Number number = v.ToNumber();
+                        // question: is there a "good" limit here?
+                        char buffer[100];
+                        int size = 100;
+                        int written;
+
                         // number cases
-                        converted = fmt::sprintf(match, number.DoubleValue());
+                        if (match.find("f") != std::string::npos) {
+                            written = sprintf_s(buffer, size, match.c_str(), number.DoubleValue());
+                        }
+                        else {
+                            written = sprintf_s(buffer, size, match.c_str(), number.Int64Value());
+                        }
+                        converted = std::string(buffer);
                     }
                     else {
-                        // last case: int specifier
-                        Napi::Number number = v.ToNumber();
-                        // number cases
-                        converted = fmt::sprintf(match, number.Int64Value());
-                    }
-                    // if converted is nan or -nan, rewrite as NaN to match the javascript format
-                    if (converted == "nan" || converted == "-nan") {
                         converted = "NaN";
                     }
-
+                    
                     // replace converted on the original match place
                     size_t start_pos = formattedString.find(match);
                     if (start_pos != std::string::npos) {

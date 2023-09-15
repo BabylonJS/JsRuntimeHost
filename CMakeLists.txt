@@ -25,11 +25,8 @@ FetchContent_Declare(asio
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
 FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
-FetchContent_Declare(fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG a0b8a92e3d1532361c2f7feb63babc5c18d00ef2)
 
-set(CONTENT_TO_FETCH cmake-extensions fmt)
+set(CONTENT_TO_FETCH cmake-extensions)
 
 if(IOS)
     FetchContent_MakeAvailable(ios-cmake)
