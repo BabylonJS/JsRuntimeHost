@@ -5,7 +5,7 @@ mocha.setup({ ui: "bdd", reporter: "spec", retries: 5 });
 
 const expect = chai.expect;
 
-/*describe("AbortController", function () {
+describe("AbortController", function () {
     it("should not throw while aborting with no callbacks", function () {
         const controller = new AbortController();
         expect(controller.signal.aborted).to.equal(false);
@@ -592,11 +592,11 @@ describe("URLSearchParams", function () {
         expect(params2.get('foo')).to.equal('1');
         expect(params2.get('bar')).to.equal('2');
     });
-});*/
+});
 
 
 describe("Console", function () {
-    /*it("should log a simple console log string without error", function () {
+    it("should log a simple console log string without error", function () {
         expect(() => console.log("I am a test string")).to.not.throw();
     });
     it("should log sequence of strings", function () {
@@ -623,7 +623,7 @@ describe("Console", function () {
     it("Should allow for other letters prefixed by % without substitution", function () {
         expect(() => console.log("%y %s %k", "I am a string")).to.not.throw();
         expect(() => console.log('%a %b %c', 123)).to.not.throw();
-    });*/
+    });
     it("Should allow logging NaN", function () {
         expect(() => console.log("%d %f %s", NaN, NaN, NaN)).to.not.throw();
         expect(() => console.log("%d %f %s", 0/0, 0/0, 0/0)).to.not.throw();

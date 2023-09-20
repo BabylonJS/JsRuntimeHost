@@ -51,7 +51,7 @@ namespace
                 Napi::Value v = info[i];
 
                 // check if there's a corresponding match to this argument
-                if (std::regex_search(formattedString, matches, toSub)) {
+                if (formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub)) {
                     std::string match = matches[0].str();
                     std::string converted;
                     // perform proper formatting
