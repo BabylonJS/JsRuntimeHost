@@ -5,10 +5,26 @@
 #include <sstream>
 #include <regex>
 #include <stdio.h>
+#include <memory>
+#include <string>
+#include <stdexcept>
 
 namespace
 {
+    const std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
     constexpr const char* JS_INSTANCE_NAME{"console"};
+
+    // from: https://stackoverflow.com/questions/2342162/stdstring-formatting-like-sprintf/26221725#26221725
+    template<typename ... Args>
+    std::string string_format(const std::string& format, Args ... args)
+    {
+        int size_s = std::snprintf(nullptr, 0, format.c_str(), args ...) + 1; // Extra space for '\0'
+        if (size_s <= 0) { throw std::runtime_error("Error during formatting."); }
+        auto size = static_cast<size_t>(size_s);
+        std::unique_ptr<char[]> buf(new char[size]);
+        std::snprintf(buf.get(), size, format.c_str(), args ...);
+        return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
+    }
 
     void Call(Napi::Function func, const Napi::CallbackInfo& info)
     {
@@ -43,7 +59,7 @@ namespace
         if (info.Length() > 0) {
             formattedString = info[0].ToString().Utf8Value();
             // check if this string has substitutions or not
-            std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
+            
             std::smatch matches;
             
             // for each argument beyond the first (which is the string itself, try to find a substitution string)
@@ -52,7 +68,7 @@ namespace
 
                 // check if there's a corresponding match to this argument
                 if (formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub)) {
-                    std::string match = matches[0].str();
+                    const std::string& match = matches[0].str();
                     std::string converted;
                     // perform proper formatting
                     if (match == "%o" || match == "%O" || match == "%s") {
@@ -63,26 +79,21 @@ namespace
                         // number formatting
                         // if we have the float specified, force convert to a float
                         Napi::Number number = v.ToNumber();
-                        // question: is there a "good" limit here?
-                        char buffer[100];
-                        int size = 100;
-                        int written;
-
+                        
                         // number cases
                         if (match.find("f") != std::string::npos) {
-                            written = sprintf_s(buffer, size, match.c_str(), number.DoubleValue());
+                            converted = string_format(match, number.DoubleValue());
                         }
                         else {
-                            written = sprintf_s(buffer, size, match.c_str(), number.Int64Value());
+                            converted = string_format(match, number.Int64Value());
                         }
-                        converted = std::string(buffer);
                     }
                     else {
                         converted = "NaN";
                     }
                     
                     // replace converted on the original match place
-                    size_t start_pos = formattedString.find(match);
+                    size_t start_pos = matches.position(0);
                     if (start_pos != std::string::npos) {
                         formattedString.replace(start_pos, match.length(), converted);
                     }
