@@ -54,20 +54,22 @@ namespace
 
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
     {
-        
-        std::string formattedString = "";
+        std::stringstream ss{};
+        std::string formattedString{};
         if (info.Length() > 0) {
             formattedString = info[0].ToString().Utf8Value();
+            ss << formattedString;
             // check if this string has substitutions or not
-            
             std::smatch matches;
+
+            bool hasSubsInFirstString = formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub);
             
             // for each argument beyond the first (which is the string itself, try to find a substitution string)
             for (size_t i = 1; i < info.Length(); i++) {
                 Napi::Value v = info[i];
 
                 // check if there's a corresponding match to this argument
-                if (formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub)) {
+                if (hasSubsInFirstString && formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub)) {
                     const std::string& match = matches[0].str();
                     std::string converted;
                     // perform proper formatting
@@ -97,14 +99,22 @@ namespace
                     if (start_pos != std::string::npos) {
                         formattedString.replace(start_pos, match.length(), converted);
                     }
+                    // reset the stringstream
+                    // see: https://stackoverflow.com/questions/20731/how-do-you-clear-a-stringstream-variable
+                    ss.clear();
+                    ss.str("");
+                    ss << formattedString;
+                    formattedString = ss.str();
                 }
                 else {
                     // if there's no corresponding match, just append to the string
-                    formattedString = formattedString + " " + v.ToString().Utf8Value();
+                    ss << " " << v.ToString().Utf8Value();
                 }
             }
         }
-        formattedString = formattedString + "\n";
+        //formattedString = formattedString + "\n";
+        ss << std::endl;
+        formattedString = ss.str();
 
         callback(formattedString.c_str(), logLevel);
     }
