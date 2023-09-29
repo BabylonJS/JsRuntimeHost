@@ -12,17 +12,20 @@
 namespace
 {
     const std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
-    constexpr const char* JS_INSTANCE_NAME{"console"};
+    constexpr const char* JS_INSTANCE_NAME{ "console" };
 
     // from: https://stackoverflow.com/questions/2342162/stdstring-formatting-like-sprintf/26221725#26221725
-    template<typename ... Args>
-    std::string string_format(const std::string& format, Args ... args)
+    template<typename... Args>
+    std::string string_format(const std::string& format, Args... args)
     {
-        int size_s = std::snprintf(nullptr, 0, format.c_str(), args ...) + 1; // Extra space for '\0'
-        if (size_s <= 0) { throw std::runtime_error("Error during formatting."); }
+        int size_s = std::snprintf(nullptr, 0, format.c_str(), args...) + 1; // Extra space for '\0'
+        if (size_s <= 0)
+        {
+            throw std::runtime_error("Error during formatting.");
+        }
         auto size = static_cast<size_t>(size_s);
         std::unique_ptr<char[]> buf(new char[size]);
-        std::snprintf(buf.get(), size, format.c_str(), args ...);
+        std::snprintf(buf.get(), size, format.c_str(), args...);
         return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
     }
 
@@ -56,47 +59,56 @@ namespace
     {
         std::stringstream ss{};
         std::string formattedString{};
-        if (info.Length() > 0) {
+        if (info.Length() > 0)
+        {
             formattedString = info[0].ToString().Utf8Value();
             ss << formattedString;
             // check if this string has substitutions or not
             std::smatch matches;
 
             bool hasSubsInFirstString = formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub);
-            
+
             // for each argument beyond the first (which is the string itself, try to find a substitution string)
-            for (size_t i = 1; i < info.Length(); i++) {
+            for (size_t i = 1; i < info.Length(); i++)
+            {
                 Napi::Value v = info[i];
 
                 // check if there's a corresponding match to this argument
-                if (hasSubsInFirstString && formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub)) {
+                if (hasSubsInFirstString && formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub))
+                {
                     const std::string& match = matches[0].str();
                     std::string converted;
                     // perform proper formatting
-                    if (match == "%o" || match == "%O" || match == "%s") {
+                    if (match == "%o" || match == "%O" || match == "%s")
+                    {
                         // object: for now just turn into [Object object]
                         converted = v.ToString().Utf8Value();
                     }
-                    else if (v.IsNumber() && v.ToString().Utf8Value() != "NaN") {
+                    else if (v.IsNumber() && v.ToString().Utf8Value() != "NaN")
+                    {
                         // number formatting
                         // if we have the float specified, force convert to a float
                         Napi::Number number = v.ToNumber();
-                        
+
                         // number cases
-                        if (match.find("f") != std::string::npos) {
+                        if (match.find("f") != std::string::npos)
+                        {
                             converted = string_format(match, number.DoubleValue());
                         }
-                        else {
+                        else
+                        {
                             converted = string_format(match, number.Int64Value());
                         }
                     }
-                    else {
+                    else
+                    {
                         converted = "NaN";
                     }
-                    
+
                     // replace converted on the original match place
                     size_t start_pos = matches.position(0);
-                    if (start_pos != std::string::npos) {
+                    if (start_pos != std::string::npos)
+                    {
                         formattedString.replace(start_pos, match.length(), converted);
                     }
                     // reset the stringstream
@@ -106,7 +118,8 @@ namespace
                     ss << formattedString;
                     formattedString = ss.str();
                 }
-                else {
+                else
+                {
                     // if there's no corresponding match, just append to the string
                     ss << " " << v.ToString().Utf8Value();
                 }
@@ -125,13 +138,13 @@ namespace
         console.Set(functionName,
             Napi::Function::New(
                 console.Env(), [callback, existingFunction = std::move(existingFunction), logLevel](const Napi::CallbackInfo& info) {
-                    InvokeCallback(callback, info, logLevel);
+            InvokeCallback(callback, info, logLevel);
 
-                    if (!existingFunction->Value().IsUndefined())
-                    {
-                        Call(existingFunction->Value(), info);
-                    }
-                },
+            if (!existingFunction->Value().IsUndefined())
+            {
+                Call(existingFunction->Value(), info);
+            }
+        },
                 functionName));
     }
 }
@@ -140,7 +153,7 @@ namespace Babylon::Polyfills::Console
 {
     void Initialize(Napi::Env env, CallbackT callback)
     {
-        Napi::HandleScope scope{env};
+        Napi::HandleScope scope{ env };
 
         auto console = env.Global().Get(JS_INSTANCE_NAME).As<Napi::Object>();
         if (console.IsUndefined())
