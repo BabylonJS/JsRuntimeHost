@@ -168,13 +168,11 @@ describe("XMLHTTPRequest", function () {
 
     if (hostPlatform === "macOS" || hostPlatform === "Unix" || hostPlatform === "Win32") {
         it("should load URL pointing to symlink", async function () {
-            this.timeout(1000);
             const xhr = await createRequest("GET", "app:///Scripts/symlink_1.js");
             expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
         });
 
         it("should load URL pointing to symlink that points to a symlink", async function () {
-            this.timeout(1000);
             const xhr = await createRequest("GET", "app:///Scripts/symlink_2.js");
             expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
         });
