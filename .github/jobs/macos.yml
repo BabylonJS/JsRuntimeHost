@@ -1,19 +1,14 @@
-parameters:
-  name: ''
-  vmImage: ''
-  xCodeVersion: ''
-
 jobs:
-- job: ${{ parameters.name }}
+- job: macOS
   timeoutInMinutes: 15
 
   pool:
-    vmImage: ${{ parameters.vmImage }}
+    vmImage: macos-latest
 
   steps:
   - script: |
-      sudo xcode-select --switch /Applications/Xcode_${{ parameters.xCodeVersion }}.app/Contents/Developer
-    displayName: 'Select Xcode ${{ parameters.xCodeVersion }}'
+      sudo xcode-select --switch /Applications/Xcode_14.0.app/Contents/Developer
+    displayName: 'Select Xcode 14.0'
 
   - script: |
       cmake -B Build/macOS -GXcode
