@@ -4,6 +4,10 @@ trigger:
 pr:
 - main
 
+variables:
+- name: NDK_VERSION
+  value: 21.4.7075529
+
 jobs:
   # WIN32
   - template: jobs/win32.yml
@@ -65,6 +69,16 @@ jobs:
 
   # iOS
   - template: jobs/ios.yml
+    parameters:
+      name: 'iOS_Xcode142'
+      vmImage: 'macOS-latest'
+      xCodeVersion: 14.2
+
+  - template: jobs/ios.yml
+    parameters:
+      name: 'iOS_Xcode150'
+      vmImage: 'macOS-13'
+      xCodeVersion: 15.0
 
   # Linux
   - template: jobs/linux.yml

@@ -11,6 +11,10 @@ android {
     namespace 'com.jsruntimehost.unittests'
     compileSdk 33
     ndkVersion = "21.4.7075529"
+    if (project.hasProperty("NDK_VERSION")) {
+        def NDKVersion = project.property("NDK_VERSION")
+        ndkVersion  "${NDK_VERSION}"
+    }
 
     defaultConfig {
         applicationId "com.jsruntimehost.unittests"
