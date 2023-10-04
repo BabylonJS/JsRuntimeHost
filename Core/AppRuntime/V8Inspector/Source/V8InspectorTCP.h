@@ -3,6 +3,13 @@
 // This code is based on the old node inspector implementation. See NOTICE.md for Node.js' project license details
 #pragma once
 
+// 'allocator<void>' is deprecated 
+// Android with NDK25
+// 23/10/04 : allocator still present in latest asio main branch
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 #include <asio.hpp>
 
 namespace Babylon
