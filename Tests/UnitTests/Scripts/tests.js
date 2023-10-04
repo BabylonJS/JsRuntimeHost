@@ -183,7 +183,7 @@ describe("XMLHTTPRequest", function () {
 
     it("should load URL as array buffer", async function () {
         const xhr = await createRequest("GET", "app:///Scripts/symlink_target.js", undefined, "arraybuffer");
-        var expected = Uint8Array.from("var symlink_target_js = true;".split(""), x => x.charCodeAt(0));
+        var expected = new Uint8Array("var symlink_target_js = true;".split("").map(x => x.charCodeAt(0)));
         var response = new Uint8Array(xhr.response);
         expect(response).to.eql(expected);
     });
