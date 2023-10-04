@@ -22,7 +22,7 @@ FetchContent_Declare(UrlLib
     GIT_TAG 0cd1dcae12fbf8943e81e496af3e4047f20c32b0)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
-    GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
+    GIT_TAG 89b0a4138a92883ae2514be68018a6c837a5b65f)
 FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
 
