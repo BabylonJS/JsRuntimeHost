@@ -5,7 +5,7 @@ pr:
 - main
 
 variables:
-- name: NDK_VERSION
+- name: ndkVersion
   value: 25.2.9519653
 
 jobs:

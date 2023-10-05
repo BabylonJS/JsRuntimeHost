@@ -5,7 +5,7 @@ parameters:
   simulator: ''
 
 jobs:
-- job: ${{ parameters.name }}
+- job: ${{parameters.name}}
   timeoutInMinutes: 15
 
   pool:
