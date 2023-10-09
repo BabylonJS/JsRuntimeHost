@@ -63,10 +63,13 @@ describe("AbortController", function () {
 });
 
 describe("XMLHTTPRequest", function () {
-    function createRequest(method, url, body) {
+    function createRequest(method, url, body, responseType) {
         return new Promise((resolve) => {
             const xhr = new XMLHttpRequest();
             xhr.open(method, url);
+            if (responseType !== undefined) {
+                xhr.responseType = responseType;
+            }
             xhr.addEventListener("loadend", () => resolve(xhr));
             xhr.send(body);
         });
@@ -164,6 +167,25 @@ describe("XMLHTTPRequest", function () {
         const xhr = await createRequestWithHeaders("POST", "https://babylonresponder.azurewebsites.net/api/req200", headersMap, "testBody");
         expect(xhr).to.have.property('readyState', 4);
         expect(xhr).to.have.property('status', 200);
+    });
+
+    if (hostPlatform === "macOS" || hostPlatform === "Unix" || hostPlatform === "Win32") {
+        it("should load URL pointing to symlink", async function () {
+            const xhr = await createRequest("GET", "app:///Scripts/symlink_1.js");
+            expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
+        });
+
+        it("should load URL pointing to symlink that points to a symlink", async function () {
+            const xhr = await createRequest("GET", "app:///Scripts/symlink_2.js");
+            expect(xhr).to.have.property('responseText', 'var symlink_target_js = true;');
+        });
+    }
+
+    it("should load URL as array buffer", async function () {
+        const xhr = await createRequest("GET", "app:///Scripts/symlink_target.js", undefined, "arraybuffer");
+        var expected = new Uint8Array("var symlink_target_js = true;".split("").map(x => x.charCodeAt(0)));
+        var response = new Uint8Array(xhr.response);
+        expect(response).to.eql(expected);
     });
 });
 
