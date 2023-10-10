@@ -23,7 +23,7 @@ namespace
     constexpr const char* JS_INSTANCE_NAME{ "console" };
 
     // from: https://stackoverflow.com/a/49812018
-    const std::string vformat(const char* const zcFormat, ...)
+    const std::string FormatString(const char* const format, ...)
     {
         // initialize use of the variable argument array
         va_list vaArgs;
