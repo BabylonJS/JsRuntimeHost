@@ -14,27 +14,13 @@
 
 namespace
 {
+    // Struct used for splitting string into parts
     struct STRING_PART
     {
-        std::string value;
+        std::string_view value;
         bool isSub;
     };
     constexpr const char* JS_INSTANCE_NAME{ "console" };
-
-    // from: https://stackoverflow.com/questions/2342162/stdstring-formatting-like-sprintf/26221725#26221725
-    /* template<typename... Args>
-    std::string string_format(const std::string& format, Args... args)
-    {
-        int size_s = std::snprintf(nullptr, 0, format.c_str(), args...) + 1; // Extra space for '\0'
-        if (size_s <= 0)
-        {
-            throw std::runtime_error("Error during formatting.");
-        }
-        size_t size = static_cast<size_t>(size_s);
-        std::string buf(size_t, '-');
-        std::snprintf(buf.c_str(), size, format.c_str(), args...);
-        return buf;
-    }*/
 
     // from: https://stackoverflow.com/a/49812018
     const std::string vformat(const char* const zcFormat, ...)
@@ -84,56 +70,8 @@ namespace
             func.Call(argc, args.data());
         }
     }
-    
-    /*
-    * Given a string, this will split its substitution parameters
-    * Example: "foo %s bar" will be split into ["foo", "%s", "bar"]
-    * The parameters will be later substituted for arguments
-    */
-    std::vector<STRING_PART> SplitString(std::string s) {
-        std::vector<STRING_PART> result = std::vector<STRING_PART>();
 
-        size_t start = 0;
-        bool matching = false;
-        std::size_t i;
-        for (i = 0; i < s.size(); i++)
-        {
-            const char currChar = s.at(i);
-            if (!matching && currChar == '%')
-            {
-                matching = true;
-                if (i > 0)
-                {
-                    std::string prefix = s.substr(start, i - start);
-                    result.push_back({prefix, false});
-                }
-                start = i;
-            }
-            else if (matching && (currChar == 's' || currChar == 'o' || currChar == 'O' || currChar == 'd' || currChar == 'i' || currChar == 'f'))
-            {
-                matching = false;
-                std::string prefix = s.substr(start, i - start + 1);
-                result.push_back({prefix, true});
-                start = i + 1;
-            }
-            else if (matching && (currChar == ' '))
-            {
-                matching = false;
-                std::string prefix = s.substr(start, i - start + 1);
-                result.push_back({prefix, false});
-                start = i + 1;
-            }
-        }
-        if (start < i)
-        {
-            std::string prefix = s.substr(start, i - start);
-            result.push_back({prefix, false});
-        }
-
-        return result;
-    }
-
-    bool EndsWith(std::string s, char c) {
+    bool EndsWith(std::string_view s, char c) {
         if (s.size() > 0)
         {
             return s.at(s.size() - 1) == c;
@@ -148,7 +86,45 @@ namespace
         if (info.Length() > 0)
         {
             std::string firstArg = info[0].ToString();
-            std::vector<STRING_PART> parts = SplitString(firstArg);
+            std::vector<STRING_PART> parts = std::vector<STRING_PART>();
+
+            // Split the first string into parts limited by substitution characters
+            size_t start = 0;
+            bool matching = false;
+            std::size_t j;
+            for (j = 0; j < firstArg.size(); j++)
+            {
+                const char currChar = firstArg.at(j);
+                if (!matching && currChar == '%')
+                {
+                    matching = true;
+                    if (j > 0)
+                    {
+                        std::string_view prefix(firstArg.data() + start, j - start);
+                        parts.push_back({prefix, false});
+                    }
+                    start = j;
+                }
+                else if (matching && (currChar == 's' || currChar == 'o' || currChar == 'O' || currChar == 'd' || currChar == 'i' || currChar == 'f'))
+                {
+                    matching = false;
+                    std::string_view prefix(firstArg.data() + start, j - start + 1);
+                    parts.push_back({prefix, true});
+                    start = j + 1;
+                }
+                else if (matching && (currChar == ' '))
+                {
+                    matching = false;
+                    std::string_view prefix(firstArg.data() + start, j - start + 1);
+                    parts.push_back({prefix, false});
+                    start = j + 1;
+                }
+            }
+            if (start < j)
+            {
+                std::string_view prefix(firstArg.data() + start, j - start);
+                parts.push_back({prefix, false});
+            }
 
             size_t currArgIndex = 1;
 
@@ -164,7 +140,7 @@ namespace
                     {
                         Napi::Value currArg = info[currArgIndex];
                         // Check the type of the sub string
-                        std::string subString = part.value;
+                        std::string_view subString = part.value;
                         if (EndsWith(subString, 'f'))
                         {
                             double d = currArg.ToNumber().DoubleValue();
@@ -174,13 +150,16 @@ namespace
                             }
                             else
                             {
-                                std::string formatted = vformat(subString.c_str(), d);
+                                // I had to copy the string view to a string here, because the data pointer of the string view
+                                // returns a view of the entire character sequence
+                                std::string copiedSubString(subString); 
+                                std::string formatted = vformat(copiedSubString.c_str(), d);
                                 ss << formatted;
                             }
                         }
                         else if (EndsWith(subString, 'd') || EndsWith(subString, 'i'))
                         {
-                            // For some reason, converting to int doesn't result in nans, so we check with double.
+                            // For some reason, converting to int doesn't result in nans, so I check with double.
                             double d = currArg.ToNumber().DoubleValue();
                             if (std::isnan(d))
                             {
@@ -189,7 +168,9 @@ namespace
                             else
                             {
                                 int64_t n = currArg.ToNumber().Int64Value();
-                                std::string formatted = vformat(subString.c_str(), n);
+                                // Some explanation as above to why copy to a string
+                                std::string copiedSubString(subString);
+                                std::string formatted = vformat(copiedSubString.c_str(), n);
                                 ss << formatted;
                             }
                         }
@@ -207,10 +188,6 @@ namespace
                 else
                 {
                     ss << part.value;
-                    /* if (currArgIndex < info.Length() - 1)
-                    {
-                        ss << " ";
-                    }*/
                 }
             }
             // if any arguments are remaining after we done all substitutions we could, then dump them into the stream
