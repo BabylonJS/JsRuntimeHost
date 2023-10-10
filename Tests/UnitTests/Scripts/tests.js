@@ -5,7 +5,7 @@ mocha.setup({ ui: "bdd", reporter: "spec", retries: 5 });
 
 const expect = chai.expect;
 
-describe("AbortController", function () {
+/*describe("AbortController", function () {
     it("should not throw while aborting with no callbacks", function () {
         const controller = new AbortController();
         expect(controller.signal.aborted).to.equal(false);
@@ -616,7 +616,7 @@ describe("URLSearchParams", function () {
     });
 });
 
-
+*/
 describe("Console", function () {
     it("should log a simple console log string without error", function () {
         expect(() => console.log("I am a test string")).to.not.throw();

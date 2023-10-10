@@ -11,6 +11,11 @@
 
 namespace
 {
+    struct STRING_PART
+    {
+        std::string value;
+        bool isSub;
+    };
     const std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
     constexpr const char* JS_INSTANCE_NAME{ "console" };
 
@@ -54,6 +59,55 @@ namespace
             func.Call(argc, args.data());
         }
     }
+    
+    /*
+    * Given a string, this will split its substitution parameters
+    * Example: "foo %s bar" will be split into ["foo", "%s", "bar"]
+    * The parameters will be later substituted for arguments
+    */
+    std::vector<STRING_PART> SplitString(std::string s) {
+        std::vector<STRING_PART> result = std::vector<STRING_PART>();
+
+        size_t start = 0;
+        bool matching = false;
+        std::size_t i;
+        for (i = 0; i < s.size(); i++)
+        {
+            const char currChar = s.at(i);
+            if (!matching && currChar == '%')
+            {
+                matching = true;
+                if (i > 0)
+                {
+                    std::string prefix = s.substr(start, i - start);
+                    result.push_back({prefix, false});
+                }
+                start = i;
+            }
+            else if (matching && (currChar == 's' || currChar == 'o' || currChar == 'O' || currChar == 'd' || currChar == 'i' || currChar == 'f'))
+            {
+                matching = false;
+                std::string prefix = s.substr(start, i - start + 1);
+                result.push_back({prefix, true});
+                start = i + 1;
+            }
+        }
+        if (start < i)
+        {
+            std::string prefix = s.substr(start, i - start);
+            result.push_back({prefix, false});
+        }
+
+        return result;
+    }
+
+    bool EndsWith(std::string s, char c) {
+        if (s.size() > 0)
+        {
+            return s.at(s.size() - 1) == c;
+        }
+        return false;
+    }
 
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
     {
@@ -61,71 +115,75 @@ namespace
         std::string formattedString{};
         if (info.Length() > 0)
         {
-            formattedString = info[0].ToString().Utf8Value();
-            ss << formattedString;
-            // check if this string has substitutions or not
-            std::smatch matches;
+            std::string firstArg = info[0].ToString();
+            std::vector<STRING_PART> parts = SplitString(firstArg);
 
-            bool hasSubsInFirstString = formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub);
+            size_t currArgIndex = 1;
 
-            // for each argument beyond the first (which is the string itself, try to find a substitution string)
-            for (size_t i = 1; i < info.Length(); i++)
+            // Go over the split string, substituting when necessary
+            for (size_t i = 0; i < parts.size(); i++)
             {
-                Napi::Value v = info[i];
+                STRING_PART part = parts.at(i);
 
-                // check if there's a corresponding match to this argument
-                if (hasSubsInFirstString && formattedString.find("%") != std::string::npos && std::regex_search(formattedString, matches, toSub))
+                if (part.isSub)
                 {
-                    const std::string& match = matches[0].str();
-                    std::string converted;
-                    // perform proper formatting
-                    if (match == "%o" || match == "%O" || match == "%s")
+                    // Try to use the next arg for subsitution
+                    if (currArgIndex < info.Length())
                     {
-                        // object: for now just turn into [Object object]
-                        converted = v.ToString().Utf8Value();
-                    }
-                    else if (v.IsNumber() && v.ToString().Utf8Value() != "NaN")
-                    {
-                        // number formatting
-                        // if we have the float specified, force convert to a float
-                        Napi::Number number = v.ToNumber();
-
-                        // number cases
-                        if (match.find("f") != std::string::npos)
+                        Napi::Value currArg = info[currArgIndex];
+                        // Check the type of the sub string
+                        std::string subString = part.value;
+                        if (EndsWith(subString, 'f'))
                         {
-                            converted = string_format(match, number.DoubleValue());
+                            double d = currArg.ToNumber().DoubleValue();
+                            if (std::isnan(d))
+                            {
+                                ss << "NaN";
+                            }
+                            else
+                            {
+                                ss << d;
+                            }
                         }
-                        else
+                        else if (EndsWith(subString, 'd') || EndsWith(subString, 'i'))
                         {
-                            converted = string_format(match, number.Int64Value());
+                            int i = currArg.ToNumber().Int64Value();
+                            if (std::isnan(i))
+                            {
+                                ss << "NaN";
+                            }
+                            else
+                            {
+                                ss << i;
+                            }
                         }
+                        else // 'o', 'O', 's'
+                        {
+                            ss << currArg.ToString().Utf8Value();
+                        }
+                        currArgIndex++;
                     }
-                    else
-                    {
-                        converted = "NaN";
-                    }
-
-                    // replace converted on the original match place
-                    size_t start_pos = matches.position(0);
-                    if (start_pos != std::string::npos)
-                    {
-                        formattedString.replace(start_pos, match.length(), converted);
-                    }
-                    // reset the stringstream
-                    // see: https://stackoverflow.com/questions/20731/how-do-you-clear-a-stringstream-variable
-                    ss.clear();
-                    ss.str("");
-                    ss << formattedString;
-                    formattedString = ss.str();
                 }
                 else
                 {
-                    // if there's no corresponding match, just append to the string
-                    ss << " " << v.ToString().Utf8Value();
+                    ss << part.value;
+                    if (currArgIndex < info.Length() - 1)
+                    {
+                        ss << " ";
+                    }
+                }
+            }
+            // if any arguments are remaining after we done all substitutions we could, then dump them into the stream
+            for (; currArgIndex < info.Length(); currArgIndex++)
+            {
+                Napi::Value currArg = info[currArgIndex];
+                ss << currArg.ToString().Utf8Value();
+                if (currArgIndex < info.Length() - 1)
+                {
+                    ss << " ";
                 }
             }
         }
-        //formattedString = formattedString + "\n";
         ss << std::endl;
         formattedString = ss.str();
 
