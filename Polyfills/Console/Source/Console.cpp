@@ -8,6 +8,9 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <string_view>
+#include <cstdarg>
+#include <vector>
 
 namespace
 {
@@ -16,11 +19,10 @@ namespace
         std::string value;
         bool isSub;
     };
-    const std::regex toSub("(%[oOs])|(%(\\d*\\.\\d*)?[dif])");
     constexpr const char* JS_INSTANCE_NAME{ "console" };
 
     // from: https://stackoverflow.com/questions/2342162/stdstring-formatting-like-sprintf/26221725#26221725
-    template<typename... Args>
+    /* template<typename... Args>
     std::string string_format(const std::string& format, Args... args)
     {
         int size_s = std::snprintf(nullptr, 0, format.c_str(), args...) + 1; // Extra space for '\0'
@@ -28,10 +30,33 @@ namespace
         {
             throw std::runtime_error("Error during formatting.");
         }
-        auto size = static_cast<size_t>(size_s);
-        std::unique_ptr<char[]> buf(new char[size]);
-        std::snprintf(buf.get(), size, format.c_str(), args...);
-        return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
+        size_t size = static_cast<size_t>(size_s);
+        std::string buf(size_t, '-');
+        std::snprintf(buf.c_str(), size, format.c_str(), args...);
+        return buf;
+    }*/
+
+    // from: https://stackoverflow.com/a/49812018
+    const std::string vformat(const char* const zcFormat, ...)
+    {
+        // initialize use of the variable argument array
+        va_list vaArgs;
+        va_start(vaArgs, zcFormat);
+
+        // reliably acquire the size
+        // from a copy of the variable argument array
+        // and a functionally reliable call to mock the formatting
+        va_list vaArgsCopy;
+        va_copy(vaArgsCopy, vaArgs);
+        const int iLen = std::vsnprintf(NULL, 0, zcFormat, vaArgsCopy);
+        va_end(vaArgsCopy);
+
+        // return a formatted string without risking memory mismanagement
+        // and without assuming any compiler or platform specific behavior
+        std::vector<char> zc(iLen + 1);
+        std::vsnprintf(zc.data(), zc.size(), zcFormat, vaArgs);
+        va_end(vaArgs);
+        return std::string(zc.data(), iLen);
     }
 
     void Call(Napi::Function func, const Napi::CallbackInfo& info)
@@ -91,6 +116,13 @@ namespace
                 result.push_back({prefix, true});
                 start = i + 1;
             }
+            else if (matching && (currChar == ' '))
+            {
+                matching = false;
+                std::string prefix = s.substr(start, i - start + 1);
+                result.push_back({prefix, false});
+                start = i + 1;
+            }
         }
         if (start < i)
         {
@@ -142,19 +174,23 @@ namespace
                             }
                             else
                             {
-                                ss << d;
+                                std::string formatted = vformat(subString.c_str(), d);
+                                ss << formatted;
                             }
                         }
                         else if (EndsWith(subString, 'd') || EndsWith(subString, 'i'))
                         {
-                            int i = currArg.ToNumber().Int64Value();
-                            if (std::isnan(i))
+                            // For some reason, converting to int doesn't result in nans, so we check with double.
+                            double d = currArg.ToNumber().DoubleValue();
+                            if (std::isnan(d))
                             {
                                 ss << "NaN";
                             }
                             else
                             {
-                                ss << i;
+                                int64_t n = currArg.ToNumber().Int64Value();
+                                std::string formatted = vformat(subString.c_str(), n);
+                                ss << formatted;
                             }
                         }
                         else // 'o', 'O', 's'
@@ -163,25 +199,26 @@ namespace
                         }
                         currArgIndex++;
                     }
+                    else
+                    {
+                        ss << part.value;
+                    }
                 }
                 else
                 {
                     ss << part.value;
-                    if (currArgIndex < info.Length() - 1)
+                    /* if (currArgIndex < info.Length() - 1)
                     {
                         ss << " ";
-                    }
+                    }*/
                 }
             }
             // if any arguments are remaining after we done all substitutions we could, then dump them into the stream
             for (; currArgIndex < info.Length(); currArgIndex++)
-            {
+            {   
+                ss << " ";
                 Napi::Value currArg = info[currArgIndex];
                 ss << currArg.ToString().Utf8Value();
-                if (currArgIndex < info.Length() - 1)
-                {
-                    ss << " ";
-                }
             }
         }
         ss << std::endl;
