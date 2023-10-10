@@ -72,9 +72,9 @@ namespace
     }
 
     bool EndsWith(std::string_view s, char c) {
-        if (s.size() > 0)
+        if (!s.empty())
         {
-            return s.at(s.size() - 1) == c;
+            return s.back() == c;
         }
         return false;
     }
