@@ -34,7 +34,7 @@ namespace
         // and a functionally reliable call to mock the formatting
         va_list vaArgsCopy;
         va_copy(vaArgsCopy, vaArgs);
-        const int iLen = std::vsnprintf(NULL, 0, zcFormat, vaArgsCopy);
+        const int len = std::vsnprintf(nullptr, 0, format, argsCopy);
         va_end(vaArgsCopy);
 
         // return a formatted string without risking memory mismanagement
