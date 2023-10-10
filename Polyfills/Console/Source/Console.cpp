@@ -86,7 +86,7 @@ namespace
         if (info.Length() > 0)
         {
             std::string firstArg = info[0].ToString();
-            std::vector<STRING_PART> parts = std::vector<STRING_PART>();
+            std::vector<StringPart> parts{};
 
             // Split the first string into parts limited by substitution characters
             size_t start = 0;
