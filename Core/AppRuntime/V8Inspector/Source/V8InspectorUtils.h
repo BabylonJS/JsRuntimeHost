@@ -2,7 +2,6 @@
 // Licensed under the MIT license.
 // This code is based on the old node inspector implementation. See NOTICE.md for Node.js' project license details
 #pragma once
-
 #include <V8Inc.h>
 
 #include <string>

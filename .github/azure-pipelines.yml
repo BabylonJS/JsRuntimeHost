@@ -51,7 +51,7 @@ jobs:
 
   - template: jobs/uwp.yml
     parameters:
-      name: UWP_arm64_V8
+      name: UWP_x64_V8
       platform: x64
       jsEngine: V8
 
