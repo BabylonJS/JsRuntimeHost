@@ -69,7 +69,6 @@ namespace
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
     {
         std::ostringstream ss{};
-        std::string formattedString{};
         if (info.Length() > 0)
         {
             std::string firstArg = info[0].ToString();
@@ -171,9 +170,8 @@ namespace
             }
         }
         ss << std::endl;
-        formattedString = ss.str();
 
-        callback(formattedString.c_str(), logLevel);
+        callback(ss.str().c_str(), logLevel);
     }
 
     void AddMethod(Napi::Object& console, const char* functionName, Babylon::Polyfills::Console::LogLevel logLevel, Babylon::Polyfills::Console::CallbackT callback)
