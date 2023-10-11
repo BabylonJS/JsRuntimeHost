@@ -616,15 +616,14 @@ describe("URLSearchParams", function () {
 });
 
 describe("Console", function () {
-  it("should log a simple console log string without error", function () {
+    it("should log a simple console log string without error", function () {
         expect(() => console.log("I am a test string")).to.not.throw();
     });
-  it("should log sequence of strings", function () {
+    it("should log sequence of strings", function () {
         expect(() => console.log("I", "am", "a", "test", "string", 2, 2.345, { foo: 'bar' })).to.not.throw();
     });
     it("Should log string substitutions", function () {
-      expect(() => console.log("String sub: %s, float sub: %.2f, int sub: %2.d", "string", 3.1457, 3.1457)).to.not.throw();
-        //expect(() => console.log("float sub: %.2f, int sub: %2.d", 3.1457, 3.1457)).to.not.throw();
+        expect(() => console.log("String sub: %s, float sub: %.2f, int sub: %2.d", "string", 3.1457, 3.1457)).to.not.throw();
     });
     it("Should allow numbers to substitute strings", function () {
         expect(() => console.log("Print these numbers! %s %s", 1.2345, 1)).to.not.throw();
@@ -647,7 +646,7 @@ describe("Console", function () {
     });
     it("Should allow logging NaN", function () {
         expect(() => console.log("%d %f %s", NaN, NaN, NaN)).to.not.throw();
-        expect(() => console.log("%d %f %s", 0/0, 0/0, 0/0)).to.not.throw();
+        expect(() => console.log("%d %f %s", 0 / 0, 0 / 0, 0 / 0)).to.not.throw();
     });
 });
 function runTests() {
