@@ -38,32 +38,12 @@ namespace
         }
     }
 
-    bool EndsWith(std::string_view s, char c)
-    {
-        if (!s.empty())
-        {
-            return s.back() == c;
-        }
-        return false;
+    inline bool isNumberEnding(char c) {
+        return c == 'd' || c == 'i' || c == 'f'; 
     }
 
-    // based on: https://stackoverflow.com/a/26221725
-    template<typename T>
-    std::string FormatValue(std::string& formatString, T value, Napi::Env env)
-    {
-        // get the size of what will be written (+1 for null terminator)
-        int size_s = snprintf(nullptr, 0, formatString.c_str(), value) + 1;
-        // if size is 0 or less, we had a formatting error
-        if (size_s <= 0)
-        {
-            throw Napi::Error::New(env, "Error during console.log formatting.");
-        }
-        size_t size = static_cast<size_t>(size_s);
-        // create a string to hold that size (-1 as we don't want the null terminator)
-        std::string buf(size - 1, '0');
-        // write to there
-        snprintf(buf.data(), size, formatString.c_str(), value);
-        return buf;
+    inline bool isStringOrObjectEnding(char c) {
+        return c == 'o' || c == 'O' || c == 's'; 
     }
 
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
@@ -75,89 +55,65 @@ namespace
             size_t currArgIndex = 1;
 
             // Split the first string into parts limited by substitution characters
-            size_t start = 0;
-            bool matching = false;
-            std::size_t j;
-            for (j = 0; j < firstArg.size(); j++)
+            // start of the last place where we stopped matching
+            size_t stoppedMatchingAt = 0;
+            std::size_t j = 0;
+            while (j < firstArg.size())
             {
                 const char currChar = firstArg.at(j);
-                if (!matching && currChar == '%')
+                // When a '%' is encountered, check the next character to determine the type of string we have
+                if (currChar == '%' && j < firstArg.size() - 1 && currArgIndex < info.Length())
                 {
-                    matching = true;
                     if (j > 0)
                     {
-                        std::string_view prefix(firstArg.data() + start, j - start);
+                        std::string_view prefix{firstArg.data() + stoppedMatchingAt, j - stoppedMatchingAt};
                         ss << prefix;
                     }
-                    start = j;
-                }
-                else if (matching && (currChar == 's' || currChar == 'o' || currChar == 'O' || currChar == 'd' || currChar == 'i' || currChar == 'f'))
-                {
-                    matching = false;
-                    std::string_view prefix(firstArg.data() + start, j - start + 1);
-                    // This is a substitution argument, so if we have any remaining arguments to substitute, we should.
-                    // Try to use the next arg for subsitution
-                    if (currArgIndex < info.Length())
+                    char nextChar = firstArg.at(j + 1);
+                    Napi::Value currArg = info[currArgIndex];
+                    // the next character can be one of: [soO], when the substitution string specifies a string
+                    if (isStringOrObjectEnding(nextChar))
                     {
-                        Napi::Value currArg = info[currArgIndex];
-                        // Check the type of the sub string
-                        if (currChar == 'f')
+                        ss << currArg.ToString().Utf8Value();
+                        currArgIndex++;
+                    }
+                    // or [dif], when it specifies a number 
+                    else if (isNumberEnding(nextChar))
+                    {
+                        double d = currArg.ToNumber().DoubleValue();
+                        if (std::isnan(d))
                         {
-                            double d = currArg.ToNumber().DoubleValue();
-                            if (std::isnan(d))
-                            {
-                                ss << "NaN";
-                            }
-                            else
-                            {
-                                // I had to copy the string view to a string here, because the data pointer of the string view
-                                // returns a view of the entire character sequence, which caused an issue on the following
-                                // step when formatting.
-                                std::string copiedSubString(prefix);
-                                std::string formatted = FormatValue(copiedSubString, d, info.Env());
-                                ss << formatted;
-                            }
+                            ss << "NaN";
                         }
-                        else if (currChar == 'd' || currChar == 'i')
+                        else if (nextChar == 'd' || nextChar == 'i')
                         {
-                            // For some reason, converting to int doesn't result in nans, so I check with double.
-                            double d = currArg.ToNumber().DoubleValue();
-                            if (std::isnan(d))
-                            {
-                                ss << "NaN";
-                            }
-                            else
-                            {
-                                int64_t n = static_cast<int64_t>(d);
-                                // Some explanation as above to why copy to a string
-                                std::string copiedSubString(prefix);
-                                std::string formatted = FormatValue(copiedSubString, n, info.Env());
-                                ss << formatted;
-                            }
+                            int64_t i = static_cast<int64_t>(d);
+                            ss << i;
                         }
-                        else // 'o', 'O', 's'
+                        else
                         {
-                            ss << currArg.ToString().Utf8Value();
+                            ss << d;
                         }
                         currArgIndex++;
                     }
+                    // otherwise it's an invalid format string, just dump it on the stream 
                     else
                     {
-                        ss << prefix;
+                        ss << currChar << nextChar;
                     }
-                    start = j + 1;
+                    // walk forward two characters
+                    j += 2;
+                    stoppedMatchingAt = j;
                 }
-                else if (matching && (currChar == ' '))
+                else
                 {
-                    matching = false;
-                    std::string_view prefix(firstArg.data() + start, j - start + 1);
-                    ss << prefix;
-                    start = j + 1;
+                    // walk forward one character
+                    j++;
                 }
             }
-            if (start < j)
+            if (stoppedMatchingAt < j)
             {
-                std::string_view prefix(firstArg.data() + start, j - start);
+                std::string_view prefix{firstArg.data() + stoppedMatchingAt, j - stoppedMatchingAt};
                 ss << prefix;
             }
 
