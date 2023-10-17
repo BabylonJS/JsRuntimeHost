@@ -49,14 +49,14 @@ namespace
 
     // based on: https://stackoverflow.com/a/26221725
     template<typename T>
-    std::string FormatValue(std::string& formatString, T value)
+    std::string FormatValue(std::string& formatString, T value, Napi::Env env)
     {
         // get the size of what will be written (+1 for null terminator)
         int size_s = snprintf(nullptr, 0, formatString.c_str(), value) + 1;
         // if size is 0 or less, we had a formatting error
         if (size_s <= 0)
         {
-            throw std::runtime_error("Error during console.log formatting.");
+            throw Napi::Error::New(env, "Error during console.log formatting.");
         }
         size_t size = static_cast<size_t>(size_s);
         // create a string to hold that size (-1 as we don't want the null terminator)
@@ -101,7 +101,7 @@ namespace
                     {
                         Napi::Value currArg = info[currArgIndex];
                         // Check the type of the sub string
-                        if (EndsWith(prefix, 'f'))
+                        if (currChar == 'f')
                         {
                             double d = currArg.ToNumber().DoubleValue();
                             if (std::isnan(d))
@@ -114,11 +114,11 @@ namespace
                                 // returns a view of the entire character sequence, which caused an issue on the following
                                 // step when formatting.
                                 std::string copiedSubString(prefix);
-                                std::string formatted = FormatValue(copiedSubString, d);
+                                std::string formatted = FormatValue(copiedSubString, d, info.Env());
                                 ss << formatted;
                             }
                         }
-                        else if (EndsWith(prefix, 'd') || EndsWith(prefix, 'i'))
+                        else if (currChar == 'd' || currChar == 'i')
                         {
                             // For some reason, converting to int doesn't result in nans, so I check with double.
                             double d = currArg.ToNumber().DoubleValue();
@@ -128,10 +128,10 @@ namespace
                             }
                             else
                             {
-                                int64_t n = currArg.ToNumber().Int64Value();
+                                int64_t n = static_cast<int64_t>(d);
                                 // Some explanation as above to why copy to a string
                                 std::string copiedSubString(prefix);
-                                std::string formatted = FormatValue(copiedSubString, n);
+                                std::string formatted = FormatValue(copiedSubString, n, info.Env());
                                 ss << formatted;
                             }
                         }
