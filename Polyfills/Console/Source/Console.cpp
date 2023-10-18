@@ -38,12 +38,14 @@ namespace
         }
     }
 
-    inline bool isNumberEnding(char c) {
-        return c == 'd' || c == 'i' || c == 'f'; 
+    inline bool isNumberEnding(char c)
+    {
+        return c == 'd' || c == 'i' || c == 'f';
     }
 
-    inline bool isStringOrObjectEnding(char c) {
-        return c == 'o' || c == 'O' || c == 's'; 
+    inline bool isStringOrObjectEnding(char c)
+    {
+        return c == 'o' || c == 'O' || c == 's';
     }
 
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
@@ -54,9 +56,6 @@ namespace
             std::string firstArg = info[0].ToString();
             size_t currArgIndex = 1;
 
-            // Split the first string into parts limited by substitution characters
-            // start of the last place where we stopped matching
-            size_t stoppedMatchingAt = 0;
             std::size_t j = 0;
             while (j < firstArg.size())
             {
@@ -64,11 +63,6 @@ namespace
                 // When a '%' is encountered, check the next character to determine the type of string we have
                 if (currChar == '%' && j < firstArg.size() - 1 && currArgIndex < info.Length())
                 {
-                    if (j > 0)
-                    {
-                        std::string_view prefix{firstArg.data() + stoppedMatchingAt, j - stoppedMatchingAt};
-                        ss << prefix;
-                    }
                     char nextChar = firstArg.at(j + 1);
                     Napi::Value currArg = info[currArgIndex];
                     // the next character can be one of: [soO], when the substitution string specifies a string
@@ -77,7 +71,7 @@ namespace
                         ss << currArg.ToString().Utf8Value();
                         currArgIndex++;
                     }
-                    // or [dif], when it specifies a number 
+                    // or [dif], when it specifies a number
                     else if (isNumberEnding(nextChar))
                     {
                         double d = currArg.ToNumber().DoubleValue();
@@ -96,25 +90,20 @@ namespace
                         }
                         currArgIndex++;
                     }
-                    // otherwise it's an invalid format string, just dump it on the stream 
+                    // otherwise it's an invalid format string, just dump it on the stream
                     else
                     {
                         ss << currChar << nextChar;
                     }
                     // walk forward two characters
                     j += 2;
-                    stoppedMatchingAt = j;
                 }
                 else
                 {
-                    // walk forward one character
+                    // walk forward one character and print it on the stream
+                    ss << currChar;
                     j++;
                 }
-            }
-            if (stoppedMatchingAt < j)
-            {
-                std::string_view prefix{firstArg.data() + stoppedMatchingAt, j - stoppedMatchingAt};
-                ss << prefix;
             }
 
             // if any arguments are remaining after we done all substitutions we could, then dump them into the stream

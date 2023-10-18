@@ -623,7 +623,7 @@ describe("Console", function () {
         expect(() => console.log("I", "am", "a", "test", "string", 2, 2.345, { foo: 'bar' })).to.not.throw();
     });
     it("Should log string substitutions", function () {
-        expect(() => console.log("String sub: %s, float sub: %.2f, int sub: %2.d", "string", 3.1457, 3.1457)).to.not.throw();
+        expect(() => console.log("String sub: %s, float sub: %f, int sub: %d", "string", 3.1457, 3.1457)).to.not.throw();
     });
     it("Should allow numbers to substitute strings", function () {
         expect(() => console.log("Print these numbers! %s %s", 1.2345, 1)).to.not.throw();
@@ -640,9 +640,11 @@ describe("Console", function () {
     it("Should allow a substitution argument with no parameter", function () {
         expect(() => console.log("%s")).to.not.throw();
     });
-    it("Should allow for other letters prefixed by % without substitution", function () {
+    it("Should ignore invalid substitution arguments", function () {
         expect(() => console.log("%y %s %k", "I am a string")).to.not.throw();
-        expect(() => console.log('%a %b %c', 123)).to.not.throw();
+        expect(() => console.log("%y%s%k", "I am a string")).to.not.throw();
+        expect(() => console.log('%', 756)).to.not.throw();
+        expect(() => console.log('%%', 756)).to.not.throw();
     });
     it("Should allow logging NaN", function () {
         expect(() => console.log("%d %f %s", NaN, NaN, NaN)).to.not.throw();
