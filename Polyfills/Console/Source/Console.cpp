@@ -71,7 +71,7 @@ namespace
                     else if (isNumberEnding(nextChar))
                     {
                         double d = currArg.ToNumber().DoubleValue();
-                        if (std::isnan(d))
+                        if (isnan(d))
                         {
                             ss << "NaN";
                         }
