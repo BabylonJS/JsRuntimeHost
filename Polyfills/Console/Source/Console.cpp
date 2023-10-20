@@ -71,7 +71,8 @@ namespace
                     else if (isNumberEnding(nextChar))
                     {
                         double d = currArg.ToNumber().DoubleValue();
-                        if (isnan(d))
+                        // in IEEE standard, comparing NaN is always false. this avoids using isnan
+                        if (d != d)
                         {
                             ss << "NaN";
                         }
