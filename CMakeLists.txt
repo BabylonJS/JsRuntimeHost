@@ -26,7 +26,7 @@ FetchContent_Declare(asio
 FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
 FetchContent_Declare(googletest
-    URL "https://github.com/google/googletest/archive/refs/tags/v1.13.0.tar.gz")
+    URL "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz")
 
 set(CONTENT_TO_FETCH cmake-extensions googletest)
 
