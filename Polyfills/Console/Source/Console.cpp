@@ -34,16 +34,6 @@ namespace
         }
     }
 
-    inline bool isNumberEnding(char c)
-    {
-        return c == 'd' || c == 'i' || c == 'f';
-    }
-
-    inline bool isStringOrObjectEnding(char c)
-    {
-        return c == 'o' || c == 'O' || c == 's';
-    }
-
     void InvokeCallback(Babylon::Polyfills::Console::CallbackT callback, const Napi::CallbackInfo& info, Babylon::Polyfills::Console::LogLevel logLevel)
     {
         std::ostringstream ss{};
@@ -55,20 +45,20 @@ namespace
             std::size_t j = 0;
             while (j < firstArg.size())
             {
-                const char currChar = firstArg.at(j);
+                const char currChar = firstArg[j];
                 // When a '%' is encountered, check the next character to determine the type of string we have
                 if (currChar == '%' && j < firstArg.size() - 1 && currArgIndex < info.Length())
                 {
-                    char nextChar = firstArg.at(j + 1);
+                    char nextChar = firstArg[j + 1];
                     Napi::Value currArg = info[currArgIndex];
                     // the next character can be one of: [soO], when the substitution string specifies a string
-                    if (isStringOrObjectEnding(nextChar))
+                    if (nextChar == 'o' || nextChar == 'O' || nextChar == 's')
                     {
                         ss << currArg.ToString().Utf8Value();
                         currArgIndex++;
                     }
                     // or [dif], when it specifies a number
-                    else if (isNumberEnding(nextChar))
+                    else if (nextChar == 'd' || nextChar == 'i' || nextChar == 'f')
                     {
                         double d = currArg.ToNumber().DoubleValue();
                         // in IEEE standard, comparing NaN is always false. this avoids using isnan
