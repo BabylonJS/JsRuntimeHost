@@ -3,6 +3,7 @@
 #include <array>
 #include <functional>
 #include <sstream>
+#include <cmath>
 
 namespace
 {
@@ -61,8 +62,7 @@ namespace
                     else if (nextChar == 'd' || nextChar == 'i' || nextChar == 'f')
                     {
                         double d = currArg.ToNumber().DoubleValue();
-                        // in IEEE standard, comparing NaN is always false. this avoids using isnan
-                        if (d != d)
+                        if (std::isnan(d))
                         {
                             ss << "NaN";
                         }
