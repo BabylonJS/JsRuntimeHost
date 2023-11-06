@@ -10,6 +10,9 @@
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
+#ifdef WIN32
+#include <Winsock2.h>
+#endif
 #include <asio.hpp>
 
 namespace Babylon
