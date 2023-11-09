@@ -96,12 +96,7 @@ if(NAPI_BUILD_ABI)
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
                 PUBLIC "${V8_ANDROID_DIR}/jni/${ANDROID_ABI}/libv8android.so")
 
-            if(CPU_ARCH STREQUAL "x64")
-                # Enable V8 Pointer Compression
-                # https://v8.dev/blog/pointer-compression
-                # https://stackoverflow.com/q/62921373
-                set(NAPI_DEFINITIONS PUBLIC V8_COMPRESS_POINTERS)
-            endif()
+            set(NAPI_DEFINITIONS PUBLIC V8_COMPRESS_POINTERS)
         elseif(WIN32)
             set_cpu_platform_arch()
             set(V8_VERSION "8.4.371.15")
