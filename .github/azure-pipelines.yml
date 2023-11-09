@@ -6,7 +6,7 @@ pr:
 
 variables:
 - name: ndkVersion
-  value: 22.1.7171670
+  value: 23.2.8568313
 
 jobs:
   # WIN32
