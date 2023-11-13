@@ -2563,7 +2563,7 @@ napi_status napi_create_arraybuffer(napi_env env,
   // Optionally return a pointer to the buffer's data, to avoid another call to
   // retrieve it.
   if (data != nullptr) {
-    *data = buffer->GetContents().Data();
+    *data = buffer->GetBackingStore()->Data();
   }
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
@@ -2580,10 +2580,16 @@ napi_status napi_create_external_arraybuffer(napi_env env,
   CHECK_ARG(env, result);
 
   v8::Isolate* isolate = env->isolate;
-  v8::Local<v8::ArrayBuffer> buffer =
-      v8::ArrayBuffer::New(isolate, external_data, byte_length);
 
-  if (finalize_cb != nullptr) {
+v8::Local<v8::ArrayBuffer> buffer;
+
+ //if (finalize_cb != nullptr) {
+  auto backStore = v8::ArrayBuffer::NewBackingStore(external_data, byte_length, 0/*finalize_cb*/, finalize_hint);
+  buffer = v8::ArrayBuffer::New(isolate, std::move(backStore));
+ //} else {
+  //buffer = v8::ArrayBuffer::New(isolate, backStore);
+ //}
+ /*
     // Create a self-deleting weak reference that invokes the finalizer
     // callback.
     v8impl::Reference::New(env,
@@ -2594,7 +2600,7 @@ napi_status napi_create_external_arraybuffer(napi_env env,
         external_data,
         finalize_hint);
   }
-
+*/
   *result = v8impl::JsValueFromV8LocalValue(buffer);
   return GET_RETURN_STATUS(env);
 }
@@ -2609,15 +2615,15 @@ napi_status napi_get_arraybuffer_info(napi_env env,
   v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
   RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), napi_invalid_arg);
 
-  v8::ArrayBuffer::Contents contents =
-      value.As<v8::ArrayBuffer>()->GetContents();
+  auto backingstore =
+      value.As<v8::ArrayBuffer>()->GetBackingStore();
 
   if (data != nullptr) {
-    *data = contents.Data();
+    *data = backingstore->Data();
   }
 
   if (byte_length != nullptr) {
-    *byte_length = contents.ByteLength();
+    *byte_length = backingstore->ByteLength();
   }
 
   return napi_clear_last_error(env);
@@ -2750,7 +2756,7 @@ napi_status napi_get_typedarray_info(napi_env env,
 
   v8::Local<v8::ArrayBuffer> buffer = array->Buffer();
   if (data != nullptr) {
-    *data = static_cast<uint8_t*>(buffer->GetContents().Data()) +
+    *data = static_cast<uint8_t*>(buffer->GetBackingStore()->Data()) +
             array->ByteOffset();
   }
 
@@ -2824,7 +2830,7 @@ napi_status napi_get_dataview_info(napi_env env,
 
   v8::Local<v8::ArrayBuffer> buffer = array->Buffer();
   if (data != nullptr) {
-    *data = static_cast<uint8_t*>(buffer->GetContents().Data()) +
+    *data = static_cast<uint8_t*>(buffer->GetBackingStore()->Data()) +
             array->ByteOffset();
   }
 

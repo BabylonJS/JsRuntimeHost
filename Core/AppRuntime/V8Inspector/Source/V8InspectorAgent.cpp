@@ -471,7 +471,7 @@ namespace Babylon
         v8::Local<v8::Context> context =
             v8::Isolate::GetCurrent()->GetCurrentContext();
 
-        int script_id = static_cast<int>(message->GetScriptOrigin().ScriptID()->Value());
+        int script_id = message->GetScriptOrigin().ScriptId();
 
         v8::Local<v8::StackTrace> stack_trace = message->GetStackTrace();
 
