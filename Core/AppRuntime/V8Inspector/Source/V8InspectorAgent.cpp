@@ -234,7 +234,11 @@ namespace Babylon
         void connectFrontend()
         {
             session_ = inspector_->connect(
-                1, new ChannelImpl(agent_), v8_inspector::StringView(), v8_inspector::V8Inspector::kFullyTrusted);
+                1, new ChannelImpl(agent_), v8_inspector::StringView()
+#ifndef ANDROID
+                , v8_inspector::V8Inspector::kFullyTrusted
+#endif
+            );
         }
 
         void disconnectFrontend()
