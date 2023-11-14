@@ -117,12 +117,13 @@ if(NAPI_BUILD_ABI)
             
             set(V8_DIST
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icudtl.dat"
-                "${V8_REDIST_PACKAGE_PATH}/lib/Release/icui18n.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/third_party_icu_icui18n.dll"
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/third_party_abseil-cpp_absl.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icuuc.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8_libbase.dll"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/v8_libplatform.dll"
-                "${V8_REDIST_PACKAGE_PATH}/lib/Release/zlib.dll")
+                "${V8_REDIST_PACKAGE_PATH}/lib/Release/third_party_zlib.dll")
 
             # only 1 imported location per library -> Adding 1 library per file
             foreach(V8FILE ${V8_DIST})
@@ -135,12 +136,12 @@ if(NAPI_BUILD_ABI)
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
                 PUBLIC v8
                 PRIVATE v8::icudtl
-                PRIVATE v8::icui18n
+                PRIVATE v8::third_party_icu_icui18n
                 PRIVATE v8::icuuc
                 PRIVATE v8::v8
                 PRIVATE v8::v8_libbase
                 PRIVATE v8::v8_libplatform
-                PRIVATE v8::zlib)
+                PRIVATE v8::third_party_zlib)
             
             if(CPU_ARCH STREQUAL "x64")
                 # Enable V8 Pointer Compression

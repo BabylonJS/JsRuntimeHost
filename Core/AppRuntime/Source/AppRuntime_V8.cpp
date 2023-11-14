@@ -32,10 +32,10 @@ namespace Babylon
                 v8::StartupData startupData;
                 startupData.data = (const char*)_acsnapshot_blob;
                 startupData.raw_size = 62690;
+                v8::V8::SetSnapshotDataBlob(&startupData);
 #else
                 v8::V8::InitializeExternalStartupData(executablePath);
 #endif
-                v8::V8::SetSnapshotDataBlob(&startupData);
                 m_platform = v8::platform::NewDefaultPlatform();
                 v8::V8::InitializePlatform(m_platform.get());
                 v8::V8::Initialize();
@@ -44,7 +44,9 @@ namespace Babylon
             ~Module()
             {
                 v8::V8::Dispose();
+#ifdef ANDROID
                 v8::V8::ShutdownPlatform();
+#endif
             }
 
             static Module& Initialize(const char* executablePath)

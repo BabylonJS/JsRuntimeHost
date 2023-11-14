@@ -361,7 +361,7 @@ inline static napi_status Unwrap(napi_env env,
   v8::Local<v8::Object> obj = value.As<v8::Object>();
 
   auto val = obj->GetInternalField(0);
-  RETURN_STATUS_IF_FALSE(env, val->IsExternal(), napi_invalid_arg);
+  //RETURN_STATUS_IF_FALSE(env, val->IsExternal(), napi_invalid_arg);
   Reference* reference =
       static_cast<v8impl::Reference*>(val.As<v8::External>()->Value());
 
@@ -614,9 +614,9 @@ inline napi_status Wrap(napi_env env,
 
   if (wrap_type == retrievable) {
     // If we've already wrapped this object, we error out.
-    RETURN_STATUS_IF_FALSE(env,
+    /*RETURN_STATUS_IF_FALSE(env,
         obj->GetInternalField(0)->IsUndefined(),
-        napi_invalid_arg);
+        napi_invalid_arg);*/
   } else if (wrap_type == anonymous) {
     // If no finalize callback is provided, we error out.
     CHECK_ARG(env, finalize_cb);
