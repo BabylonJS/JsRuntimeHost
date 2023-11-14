@@ -28,11 +28,13 @@ namespace Babylon
             Module(const char* executablePath)
             {
                 v8::V8::InitializeICUDefaultLocation(executablePath);
+#ifdef ANDROID
                 v8::StartupData startupData;
                 startupData.data = (const char*)_acsnapshot_blob;
-                startupData.raw_size = 62690;//sizeof(_acsnapshot_blob);
-
-                //v8::V8::InitializeExternalStartupData("./assets/jni/x86_64/");
+                startupData.raw_size = 62690;
+#else
+                v8::V8::InitializeExternalStartupData(executablePath);
+#endif
                 v8::V8::SetSnapshotDataBlob(&startupData);
                 m_platform = v8::platform::NewDefaultPlatform();
                 v8::V8::InitializePlatform(m_platform.get());
