@@ -1,41 +1,42 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24
-if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
 include(FetchContent)
 
-# Modules declaration
-FetchContent_Declare(cmake-extensions
-    GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-    GIT_TAG efe7101be5e04391b9e55f68a01d534f54d3026e)
-FetchContent_Declare(ios-cmake
-    GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
-    GIT_TAG 04d91f6675dabb3c97df346a32f6184b0a7ef845)
-FetchContent_Declare(arcana
+# --------------------------------------------------
+# Declarations
+# --------------------------------------------------
+FetchContent_Declare(arcana.cpp
     GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
     GIT_TAG f2757396e80bc4169f2ddb938ce25367a98ffdd0)
-FetchContent_Declare(UrlLib
-    GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG 8fba6e8294b88f034b7bc8c8b75446ff477ca3dd)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
+FetchContent_Declare(CMakeExtensions
+    GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
+    GIT_TAG 36383052398767cbb3a7daa2bc96e62163bd549a)
+FetchContent_Declare(ios-cmake
+    GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
+    GIT_TAG 4.4.1)
 FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
+FetchContent_Declare(UrlLib
+    GIT_REPOSITORY https://github.com/bghgary/UrlLib.git
+    GIT_TAG 3887ccc8cc838700340555581f76cac6b362fa91)
+# --------------------------------------------------
 
-set(CONTENT_TO_FETCH cmake-extensions)
+FetchContent_MakeAvailable(CMakeExtensions)
 
 if(IOS)
-    FetchContent_MakeAvailable(ios-cmake)
+    FetchContent_MakeAvailable_With_Message(ios-cmake)
     set(CMAKE_TOOLCHAIN_FILE "${ios-cmake_SOURCE_DIR}/ios.toolchain.cmake" CACHE PATH "")
     set(PLATFORM "OS64COMBINED" CACHE STRING "")
     set(DEPLOYMENT_TARGET "12" CACHE STRING "")
 endif()
 
-# Project
 project(JsRuntimeHost)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -43,14 +44,20 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --------------------------------------------------
 # Options
+# --------------------------------------------------
 
-## Core
+# General
+option(JSRUNTIMEHOST_TESTS "Include JsRuntimeHost Tests." ${PROJECT_IS_TOP_LEVEL})
+option(NAPI_BUILD_ABI "Build the ABI layer." ON)
+
+# Core
 option(JSRUNTIMEHOST_CORE_APPRUNTIME "Include JsRuntimeHost Core AppRuntime" ON)
 option(JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR "Include the V8 inspector protocol required to debug JavaScript with a V8 debugger." ON)
 option(JSRUNTIMEHOST_CORE_SCRIPTLOADER "Include JsRuntimeHost Core ScriptLoader" ON)
 
-## Polyfills
+# Polyfills
 option(JSRUNTIMEHOST_POLYFILL_CONSOLE "Include JsRuntimeHost Polyfill Console." ON)
 option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include JsRuntimeHost Polyfill Scheduling." ON)
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include JsRuntimeHost Polyfill XMLHttpRequest." ON)
@@ -58,60 +65,27 @@ option(JSRUNTIMEHOST_POLYFILL_URL "Include JsRuntimeHost Polyfill URL and URLSea
 option(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER "Include JsRuntimeHost Polyfills AbortController and AbortSignal." ON)
 option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include JsRuntimeHost Polyfill WebSocket." ON)
 
-## Tests
-option(JSRUNTIMEHOST_TESTS "Include JsRuntimeHost Tests." ${PROJECT_IS_TOP_LEVEL})
+# --------------------------------------------------
 
-## Node-API
-option(NAPI_BUILD_ABI "Build the ABI layer." ON)
+FetchContent_MakeAvailable_With_Message(arcana.cpp)
+set_property(TARGET arcana PROPERTY FOLDER Dependencies)
 
-# Dependencies
-
-if(NOT TARGET arcana)
-    set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} arcana)
-endif()
-
-if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
-    set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} UrlLib)
-endif()
-
-if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
-    if(NOT TARGET asio)
-        set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} asio)
-    endif()
-
-    if(NOT TARGET llhttp_static)
-        set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
-        set(BUILD_STATIC_LIBS ON CACHE INTERNAL "")
-        set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} llhttp)
-    endif()
-endif()
-
-# Fetching content
-message(STATUS "Fetching dependencies for ${PROJECT_NAME} (${CONTENT_TO_FETCH})")
-FetchContent_MakeAvailable(${CONTENT_TO_FETCH})
-message(STATUS "Fetching dependencies for ${PROJECT_NAME} - done")
-
-# Set properties after fetching content
-if(TARGET arcana)
-    set_property(TARGET arcana PROPERTY FOLDER Dependencies)
-endif()
-
-if(TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
+if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
+    FetchContent_MakeAvailable_With_Message(UrlLib)
     set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
-    if(NOT TARGET asio)
-        add_library(asio INTERFACE)
-        target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
-        set_property(TARGET asio PROPERTY FOLDER Dependencies)
-    endif()
-    if(NOT TARGET llhttp_static)
-        set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
-    endif()
-endif()
+    FetchContent_MakeAvailable_With_Message(asio)
+    add_library(asio INTERFACE)
+    target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
+    set_property(TARGET asio PROPERTY FOLDER Dependencies)
 
-# Subdirectories
+    set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
+    set(BUILD_STATIC_LIBS ON CACHE INTERNAL "")
+    FetchContent_MakeAvailable_With_Message(llhttp)
+    set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
+endif()
 
 if(ANDROID)
     set(JSRUNTIMEHOST_PLATFORM "Android")
