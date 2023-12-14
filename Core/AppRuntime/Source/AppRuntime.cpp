@@ -37,7 +37,8 @@ namespace Babylon
         m_workQueue->Resume();
     }
 
-    std::string getStringPropertyFromError(Napi::Error error, const char* propertyName) {
+    std::string getStringPropertyFromError(Napi::Error error, const char* propertyName)
+    {
         Napi::Value value = error.Get(propertyName);
         if (value.IsUndefined())
         {
@@ -66,19 +67,21 @@ namespace Babylon
                 }
                 catch (const Napi::Error& error)
                 {
+                    std::ostringstream ss{};
+
                     std::string msg = error.Message();
-                    
                     std::string source = getStringPropertyFromError(error, "source");
                     std::string url = getStringPropertyFromError(error, "url");
                     int32_t line = getNumberPropertyFromError(error, "line");
                     int32_t column = getNumberPropertyFromError(error, "column");
                     int32_t length = getNumberPropertyFromError(error, "length");
-                    std::ostringstream ss{};
-                    ss << "Error on line " << line << " and column " << column
-                       << ": " << msg << ". Length: " << length << ". Source: " << source << ". URL: " << url << std::endl;
+                    std::string stack = getStringPropertyFromError(error, "stack");
 
+                    ss << "Error on line " << line << " and column " << column
+                       << ": " << msg << ". Length: " << length << ". Source: " << source << ". URL: " << url << ". Stack:" << std::endl << stack << std::endl;
+                    
                     Napi::Error newError = Napi::Error::New(env, ss.str());
-                    m_unhandledExceptionHandler(newError); 
+                    m_unhandledExceptionHandler(newError);
                 }
                 catch (const std::exception& error)
                 {
