@@ -184,9 +184,9 @@ namespace Babylon::Polyfills::Internal
                     m_onopen.Call({});
                 }
             }
-            catch (...)
+            catch (std::exception& e)
             {
-                Napi::Error::New(Env(), std::current_exception())
+                Napi::Error::New(Env(), e.what())
                     .ThrowAsJavaScriptException();
             }
         });
@@ -210,9 +210,9 @@ namespace Babylon::Polyfills::Internal
                     m_onclose.Call({closeEvent});
                 }
             }
-            catch (...)
+            catch (std::exception& e)
             {
-                Napi::Error::New(Env(), std::current_exception())
+                Napi::Error::New(Env(), e.what())
                     .ThrowAsJavaScriptException();
             }
 
@@ -242,9 +242,9 @@ namespace Babylon::Polyfills::Internal
                     }
                 }
             }
-            catch (...)
+            catch (std::exception& e)
             {
-                Napi::Error::New(Env(), std::current_exception())
+                Napi::Error::New(Env(), e.what())
                     .ThrowAsJavaScriptException();
             }
         });
@@ -269,9 +269,9 @@ namespace Babylon::Polyfills::Internal
                     }
                 }
             }
-            catch (...)
+            catch (std::exception& e)
             {
-                Napi::Error::New(Env(), std::current_exception())
+                Napi::Error::New(Env(), e.what())
                     .ThrowAsJavaScriptException();
             }
         });

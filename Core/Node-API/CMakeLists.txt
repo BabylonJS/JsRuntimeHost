@@ -16,6 +16,8 @@ set(SOURCES
     "Include/Engine/${NAPI_JAVASCRIPT_ENGINE}/napi/env.h"
     "Include/Shared/napi/js_native_api.h"
     "Include/Shared/napi/js_native_api_types.h"
+    "Include/Shared/napi/node_api_types.h"
+    "Include/Shared/napi/node_api.h"
     "Include/Shared/napi/napi.h"
     "Include/Shared/napi/napi-inl.h"
     "Source/env.cc")
@@ -111,7 +113,7 @@ if(NAPI_BUILD_ABI)
             set_target_properties(v8 PROPERTIES IMPORTED_IMPLIB "${V8_PACKAGE_PATH}/lib/Release/v8.dll.lib")
             target_link_libraries(v8 INTERFACE v8_libbase INTERFACE v8_libplatform)
             target_include_directories(v8 INTERFACE "${V8_PACKAGE_PATH}/include")
-            
+
             set(V8_DIST
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icudtl.dat"
                 "${V8_REDIST_PACKAGE_PATH}/lib/Release/icui18n.dll"
@@ -138,7 +140,7 @@ if(NAPI_BUILD_ABI)
                 PRIVATE v8::v8_libbase
                 PRIVATE v8::v8_libplatform
                 PRIVATE v8::zlib)
-            
+
             if(CPU_ARCH STREQUAL "x64")
                 # Enable V8 Pointer Compression
                 # https://v8.dev/blog/pointer-compression
@@ -160,6 +162,7 @@ add_library(napi ${SOURCES})
 target_compile_definitions(napi
     PUBLIC NODE_ADDON_API_DISABLE_DEPRECATED
     PUBLIC NODE_ADDON_API_DISABLE_NODE_SPECIFIC
+    PUBLIC NAPI_VERSION=3
     ${NAPI_DEFINITIONS})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})

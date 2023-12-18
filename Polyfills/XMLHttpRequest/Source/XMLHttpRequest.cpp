@@ -255,7 +255,14 @@ namespace Babylon::Polyfills::Internal
         m_request.SendAsync().then(m_runtimeScheduler, arcana::cancellation::none(), [env{info.Env()}, this](arcana::expected<void, std::exception_ptr> result) {
             if (result.has_error())
             {
-                Napi::Error::New(env, result.error()).ThrowAsJavaScriptException();
+                try
+                {
+                    throw result.error();
+                }
+                catch (std::exception &e)
+                {
+                    Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();             
+                }
                 return;
             }
 

@@ -9,6 +9,7 @@
 #include <vector>
 #include <locale>
 #include <codecvt>
+#include <napi/node_api_types.h>
 
 struct napi_callback_info__ {
   napi_value newTarget;
@@ -2453,4 +2454,9 @@ napi_status napi_adjust_external_memory(napi_env env,
   *adjusted_value = change_in_bytes;
 
   return napi_ok;
+}
+
+napi_status napi_close_callback_scope(napi_env env, napi_callback_scope scope) {
+    // TODO: add implementation
+    return napi_ok;
 }
