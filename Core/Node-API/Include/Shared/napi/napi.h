@@ -1443,6 +1443,9 @@ class Function : public Object {
   MaybeOrValue<Value> Call(const std::vector<napi_value>& args) const;
   MaybeOrValue<Value> Call(const std::vector<Value>& args) const;
   MaybeOrValue<Value> Call(size_t argc, const napi_value* args) const;
+  // [BABYLON-NATIVE-ADDITION]
+  MaybeOrValue<Value> Call(size_t argc,
+                            const Value* args) const;
   MaybeOrValue<Value> Call(napi_value recv,
                            const std::initializer_list<napi_value>& args) const;
   MaybeOrValue<Value> Call(napi_value recv,
@@ -1452,6 +1455,10 @@ class Function : public Object {
   MaybeOrValue<Value> Call(napi_value recv,
                            size_t argc,
                            const napi_value* args) const;
+  // [BABYLON-NATIVE-ADDITION]
+  MaybeOrValue<Value> Call(napi_value recv,
+                            size_t argc,
+                            const Value* args) const;
 
   MaybeOrValue<Value> MakeCallback(
       napi_value recv,
@@ -1808,6 +1815,11 @@ class Error : public ObjectReference
   static Error New(napi_env env);
   static Error New(napi_env env, const char* message);
   static Error New(napi_env env, const std::string& message);
+
+  // [BABYLON-NATIVE-ADDITION]
+  static Error New(napi_env env, const std::exception& exception);
+  // [BABYLON-NATIVE-ADDITION]
+  static Error New(napi_env env, const std::exception_ptr& exception_ptr);
 
   static NAPI_NO_RETURN void Fatal(const char* location, const char* message);
 

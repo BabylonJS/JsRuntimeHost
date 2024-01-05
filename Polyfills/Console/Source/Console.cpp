@@ -11,7 +11,7 @@ namespace
 
     void Call(Napi::Function func, const Napi::CallbackInfo& info)
     {
-        napi_value staticArgs[6];
+        std::array<Napi::Value, 6> staticArgs{};
         const size_t argc = info.Length();
 
         if (info.Length() < std::size(staticArgs))
@@ -21,7 +21,7 @@ namespace
                 staticArgs[i] = info[i];
             }
 
-            func.Call(argc, staticArgs);
+            func.Call(argc, staticArgs.data());
         }
         else
         {
@@ -31,7 +31,7 @@ namespace
                 args[i] = info[i];
             }
 
-            func.Call(args);
+            func.Call(argc, args.data());
         }
     }
 
