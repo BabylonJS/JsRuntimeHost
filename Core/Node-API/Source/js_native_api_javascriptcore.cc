@@ -2455,8 +2455,3 @@ napi_status napi_adjust_external_memory(napi_env env,
 
   return napi_ok;
 }
-
-napi_status napi_close_callback_scope(napi_env env, napi_callback_scope scope) {
-    // TODO: add implementation
-    return napi_ok;
-}

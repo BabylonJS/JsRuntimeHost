@@ -4,6 +4,7 @@
 
 #include <unordered_set>
 #include <stdexcept>
+#include <string>
 
 #include <napi/js_native_api_types.h>
 #include "js_native_api_v8_internals.h"

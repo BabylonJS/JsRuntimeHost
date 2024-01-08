@@ -1443,9 +1443,11 @@ class Function : public Object {
   MaybeOrValue<Value> Call(const std::vector<napi_value>& args) const;
   MaybeOrValue<Value> Call(const std::vector<Value>& args) const;
   MaybeOrValue<Value> Call(size_t argc, const napi_value* args) const;
+
   // [BABYLON-NATIVE-ADDITION]
   MaybeOrValue<Value> Call(size_t argc,
                             const Value* args) const;
+
   MaybeOrValue<Value> Call(napi_value recv,
                            const std::initializer_list<napi_value>& args) const;
   MaybeOrValue<Value> Call(napi_value recv,
@@ -1455,11 +1457,14 @@ class Function : public Object {
   MaybeOrValue<Value> Call(napi_value recv,
                            size_t argc,
                            const napi_value* args) const;
+
   // [BABYLON-NATIVE-ADDITION]
   MaybeOrValue<Value> Call(napi_value recv,
                             size_t argc,
                             const Value* args) const;
 
+  // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
   MaybeOrValue<Value> MakeCallback(
       napi_value recv,
       const std::initializer_list<napi_value>& args,
@@ -1471,6 +1476,7 @@ class Function : public Object {
                                    size_t argc,
                                    const napi_value* args,
                                    napi_async_context context = nullptr) const;
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
   MaybeOrValue<Object> New(const std::initializer_list<napi_value>& args) const;
   MaybeOrValue<Object> New(const std::vector<napi_value>& args) const;
@@ -1500,7 +1506,8 @@ class Promise : public Object {
 
   Promise(napi_env env, napi_value value);
 };
-
+// [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 template <typename T>
 class Buffer : public Uint8Array {
  public:
@@ -1549,7 +1556,7 @@ class Buffer : public Uint8Array {
 
  private:
 };
-
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 /// Holds a counted reference to a value; initially a weak reference unless
 /// otherwise specified, may be changed to/from a strong reference by adjusting
 /// the refcount.
@@ -1669,7 +1676,8 @@ class FunctionReference : public Reference<Function> {
   MaybeOrValue<Napi::Value> Call(napi_value recv,
                                  size_t argc,
                                  const napi_value* args) const;
-
+  // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
   MaybeOrValue<Napi::Value> MakeCallback(
       napi_value recv,
       const std::initializer_list<napi_value>& args,
@@ -1683,6 +1691,7 @@ class FunctionReference : public Reference<Function> {
       size_t argc,
       const napi_value* args,
       napi_async_context context = nullptr) const;
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
   MaybeOrValue<Object> New(const std::initializer_list<napi_value>& args) const;
   MaybeOrValue<Object> New(const std::vector<napi_value>& args) const;
@@ -2505,6 +2514,8 @@ class EscapableHandleScope {
   napi_escapable_handle_scope _scope;
 };
 
+  // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 #if (NAPI_VERSION > 2)
 class CallbackScope {
  public:
@@ -2610,6 +2621,7 @@ class AsyncWorker {
   bool _suppress_destruct;
 };
 #endif  // NAPI_HAS_THREADS
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
 #if (NAPI_VERSION > 3 && NAPI_HAS_THREADS)
 class ThreadSafeFunction {
@@ -3183,6 +3195,8 @@ class AsyncProgressQueueWorker
 };
 #endif  // NAPI_VERSION > 3 && NAPI_HAS_THREADS
 
+// [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 // Memory management.
 class MemoryManagement {
  public:
@@ -3195,6 +3209,7 @@ class VersionManagement {
   static uint32_t GetNapiVersion(Env env);
   static const napi_node_version* GetNodeVersion(Env env);
 };
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
 #if NAPI_VERSION > 5
 template <typename T>

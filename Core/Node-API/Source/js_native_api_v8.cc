@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <climits>  // INT_MAX
 #include <cmath>
+#include <string_view> // string_view, u16string_view
 #define NAPI_EXPERIMENTAL
 #include <napi/js_native_api.h>
 #include "js_native_api_v8.h"
@@ -2930,7 +2931,10 @@ napi_status NAPI_CDECL napi_create_arraybuffer(napi_env env,
   // Optionally return a pointer to the buffer's data, to avoid another call to
   // retrieve it.
   if (data != nullptr) {
-    *data = buffer->GetBackingStore()->Data();
+    // [BABYLON-NATIVE-ADDITION]
+    // this has been rolled back to use GetContents().Data() as that
+    // is what is available in the V8 we use.
+    *data = buffer->GetContents().Data();
   }
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
@@ -2972,7 +2976,10 @@ napi_status NAPI_CDECL napi_get_arraybuffer_info(napi_env env,
   v8::Local<v8::ArrayBuffer> ab = value.As<v8::ArrayBuffer>();
 
   if (data != nullptr) {
-    *data = ab->GetBackingStore()->Data();
+    // [BABYLON-NATIVE-ADDITION]
+    // this has been rolled back to use GetContents().Data() as that
+    // is what is available in the V8 we use.
+    *data = ab->GetContents().Data();
   }
 
   if (byte_length != nullptr) {
@@ -3117,7 +3124,10 @@ napi_status NAPI_CDECL napi_get_typedarray_info(napi_env env,
   }
 
   if (data != nullptr) {
-    *data = static_cast<uint8_t*>(buffer->GetBackingStore()->Data()) + array->ByteOffset();
+    // [BABYLON-NATIVE-ADDITION]
+    // this has been rolled back to use GetContents().Data() as that
+    // is what is available in the V8 we use.
+    *data = static_cast<uint8_t*>(buffer->GetContents().Data()) + array->ByteOffset();
   }
 
   if (arraybuffer != nullptr) {
@@ -3197,7 +3207,10 @@ napi_status NAPI_CDECL napi_get_dataview_info(napi_env env,
   }
 
   if (data != nullptr) {
-    *data = static_cast<uint8_t*>(buffer->GetBackingStore()->Data()) + array->ByteOffset();
+    // [BABYLON-NATIVE-ADDITION]
+    // this has been rolled back to use GetContents().Data() as that
+    // is what is available in the V8 we use.
+    *data = static_cast<uint8_t*>(buffer->GetContents().Data()) + array->ByteOffset();
   }
 
   if (arraybuffer != nullptr) {

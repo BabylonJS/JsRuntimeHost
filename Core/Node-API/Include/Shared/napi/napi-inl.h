@@ -736,6 +736,8 @@ inline bool Value::IsDataView() const {
   return result;
 }
 
+// [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 inline bool Value::IsBuffer() const {
   if (IsEmpty()) {
     return false;
@@ -746,6 +748,7 @@ inline bool Value::IsBuffer() const {
   NAPI_THROW_IF_FAILED(_env, status, false);
   return result;
 }
+#endif //NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
 inline bool Value::IsExternal() const {
   return Type() == napi_external;
@@ -2560,6 +2563,8 @@ inline MaybeOrValue<Value> Function::Call(napi_value recv,
   return Call(recv, argc, argv);
 }
 
+  // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 inline MaybeOrValue<Value> Function::MakeCallback(
     napi_value recv,
     const std::initializer_list<napi_value>& args,
@@ -2585,6 +2590,7 @@ inline MaybeOrValue<Value> Function::MakeCallback(
   NAPI_RETURN_OR_THROW_IF_FAILED(
       _env, status, Napi::Value(_env, result), Napi::Value);
 }
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
 inline MaybeOrValue<Object> Function::New(
     const std::initializer_list<napi_value>& args) const {
@@ -2646,6 +2652,8 @@ inline void Promise::CheckCast(napi_env env, napi_value value) {
 
 inline Promise::Promise(napi_env env, napi_value value) : Object(env, value) {}
 
+// [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 ////////////////////////////////////////////////////////////////////////////////
 // Buffer<T> class
 ////////////////////////////////////////////////////////////////////////////////
@@ -2842,7 +2850,7 @@ template <typename T>
 inline T* Buffer<T>::Data() const {
   return reinterpret_cast<T*>(const_cast<uint8_t*>(Uint8Array::Data()));
 }
-
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 ////////////////////////////////////////////////////////////////////////////////
 // Error class
 ////////////////////////////////////////////////////////////////////////////////
@@ -3690,6 +3698,8 @@ inline MaybeOrValue<Napi::Value> FunctionReference::Call(
 #endif
 }
 
+  // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 inline MaybeOrValue<Napi::Value> FunctionReference::MakeCallback(
     napi_value recv,
     const std::initializer_list<napi_value>& args,
@@ -3749,6 +3759,7 @@ inline MaybeOrValue<Napi::Value> FunctionReference::MakeCallback(
   return scope.Escape(result);
 #endif
 }
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
 inline MaybeOrValue<Object> FunctionReference::New(
     const std::initializer_list<napi_value>& args) const {
@@ -5002,6 +5013,8 @@ inline Value EscapableHandleScope::Escape(napi_value escapee) {
   return Value(_env, result);
 }
 
+  // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 #if (NAPI_VERSION > 2)
 ////////////////////////////////////////////////////////////////////////////////
 // CallbackScope class
@@ -6550,6 +6563,7 @@ inline const napi_node_version* VersionManagement::GetNodeVersion(Env env) {
   NAPI_THROW_IF_FAILED(env, status, 0);
   return result;
 }
+#endif // NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 
 #if NAPI_VERSION > 5
 ////////////////////////////////////////////////////////////////////////////////
