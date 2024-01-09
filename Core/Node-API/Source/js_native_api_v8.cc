@@ -2973,18 +2973,18 @@ napi_status NAPI_CDECL napi_get_arraybuffer_info(napi_env env,
   v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
   RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), napi_invalid_arg);
 
-  v8::Local<v8::ArrayBuffer> ab = value.As<v8::ArrayBuffer>();
+  // [BABYLON-NATIVE-ADDITION]
+  v8::ArrayBuffer::Contents contents =
+      value.As<v8::ArrayBuffer>()->GetContents();
 
   if (data != nullptr) {
-    // [BABYLON-NATIVE-ADDITION]
-    // this has been rolled back to use GetContents().Data() as that
-    // is what is available in the V8 we use.
-    *data = ab->GetContents().Data();
+    *data = contents.Data();
   }
 
   if (byte_length != nullptr) {
-    *byte_length = ab->ByteLength();
+    *byte_length = contents.ByteLength();
   }
+  // close [BABYLON-NATIVE-ADDITION]
 
   return napi_clear_last_error(env);
 }

@@ -1962,24 +1962,39 @@ inline void ArrayBuffer::CheckCast(napi_env env, napi_value value) {
   NAPI_CHECK(result, "ArrayBuffer::CheckCast", "value is not arraybuffer");
 }
 
-inline ArrayBuffer::ArrayBuffer() : Object() {}
+// [BABYLON-NATIVE-ADDITION]
+// add initialization of _data and _length pointers.
+inline ArrayBuffer::ArrayBuffer() : Object(), _data(nullptr), _length(0) {}
 
 inline ArrayBuffer::ArrayBuffer(napi_env env, napi_value value)
-    : Object(env, value) {}
+    : Object(env, value), _data(nullptr), _length(0) {}
 
-inline void* ArrayBuffer::Data() {
-  void* data;
-  napi_status status = napi_get_arraybuffer_info(_env, _value, &data, nullptr);
-  NAPI_THROW_IF_FAILED(_env, status, nullptr);
-  return data;
+// [BABYLON-NATIVE-ADDITION]
+inline ArrayBuffer::ArrayBuffer(napi_env env, napi_value value, void* data, size_t length)
+  : Object(env, value), _data(data), _length(length) {
 }
 
-inline size_t ArrayBuffer::ByteLength() {
-  size_t length;
-  napi_status status =
-      napi_get_arraybuffer_info(_env, _value, nullptr, &length);
-  NAPI_THROW_IF_FAILED(_env, status, 0);
-  return length;
+// [BABYLON-NATIVE-ADDITION]
+inline void* ArrayBuffer::Data() const {
+  EnsureInfo();
+  return _data;
+}
+
+// [BABYLON-NATIVE-ADDITION]
+inline size_t ArrayBuffer::ByteLength() const {
+  EnsureInfo();
+  return _length;
+}
+
+// [BABYLON-NATIVE-ADDITION]
+inline void ArrayBuffer::EnsureInfo() const {
+  // The ArrayBuffer instance may have been constructed from a napi_value whose
+  // length/data are not yet known. Fetch and cache these values just once,
+  // since they can never change during the lifetime of the ArrayBuffer.
+  if (_data == nullptr) {
+    napi_status status = napi_get_arraybuffer_info(_env, _value, &_data, &_length);
+    NAPI_THROW_IF_FAILED_VOID(_env, status);
+  }
 }
 
 #if NAPI_VERSION >= 7
@@ -3874,6 +3889,8 @@ inline void CallbackInfo::SetData(void* data) {
 // PropertyDescriptor class
 ////////////////////////////////////////////////////////////////////////////////
 
+// [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_DEPRECATED
 template <typename PropertyDescriptor::GetterCallback Getter>
 PropertyDescriptor PropertyDescriptor::Accessor(
     const char* utf8name, napi_property_attributes attributes, void* data) {
@@ -3946,6 +3963,7 @@ PropertyDescriptor PropertyDescriptor::Accessor(
 
   return desc;
 }
+# endif // NODE_ADDON_API_DISABLE_DEPRECATED
 
 template <typename Getter>
 inline PropertyDescriptor PropertyDescriptor::Accessor(

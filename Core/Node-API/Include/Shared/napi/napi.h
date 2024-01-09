@@ -1181,8 +1181,18 @@ class ArrayBuffer : public Object {
   ArrayBuffer(napi_env env,
               napi_value value);  ///< Wraps a Node-API value primitive.
 
-  void* Data();         ///< Gets a pointer to the data buffer.
-  size_t ByteLength();  ///< Gets the length of the array buffer in bytes.
+  // [BABYLON-NATIVE-ADDITION] 
+  // these methods are made const for Babylon Native
+  void* Data() const;         ///< Gets a pointer to the data buffer.
+  size_t ByteLength() const;  ///< Gets the length of the array buffer in bytes.
+
+  // [BABYLON-NATIVE-ADDITION]
+ private:
+  mutable void* _data;
+  mutable size_t _length;
+
+  ArrayBuffer(napi_env env, napi_value value, void* data, size_t length);
+  void EnsureInfo() const;
 
 #if NAPI_VERSION >= 7
   bool IsDetached() const;
@@ -2010,43 +2020,43 @@ class PropertyDescriptor {
       Callable cb,
       napi_property_attributes attributes = napi_default,
       void* data = nullptr);
+
+  template <GetterCallback Getter>
+  static PropertyDescriptor Accessor(
+      const char* utf8name,
+      napi_property_attributes attributes = napi_default,
+      void* data = nullptr);
+
+  template <GetterCallback Getter>
+  static PropertyDescriptor Accessor(
+      const std::string& utf8name,
+      napi_property_attributes attributes = napi_default,
+      void* data = nullptr);
+
+  template <GetterCallback Getter>
+  static PropertyDescriptor Accessor(
+      Name name,
+      napi_property_attributes attributes = napi_default,
+      void* data = nullptr);
+
+  template <GetterCallback Getter, SetterCallback Setter>
+  static PropertyDescriptor Accessor(
+      const char* utf8name,
+      napi_property_attributes attributes = napi_default,
+      void* data = nullptr);
+
+  template <GetterCallback Getter, SetterCallback Setter>
+  static PropertyDescriptor Accessor(
+      const std::string& utf8name,
+      napi_property_attributes attributes = napi_default,
+      void* data = nullptr);
+
+  template <GetterCallback Getter, SetterCallback Setter>
+  static PropertyDescriptor Accessor(
+      Name name,
+      napi_property_attributes attributes = napi_default,
+      void* data = nullptr);
 #endif  // !NODE_ADDON_API_DISABLE_DEPRECATED
-
-  template <GetterCallback Getter>
-  static PropertyDescriptor Accessor(
-      const char* utf8name,
-      napi_property_attributes attributes = napi_default,
-      void* data = nullptr);
-
-  template <GetterCallback Getter>
-  static PropertyDescriptor Accessor(
-      const std::string& utf8name,
-      napi_property_attributes attributes = napi_default,
-      void* data = nullptr);
-
-  template <GetterCallback Getter>
-  static PropertyDescriptor Accessor(
-      Name name,
-      napi_property_attributes attributes = napi_default,
-      void* data = nullptr);
-
-  template <GetterCallback Getter, SetterCallback Setter>
-  static PropertyDescriptor Accessor(
-      const char* utf8name,
-      napi_property_attributes attributes = napi_default,
-      void* data = nullptr);
-
-  template <GetterCallback Getter, SetterCallback Setter>
-  static PropertyDescriptor Accessor(
-      const std::string& utf8name,
-      napi_property_attributes attributes = napi_default,
-      void* data = nullptr);
-
-  template <GetterCallback Getter, SetterCallback Setter>
-  static PropertyDescriptor Accessor(
-      Name name,
-      napi_property_attributes attributes = napi_default,
-      void* data = nullptr);
 
   template <typename Getter>
   static PropertyDescriptor Accessor(
