@@ -5,6 +5,8 @@
 
 namespace Babylon::Polyfills::Internal
 {
+	static bool isActive = false;
+	void EnableIt(bool isActive) { isActive = isActive; }
     namespace
     {
         namespace ResponseType
@@ -187,11 +189,8 @@ namespace Babylon::Polyfills::Internal
                 throw Napi::Error::New(info.Env(), "Cannot add the same event handler twice");
             }
         }
-		
-		Napi::CallbackInfo info = {};
 
         m_eventHandlerRefs[eventType].push_back(Napi::Persistent(eventHandler));
-		throw Napi::Error::New(info.Env(), "Cannot add the same event handler twice");
     }
 
     void XMLHttpRequest::RemoveEventListener(const Napi::CallbackInfo& info)
