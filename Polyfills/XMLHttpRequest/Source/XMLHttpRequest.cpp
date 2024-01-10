@@ -26,13 +26,16 @@ namespace Babylon::Polyfills::Internal
 
             const char* EnumToString(UrlLib::UrlResponseType value)
             {
-                switch (value)
-                {
-                    case UrlLib::UrlResponseType::String:
-                        return Text;
-                    case UrlLib::UrlResponseType::Buffer:
-                        return ArrayBuffer;
-                }
+				if (isActive)
+				{
+					switch (value)
+					{
+						case UrlLib::UrlResponseType::String:
+							return Text;
+						case UrlLib::UrlResponseType::Buffer:
+							return ArrayBuffer;
+					}
+				}
 
                 throw std::runtime_error{"Invalid response type"};
             }
