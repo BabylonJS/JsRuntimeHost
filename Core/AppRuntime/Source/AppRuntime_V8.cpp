@@ -17,7 +17,6 @@
 #include <V8InspectorAgent.h>
 #endif
 
-#include "snapshot_blob.c"
 namespace Babylon
 {
     namespace
@@ -28,14 +27,8 @@ namespace Babylon
             Module(const char* executablePath)
             {
                 v8::V8::InitializeICUDefaultLocation(executablePath);
-#ifdef ANDROID
-                v8::StartupData startupData;
-                startupData.data = (const char*)_acsnapshot_blob;
-                startupData.raw_size = 62690;
-                v8::V8::SetSnapshotDataBlob(&startupData);
-#else
                 v8::V8::InitializeExternalStartupData(executablePath);
-#endif
+
                 m_platform = v8::platform::NewDefaultPlatform();
                 v8::V8::InitializePlatform(m_platform.get());
                 v8::V8::Initialize();
