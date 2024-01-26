@@ -54,7 +54,8 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_javascriptcore.h")
 
         if(ANDROID)
-            set(JSC_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/jsc-android")
+            set(V8_PACKAGE_NAME "jsc-android")
+            set(JSC_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
             napi_install_android_package(jsc "dist/org/webkit/android-jsc" ${JSC_ANDROID_DIR})
 
             # Add `JavaScriptCore` prefix to the include path
