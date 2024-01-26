@@ -87,9 +87,10 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_v8_internals.h")
 
         if(ANDROID)
-            set(V8_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/v8-android")
+            set(V8_PACKAGE_NAME "v8-android-jit-nointl-nosnapshot")
+            set(V8_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
             napi_install_android_package(v8 "dist/org/chromium" ${V8_ANDROID_DIR})
-            file(COPY "${CMAKE_CURRENT_BINARY_DIR}/node_modules/v8-android/dist/snapshot_blob" DESTINATION "${CMAKE_SOURCE_DIR}/../assets")
+            file(COPY "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${V8_PACKAGE_NAME}/dist/snapshot_blob" DESTINATION "${CMAKE_SOURCE_DIR}/../assets")
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
                 PUBLIC "${V8_ANDROID_DIR}/include")
