@@ -31,11 +31,11 @@ if(NAPI_BUILD_ABI)
             file(RENAME "${CMAKE_CURRENT_BINARY_DIR}/package-${name}.json" "${CMAKE_CURRENT_BINARY_DIR}/package.json")
             npm(install --no-package-lock --silent WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
-            file(GLOB_RECURSE ANDROID_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${name}-android/${aar_path}/*.aar")
+            file(GLOB_RECURSE ANDROID_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${V8_PACKAGE_NAME}/${aar_path}/*.aar")
             file(ARCHIVE_EXTRACT INPUT ${ANDROID_ARCHIVE} DESTINATION ${output_directory} PATTERNS jni)
-            message(STATUS "Extracting ${name}-android archive - done")
+            message(STATUS "Extracting ${V8_PACKAGE_NAME} archive - done")
 
-            file(COPY "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${name}-android/dist/include" DESTINATION ${output_directory})
+            file(COPY "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${V8_PACKAGE_NAME}/dist/include" DESTINATION ${output_directory})
         endfunction()
     endif()
 
@@ -90,7 +90,6 @@ if(NAPI_BUILD_ABI)
             set(V8_PACKAGE_NAME "v8-android-jit-nointl-nosnapshot")
             set(V8_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
             napi_install_android_package(v8 "dist/org/chromium" ${V8_ANDROID_DIR})
-            file(COPY "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${V8_PACKAGE_NAME}/dist/snapshot_blob" DESTINATION "${CMAKE_SOURCE_DIR}/../assets")
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
                 PUBLIC "${V8_ANDROID_DIR}/include")
