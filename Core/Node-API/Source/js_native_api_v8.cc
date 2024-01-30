@@ -2959,8 +2959,7 @@ napi_create_external_arraybuffer(napi_env env,
   v8::Local<v8::ArrayBuffer> buffer =
       v8::ArrayBuffer::New(isolate, external_data, byte_length);
   *result = v8impl::JsValueFromV8LocalValue(buffer);
-  return napi_get_typedarray_info(
-      env, *result, nullptr, nullptr, nullptr, result, nullptr);
+  return napi_ok;
 }
 
 napi_status NAPI_CDECL napi_get_arraybuffer_info(napi_env env,
