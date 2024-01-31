@@ -234,7 +234,7 @@ namespace Babylon
         void connectFrontend()
         {
             session_ = inspector_->connect(
-                1, new ChannelImpl(agent_), v8_inspector::StringView());
+                1, new ChannelImpl(agent_), v8_inspector::StringView(), v8_inspector::V8Inspector::kFullyTrusted);
         }
 
         void disconnectFrontend()
@@ -471,7 +471,7 @@ namespace Babylon
         v8::Local<v8::Context> context =
             v8::Isolate::GetCurrent()->GetCurrentContext();
 
-        int script_id = static_cast<int>(message->GetScriptOrigin().ScriptID()->Value());
+        int script_id = message->GetScriptOrigin().ScriptId();
 
         v8::Local<v8::StackTrace> stack_trace = message->GetStackTrace();
 
