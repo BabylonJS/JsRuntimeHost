@@ -11,7 +11,7 @@
 #endif
 
 #ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
-#include <node_api.h>
+#include <napi/node_api.h>
 #else
 #include "js_native_api.h"
 #endif

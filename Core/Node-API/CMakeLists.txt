@@ -150,7 +150,7 @@ if(NAPI_BUILD_ABI)
                 # Enable V8 Pointer Compression
                 # https://v8.dev/blog/pointer-compression
                 # https://stackoverflow.com/q/62921373
-                set(NAPI_DEFINITIONS PUBLIC V8_COMPRESS_POINTERS)
+                set(NAPI_DEFINITIONS PUBLIC V8_COMPRESS_POINTERS V8_ENABLE_SANDBOX)
             endif()
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
@@ -166,7 +166,6 @@ add_library(napi ${SOURCES})
 
 target_compile_definitions(napi
     PUBLIC NODE_ADDON_API_DISABLE_DEPRECATED
-    PUBLIC NODE_ADDON_API_DISABLE_NODE_SPECIFIC
     PUBLIC NAPI_VERSION=3
     ${NAPI_DEFINITIONS})
 
