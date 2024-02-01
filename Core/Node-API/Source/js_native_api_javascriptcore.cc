@@ -2441,19 +2441,15 @@ napi_status napi_add_finalizer(napi_env env,
                                napi_ref* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, js_object);
-  if (result != nullptr) {
-    CHECK_ARG(env, finalize_cb);
-  }
+  CHECK_ARG(env, finalize_cb);
 
   WrapperInfo* info{};
   CHECK_NAPI(WrapperInfo::Wrap(env, js_object, &info));
   RETURN_STATUS_IF_FALSE(env, info->Data() == nullptr, napi_invalid_arg);
 
-  if (finalize_cb != nullptr) {
-    info->AddFinalizer([finalize_cb, finalize_data, finalize_hint](WrapperInfo* info) {
-        finalize_cb(info->Env(), finalize_data, finalize_hint);
-    });
-  }
+  info->AddFinalizer([finalize_cb, finalize_data, finalize_hint](WrapperInfo* info) {
+      finalize_cb(info->Env(), finalize_data, finalize_hint);
+  });
 
   if (result != nullptr) {
     CHECK_NAPI(napi_create_reference(env, js_object, 0, result));
