@@ -4,6 +4,8 @@
 #include <string_view> // string_view, u16string_view
 #define NAPI_EXPERIMENTAL
 #include <napi/js_native_api.h>
+#include <napi/node_api.h>
+#include <napi/napi.h>
 #include "js_native_api_v8.h"
 
 #define NODE_API_SUPPORTED_VERSION_MAX 9
@@ -2938,7 +2940,6 @@ napi_status NAPI_CDECL napi_create_arraybuffer(napi_env env,
   return GET_RETURN_STATUS(env);
 }
 
-
 namespace v8impl {
 
     namespace {
@@ -2953,7 +2954,7 @@ namespace v8impl {
                     env, finalize_callback, finalize_data, finalize_hint);
             }
             // node::Buffer::FreeCallback
-            static void FinalizeBufferCallback(char* data, void* hint) {
+            static void FinalizeBufferCallback(napi_env env, char* data, void* hint) {
                 std::unique_ptr<BufferFinalizer, Deleter> finalizer{
                     static_cast<BufferFinalizer*>(hint) };
                 finalizer->finalize_data_ = data;
@@ -2968,7 +2969,6 @@ namespace v8impl {
             struct Deleter {
                 void operator()(BufferFinalizer* finalizer) { delete finalizer; }
             };
-
         private:
             BufferFinalizer(napi_env env,
                 napi_finalize finalize_callback,
@@ -2984,7 +2984,6 @@ namespace v8impl {
     }
 } // v8impl
 
-
 napi_status NAPI_CDECL
 napi_create_external_buffer(napi_env env,
     size_t length,
@@ -2995,28 +2994,23 @@ napi_create_external_buffer(napi_env env,
     napi_finalize finalize_cb = reinterpret_cast<napi_finalize>(nogc_finalize_cb);
     NAPI_PREAMBLE(env);
     CHECK_ARG(env, result);
-
+/*
 #if defined(V8_ENABLE_SANDBOX)
     return napi_set_last_error(env, napi_no_external_buffers_allowed);
 #endif
-
-    v8::Isolate* isolate = env->isolate;
 
     // The finalizer object will delete itself after invoking the callback.
     v8impl::BufferFinalizer* finalizer =
         v8impl::BufferFinalizer::New(env, finalize_cb, nullptr, finalize_hint);
 
-    v8::MaybeLocal<v8::Object> maybe = {};
-    /*
-        node::Buffer::New(isolate,
+    v8::MaybeLocal<v8::Object> maybe = Napi::Buffer<char>::New(env,
             static_cast<char*>(data),
             length,
-            v8impl::BufferFinalizer::FinalizeBufferCallback,
             finalizer);
-            */
-    CHECK_MAYBE_EMPTY(env, maybe, napi_generic_failure);
 
-    *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
+    CHECK_MAYBE_EMPTY(env, maybe, napi_generic_failure);
+*/
+    *result = {};
     return GET_RETURN_STATUS(env);
     // Tell coverity that 'finalizer' should not be freed when we return
     // as it will be deleted when the buffer to which it is associated
