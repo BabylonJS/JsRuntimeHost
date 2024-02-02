@@ -2940,6 +2940,20 @@ napi_status NAPI_CDECL napi_create_arraybuffer(napi_env env,
   return GET_RETURN_STATUS(env);
 }
 
+struct backingStorDeleterCallbackWrapper
+{
+    napi_env env;
+    napi_finalize finalize_cb;
+    void* finalize_hint;
+};
+
+void backingStorDeleterCallback(void* data, size_t length, void* deleter_data)
+{
+    auto deleterData = (backingStorDeleterCallbackWrapper*)deleter_data;
+    deleterData->finalize_cb(deleterData->env, data, deleterData->finalize_hint);
+    delete deleterData;
+}
+
 napi_status NAPI_CDECL
 napi_create_external_arraybuffer(napi_env env,
                                  void* external_data,
@@ -2952,23 +2966,17 @@ napi_create_external_arraybuffer(napi_env env,
 
     v8::Isolate* isolate = env->isolate;
 
-    auto backingStore = v8::ArrayBuffer::NewBackingStore(isolate, byte_length);
+    std::unique_ptr<v8::BackingStore> backingStore;
 
-    memcpy(backingStore->Data(), external_data, byte_length);
-    v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(isolate, std::move(backingStore));
-    /*
     if (finalize_cb != nullptr) {
-        // Create a self-deleting weak reference that invokes the finalizer
-        // callback.
-        v8impl::Reference::New(env,
-            buffer,
-            0,
-            v8impl::Ownership::kUserland,
-            finalize_cb,
-            external_data,
-            finalize_hint);
+        backingStore = v8::ArrayBuffer::NewBackingStore(external_data, byte_length, backingStorDeleterCallback, new backingStorDeleterCallbackWrapper{ env,finalize_cb, finalize_hint });
     }
-    */
+    else {
+        backingStore = v8::ArrayBuffer::NewBackingStore(isolate, byte_length);
+        memcpy(backingStore->Data(), external_data, byte_length);
+    }
+
+    v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(isolate, std::move(backingStore));
     *result = v8impl::JsValueFromV8LocalValue(buffer);
     return GET_RETURN_STATUS(env);
 }
