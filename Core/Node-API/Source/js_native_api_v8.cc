@@ -2940,83 +2940,6 @@ napi_status NAPI_CDECL napi_create_arraybuffer(napi_env env,
   return GET_RETURN_STATUS(env);
 }
 
-namespace v8impl {
-
-    namespace {
-
-        class BufferFinalizer : private Finalizer {
-        public:
-            static BufferFinalizer* New(napi_env env,
-                napi_finalize finalize_callback = nullptr,
-                void* finalize_data = nullptr,
-                void* finalize_hint = nullptr) {
-                return new BufferFinalizer(
-                    env, finalize_callback, finalize_data, finalize_hint);
-            }
-            // node::Buffer::FreeCallback
-            static void FinalizeBufferCallback(napi_env env, char* data, void* hint) {
-                std::unique_ptr<BufferFinalizer, Deleter> finalizer{
-                    static_cast<BufferFinalizer*>(hint) };
-                finalizer->finalize_data_ = data;
-
-                // It is safe to call into JavaScript at this point.
-                if (finalizer->finalize_callback_ == nullptr) return;
-                finalizer->env_->CallFinalizer(finalizer->finalize_callback_,
-                    finalizer->finalize_data_,
-                    finalizer->finalize_hint_);
-            }
-
-            struct Deleter {
-                void operator()(BufferFinalizer* finalizer) { delete finalizer; }
-            };
-        private:
-            BufferFinalizer(napi_env env,
-                napi_finalize finalize_callback,
-                void* finalize_data,
-                void* finalize_hint)
-                : Finalizer(env, finalize_callback, finalize_data, finalize_hint) {
-                env_->Ref();
-            }
-
-            ~BufferFinalizer() { env_->Unref(); }
-        };
-
-    }
-} // v8impl
-
-napi_status NAPI_CDECL
-napi_create_external_buffer(napi_env env,
-    size_t length,
-    void* data,
-    napi_finalize nogc_finalize_cb,
-    void* finalize_hint,
-    napi_value* result) {
-    napi_finalize finalize_cb = reinterpret_cast<napi_finalize>(nogc_finalize_cb);
-    NAPI_PREAMBLE(env);
-    CHECK_ARG(env, result);
-/*
-#if defined(V8_ENABLE_SANDBOX)
-    return napi_set_last_error(env, napi_no_external_buffers_allowed);
-#endif
-
-    // The finalizer object will delete itself after invoking the callback.
-    v8impl::BufferFinalizer* finalizer =
-        v8impl::BufferFinalizer::New(env, finalize_cb, nullptr, finalize_hint);
-
-    v8::MaybeLocal<v8::Object> maybe = Napi::Buffer<char>::New(env,
-            static_cast<char*>(data),
-            length,
-            finalizer);
-
-    CHECK_MAYBE_EMPTY(env, maybe, napi_generic_failure);
-*/
-    *result = {};
-    return GET_RETURN_STATUS(env);
-    // Tell coverity that 'finalizer' should not be freed when we return
-    // as it will be deleted when the buffer to which it is associated
-    // is finalized.
-    // coverity[leaked_storage]
-}
 napi_status NAPI_CDECL
 napi_create_external_arraybuffer(napi_env env,
                                  void* external_data,
@@ -3024,14 +2947,30 @@ napi_create_external_arraybuffer(napi_env env,
                                  napi_finalize finalize_cb,
                                  void* finalize_hint,
                                  napi_value* result) {
-    // The API contract here is that the cleanup function runs on the JS thread,
-      // and is able to use napi_env. Implementing that properly is hard, so use the
-      // `Buffer` variant for easier implementation.
-    napi_value buffer;
-    STATUS_CALL(napi_create_external_buffer(
-        env, byte_length, external_data, finalize_cb, finalize_hint, &buffer));
-    return napi_get_typedarray_info(
-        env, buffer, nullptr, nullptr, nullptr, result, nullptr);
+    NAPI_PREAMBLE(env);
+    CHECK_ARG(env, result);
+
+    v8::Isolate* isolate = env->isolate;
+
+    auto backingStore = v8::ArrayBuffer::NewBackingStore(isolate, byte_length);
+
+    memcpy(backingStore->Data(), external_data, byte_length);
+    v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(isolate, std::move(backingStore));
+    /*
+    if (finalize_cb != nullptr) {
+        // Create a self-deleting weak reference that invokes the finalizer
+        // callback.
+        v8impl::Reference::New(env,
+            buffer,
+            0,
+            v8impl::Ownership::kUserland,
+            finalize_cb,
+            external_data,
+            finalize_hint);
+    }
+    */
+    *result = v8impl::JsValueFromV8LocalValue(buffer);
+    return GET_RETURN_STATUS(env);
 }
 
 napi_status NAPI_CDECL napi_get_arraybuffer_info(napi_env env,
