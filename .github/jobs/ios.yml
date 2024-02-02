@@ -31,7 +31,7 @@ jobs:
 
   - script: |
       echo Boot "${{ parameters.simulator }}"
-      xcrun simctl boot "iPhone 11"
+      xcrun simctl boot "iPhone 15"
       echo Install UnitTests app
       xcrun simctl install booted "Build/iOS/Tests/UnitTests/RelWithDebInfo-iphonesimulator/UnitTests.app"
       echo Launch UnitTests app
