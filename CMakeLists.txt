@@ -67,7 +67,7 @@ option(NAPI_BUILD_ABI "Build the ABI layer." ON)
 # Dependencies
 
 if(NOT TARGET arcana)
-    set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} arcana)
+    set(CONTENT_TO_FETCH ${CONTENT_TO_FETCH} arcana.cpp)
 endif()
 
 if(NOT TARGET UrlLib AND JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
