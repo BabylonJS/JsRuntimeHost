@@ -8,13 +8,13 @@ endif()
 include(FetchContent)
 
 # Modules declaration
-FetchContent_Declare(cmake-extensions
+FetchContent_Declare(CMakeExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-    GIT_TAG efe7101be5e04391b9e55f68a01d534f54d3026e)
+    GIT_TAG 36383052398767cbb3a7daa2bc96e62163bd549a)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
     GIT_TAG 04d91f6675dabb3c97df346a32f6184b0a7ef845)
-FetchContent_Declare(arcana
+FetchContent_Declare(arcana.cpp
     GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
     GIT_TAG f2757396e80bc4169f2ddb938ce25367a98ffdd0)
 FetchContent_Declare(UrlLib
@@ -26,7 +26,7 @@ FetchContent_Declare(asio
 FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
 
-set(CONTENT_TO_FETCH cmake-extensions)
+set(CONTENT_TO_FETCH CMakeExtensions)
 
 if(IOS)
     FetchContent_MakeAvailable(ios-cmake)
