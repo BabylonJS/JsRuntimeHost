@@ -10,7 +10,7 @@ include(FetchContent)
 # Modules declaration
 FetchContent_Declare(CMakeExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-    GIT_TAG 3bd56b589bd48c6f68a127310e339f5ddee7174e)
+    GIT_TAG 9f5d169e89fc1bbd2d0d9d3d95e45dafc50a741b)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
     GIT_TAG 04d91f6675dabb3c97df346a32f6184b0a7ef845)
