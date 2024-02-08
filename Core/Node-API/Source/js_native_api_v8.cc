@@ -223,7 +223,7 @@ inline napi_status V8NameFromPropertyDescriptor(
     CHECK_NEW_FROM_UTF8(env, *result, p->utf8name);
   } else {
     v8::Local<v8::Value> property_value =
-        v8impl::V8LocalValueFromJsValue(p->name);
+       v8impl::V8LocalValueFromJsValue(p->name);
 
     RETURN_STATUS_IF_FALSE(env, property_value->IsName(), napi_name_expected);
     *result = property_value.As<v8::Name>();
