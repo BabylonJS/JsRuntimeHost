@@ -2392,7 +2392,6 @@ napi_status napi_is_promise(napi_env env,
 
 napi_status napi_run_script(napi_env env,
                             napi_value script,
-                            const char* source_url,
                             napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, script);
@@ -2404,7 +2403,7 @@ napi_status napi_run_script(napi_env env,
   CHECK_JSC(env, exception);
 
   *result = ToNapi(JSEvaluateScript(
-    env->context, script_str, nullptr, JSString(source_url), 0, &exception));
+    env->context, script_str, nullptr, nullptr, 0, &exception));
   CHECK_JSC(env, exception);
 
   return napi_ok;
