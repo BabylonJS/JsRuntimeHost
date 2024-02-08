@@ -487,6 +487,7 @@ NAPI_EXTERN napi_status NAPI_CDECL napi_is_promise(napi_env env,
 // Running a script
 NAPI_EXTERN napi_status NAPI_CDECL napi_run_script(napi_env env,
                                                    napi_value script,
+                                                   const char* source_url,
                                                    napi_value* result);
 
 // Memory management

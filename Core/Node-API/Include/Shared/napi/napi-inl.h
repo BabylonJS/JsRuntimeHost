@@ -502,7 +502,7 @@ inline MaybeOrValue<Value> Env::RunScript(const std::string& utf8script) const {
 
 inline MaybeOrValue<Value> Env::RunScript(String script) const {
   napi_value result;
-  napi_status status = napi_run_script(_env, script, &result);
+  napi_status status = napi_run_script(_env, script, "",  & result);
   NAPI_RETURN_OR_THROW_IF_FAILED(
       _env, status, Napi::Value(_env, result), Napi::Value);
 }

@@ -2,6 +2,7 @@
 #include <climits>  // INT_MAX
 #include <cmath>
 #include <string_view> // string_view, u16string_view
+#include <sstream>
 #define NAPI_EXPERIMENTAL
 #include <napi/js_native_api.h>
 #include "node_api.h"
@@ -3362,6 +3363,21 @@ napi_status NAPI_CDECL napi_run_script(napi_env env,
 
   *result = v8impl::JsValueFromV8LocalValue(script_result.ToLocalChecked());
   return GET_RETURN_STATUS(env);
+}
+
+napi_status napi_run_script(napi_env env,
+    napi_value script,
+    const char* source_url,
+    napi_value* result) {
+    // Append the source URL so V8 can locate the file.
+    std::ostringstream source_url_comment;
+    source_url_comment << std::endl << "//# sourceURL=" << source_url << std::endl;
+    const auto source_url_comment_str = source_url_comment.str();
+
+    const auto v8_script_string = v8::Local<v8::String>::Cast(v8impl::V8LocalValueFromJsValue(script));
+    const auto source_with_comment = v8::String::Concat(env->isolate, v8_script_string, OneByteString(env->isolate, source_url_comment_str.c_str(), source_url_comment_str.size()));
+
+    return napi_run_script(env, v8impl::JsValueFromV8LocalValue(source_with_comment), result);
 }
 
 napi_status NAPI_CDECL napi_add_finalizer(napi_env env,
