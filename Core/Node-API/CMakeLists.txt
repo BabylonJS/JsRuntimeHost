@@ -16,10 +16,10 @@ set(SOURCES
     "Include/Engine/${NAPI_JAVASCRIPT_ENGINE}/napi/env.h"
     "Include/Shared/napi/js_native_api.h"
     "Include/Shared/napi/js_native_api_types.h"
-    "Include/Shared/napi/node_api_types.h"
-    "Include/Shared/napi/node_api.h"
     "Include/Shared/napi/napi.h"
     "Include/Shared/napi/napi-inl.h"
+    "Source/node_api_types.h"
+    "Source/node_api.h"
     "Source/env.cc")
 
 set(INCLUDE_DIRECTORIES

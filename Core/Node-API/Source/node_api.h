@@ -9,7 +9,7 @@
 #define NAPI_EXTERN __attribute__((__import_module__("napi")))
 #endif
 #endif
-#include "js_native_api.h"
+#include <napi/js_native_api.h>
 #include "node_api_types.h"
 
 struct uv_loop_s;  // Forward declaration.

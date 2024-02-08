@@ -19,8 +19,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "node_api.h"
-
 namespace Napi {
 
 #ifdef NAPI_CPP_CUSTOM_NAMESPACE

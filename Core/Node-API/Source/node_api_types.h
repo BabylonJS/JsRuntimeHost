@@ -1,7 +1,7 @@
 #ifndef SRC_NODE_API_TYPES_H_
 #define SRC_NODE_API_TYPES_H_
 
-#include "js_native_api_types.h"
+#include <napi/js_native_api_types.h>
 
 typedef struct napi_callback_scope__* napi_callback_scope;
 typedef struct napi_async_context__* napi_async_context;

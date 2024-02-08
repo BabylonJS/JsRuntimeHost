@@ -4,7 +4,7 @@
 #include <string_view> // string_view, u16string_view
 #define NAPI_EXPERIMENTAL
 #include <napi/js_native_api.h>
-#include <napi/node_api.h>
+#include "node_api.h"
 #include <napi/napi.h>
 #include "js_native_api_v8.h"
 

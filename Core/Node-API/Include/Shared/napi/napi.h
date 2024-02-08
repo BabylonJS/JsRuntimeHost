@@ -16,7 +16,6 @@
 #include "js_native_api.h"
 #endif
 
-#include "node_api_types.h"
 #include <functional>
 #include <initializer_list>
 #include <memory>
