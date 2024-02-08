@@ -9,7 +9,6 @@
 #include <vector>
 #include <locale>
 #include <codecvt>
-#include <napi/node_api_types.h>
 
 struct napi_callback_info__ {
   napi_value newTarget;

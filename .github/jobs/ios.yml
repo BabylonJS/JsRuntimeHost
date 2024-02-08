@@ -9,12 +9,12 @@ jobs:
   timeoutInMinutes: 15
 
   pool:
-    vmImage: ${{ parameters.vmImage }}
+    vmImage: ${{parameters.vmImage}}
 
   steps:
   - script: |
-      sudo xcode-select --switch /Applications/Xcode_${{ parameters.xCodeVersion }}.app/Contents/Developer
-    displayName: 'Select XCode ${{ parameters.xCodeVersion }}'
+      sudo xcode-select --switch /Applications/Xcode_${{parameters.xCodeVersion}}.app/Contents/Developer
+    displayName: 'Select XCode ${{parameters.xCodeVersion}}'
 
   - script: |
       cmake -B Build/iOS -G Xcode -D IOS=ON
@@ -30,8 +30,8 @@ jobs:
     displayName: 'Build Xcode Project'
 
   - script: |
-      echo Boot "${{ parameters.simulator }}"
-      xcrun simctl boot "${{ parameters.simulator }}"
+      echo Boot "${{parameters.simulator}}"
+      xcrun simctl boot "${{parameters.simulator}}"
       echo Install UnitTests app
       xcrun simctl install booted "Build/iOS/Tests/UnitTests/RelWithDebInfo-iphonesimulator/UnitTests.app"
       echo Launch UnitTests app
