@@ -235,6 +235,8 @@ namespace Babylon
         {
             session_ = inspector_->connect(
                 1, new ChannelImpl(agent_), v8_inspector::StringView()
+// v8-android package and v8 nuget do not share the same V8 version. A change in V8_inspector API forces us to add this
+// ifndef check. This will be fixed in a future nuget package update.
 #ifndef ANDROID
                 , v8_inspector::V8Inspector::kFullyTrusted
 #endif
