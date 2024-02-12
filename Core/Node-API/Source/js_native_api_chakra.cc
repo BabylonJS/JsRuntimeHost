@@ -2384,7 +2384,6 @@ napi_status napi_run_script(napi_env env,
   return napi_ok;
 }
 
-// [BABYLON-NATIVE-ADDITION]
 napi_status napi_run_script(napi_env env,
                             napi_value script,
                             const char* source_url,
