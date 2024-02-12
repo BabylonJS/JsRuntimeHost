@@ -5,7 +5,6 @@
 #include <sstream>
 #define NAPI_EXPERIMENTAL
 #include <napi/js_native_api.h>
-#include "node_api.h"
 #include <napi/napi.h>
 #include "js_native_api_v8.h"
 
@@ -3365,6 +3364,7 @@ napi_status NAPI_CDECL napi_run_script(napi_env env,
   return GET_RETURN_STATUS(env);
 }
 
+// [BABYLON-NATIVE-ADDITION]
 napi_status napi_run_script(napi_env env,
     napi_value script,
     const char* source_url,

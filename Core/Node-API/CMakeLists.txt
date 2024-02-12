@@ -18,8 +18,6 @@ set(SOURCES
     "Include/Shared/napi/js_native_api_types.h"
     "Include/Shared/napi/napi.h"
     "Include/Shared/napi/napi-inl.h"
-    "Source/node_api_types.h"
-    "Source/node_api.h"
     "Source/env.cc")
 
 set(INCLUDE_DIRECTORIES
