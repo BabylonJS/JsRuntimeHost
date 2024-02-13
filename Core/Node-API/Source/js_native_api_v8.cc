@@ -2619,6 +2619,7 @@ napi_status NAPI_CDECL napi_check_object_type_tag(napi_env env,
 
   return GET_RETURN_STATUS(env);
 }
+#endif
 
 napi_status NAPI_CDECL napi_get_value_external(napi_env env,
                                                napi_value value,
