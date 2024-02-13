@@ -2549,8 +2549,10 @@ napi_status NAPI_CDECL napi_create_external(napi_env env,
   return napi_clear_last_error(env);
 }
 
-// Need NAPI_VERSION >= 8
-/*napi_status NAPI_CDECL napi_type_tag_object(napi_env env,
+// [BABYLON-NATIVE-ADDITION]
+// added preprocessor for NAPI_VERSION check. napi_type_tag only defined for NAPI_VERSION >= 8
+#if NAPI_VERSION >= 8
+napi_status NAPI_CDECL napi_type_tag_object(napi_env env,
                                             napi_value object,
                                             const napi_type_tag* type_tag) {
   NAPI_PREAMBLE(env);
@@ -2616,7 +2618,7 @@ napi_status NAPI_CDECL napi_check_object_type_tag(napi_env env,
   }
 
   return GET_RETURN_STATUS(env);
-}*/
+}
 
 napi_status NAPI_CDECL napi_get_value_external(napi_env env,
                                                napi_value value,
