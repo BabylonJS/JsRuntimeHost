@@ -30,7 +30,7 @@ TEST(JS, JSTests)
 
     Babylon::AppRuntime runtime{};
 
-    runtime.Dispatch([](Napi::Env env) mutable {
+    runtime.Dispatch([&exitCode](Napi::Env env) mutable {
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
         Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel)
         {
