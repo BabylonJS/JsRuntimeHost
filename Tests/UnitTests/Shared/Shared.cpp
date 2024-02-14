@@ -30,23 +30,23 @@ TEST(JS, JSTests)
 
     Babylon::AppRuntime runtime{};
 
-    runtime.Dispatch([&exitCode, consoleCallback = std::move([](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
-        fprintf(stdout, "[%s] %s", EnumToString(logLevel), message);
-        fflush(stdout);
-    })](Napi::Env env) mutable {
+    runtime.Dispatch([](Napi::Env env) mutable {
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
-        Babylon::Polyfills::Console::Initialize(env, std::move(consoleCallback));
+        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel)
+        {
+            fprintf(stdout, "[%s] %s", EnumToString(logLevel), message);
+            fflush(stdout);
+        });
         Babylon::Polyfills::Scheduling::Initialize(env);
         Babylon::Polyfills::URL::Initialize(env);
         Babylon::Polyfills::AbortController::Initialize(env);
         Babylon::Polyfills::WebSocket::Initialize(env);
 
-        env.Global().Set("SetExitCode", Napi::Function::New(
-                                            env, [&exitCode](const Napi::CallbackInfo& info) {
-                                                Napi::Env env = info.Env();
-                                                exitCode.set_value(info[0].As<Napi::Number>().Int32Value());
-                                            },
-                                            "SetExitCode"));
+        env.Global().Set("SetExitCode", Napi::Function::New(env, [&exitCode](const Napi::CallbackInfo& info)
+        {
+            Napi::Env env = info.Env();
+            exitCode.set_value(info[0].As<Napi::Number>().Int32Value());
+        }, "SetExitCode"));
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
     });
@@ -69,32 +69,30 @@ TEST(Console, ConsoleLog)
 
     Babylon::AppRuntime runtime{};
 
-    runtime.Dispatch([&exitCode, consoleCallback = std::move([](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
-        static size_t currIdx = 0;
-        static std::vector<const char*> messagesToTest = {"foo bar\n"};
-        const char* test = messagesToTest[currIdx++];
-        if (strcmp(message, test))
-        {
-            fprintf(stdout, "Expected: %s, received: %s", test, message);
-            ADD_FAILURE();
-        }
-
-        fprintf(stdout, "[%s] %s", EnumToString(logLevel), message);
-        fflush(stdout);
-    })](Napi::Env env) mutable {
+    runtime.Dispatch([&exitCode](Napi::Env env) mutable {
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
-        Babylon::Polyfills::Console::Initialize(env, std::move(consoleCallback));
+        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel)
+        {
+            const char* test = "foo bar\n";
+            if (strcmp(message, test) != 0)
+            {
+                fprintf(stdout, "Expected: %s, received: %s", test, message);
+                ADD_FAILURE();
+            }
+
+            fprintf(stdout, "[%s] %s", EnumToString(logLevel), message);
+            fflush(stdout);
+        });
         Babylon::Polyfills::Scheduling::Initialize(env);
         Babylon::Polyfills::URL::Initialize(env);
         Babylon::Polyfills::AbortController::Initialize(env);
         Babylon::Polyfills::WebSocket::Initialize(env);
 
-        env.Global().Set("SetExitCode", Napi::Function::New(
-                                            env, [&exitCode](const Napi::CallbackInfo& info) {
-                                                Napi::Env env = info.Env();
-                                                exitCode.set_value(info[0].As<Napi::Number>().Int32Value());
-                                            },
-                                            "SetExitCode"));
+        env.Global().Set("SetExitCode", Napi::Function::New(env, [&exitCode](const Napi::CallbackInfo& info)
+        {
+            Napi::Env env = info.Env();
+            exitCode.set_value(info[0].As<Napi::Number>().Int32Value());
+        }, "SetExitCode"));
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
     });
