@@ -5,7 +5,6 @@
 #include <AndroidExtensions/StdoutLogger.h>
 
 #include <Shared/Shared.h>
-#include <unistd.h>
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass clazz, jobject context) {
