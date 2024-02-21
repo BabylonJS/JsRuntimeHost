@@ -17,7 +17,9 @@ FetchContent_Declare(asio
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
 FetchContent_Declare(CMakeExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-    GIT_TAG 36383052398767cbb3a7daa2bc96e62163bd549a)
+    GIT_TAG ea28b7689530bfdc4905806f27ecf7e8ed4b5419)
+FetchContent_Declare(googletest
+    URL "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz")
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
     GIT_TAG 4.4.1)
@@ -25,7 +27,7 @@ FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/bghgary/UrlLib.git
-    GIT_TAG 3887ccc8cc838700340555581f76cac6b362fa91)
+    GIT_TAG 59917f32f6ddfa26af07dd981842c51ce02dafcd)
 # --------------------------------------------------
 
 FetchContent_MakeAvailable(CMakeExtensions)
@@ -85,6 +87,23 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
     set(BUILD_STATIC_LIBS ON CACHE INTERNAL "")
     FetchContent_MakeAvailable_With_Message(llhttp)
     set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
+endif()
+
+if(JSRUNTIMEHOST_TESTS AND (WIN32 OR (APPLE AND NOT IOS) OR (UNIX AND NOT ANDROID)))
+    if(WIN32)
+        # For Windows: Prevent overriding the parent project's compiler/linker settings
+        # Default build type for my test projects are /MDd (MultiThreaded DLL) but GTests default to /MTd (MultiTreaded)
+        # see https://github.com/google/googletest/blob/main/googletest/README.md
+        # "Enabling this option will make gtest link the runtimes dynamically too, and match the project in which it is included."
+        set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
+    endif()
+
+    FetchContent_MakeAvailable_With_Message(googletest)
+
+    set_property(TARGET gmock PROPERTY FOLDER Dependencies/GoogleTest)
+    set_property(TARGET gmock_main PROPERTY FOLDER Dependencies/GoogleTest)
+    set_property(TARGET gtest PROPERTY FOLDER Dependencies/GoogleTest)
+    set_property(TARGET gtest_main PROPERTY FOLDER Dependencies/GoogleTest)
 endif()
 
 if(ANDROID)
