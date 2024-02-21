@@ -1784,9 +1784,10 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   WrapperInfo* info{};
   CHECK_NAPI(WrapperInfo::Unwrap(env, js_object, &info));
   RETURN_STATUS_IF_FALSE(env, info != nullptr && info->Data() != nullptr, napi_invalid_arg);
-  info->Data(nullptr);
 
   *result = info->Data();
+  info->Data(nullptr);
+  
   return napi_ok;
 }
 
@@ -2435,11 +2436,26 @@ napi_status napi_run_script(napi_env env,
 
 napi_status napi_add_finalizer(napi_env env,
                                napi_value js_object,
-                               void* native_object,
+                               void* finalize_data,
                                napi_finalize finalize_cb,
                                void* finalize_hint,
                                napi_ref* result) {
-  throw std::runtime_error("not impl");
+  CHECK_ENV(env);
+  CHECK_ARG(env, js_object);
+  CHECK_ARG(env, finalize_cb);
+
+  WrapperInfo* info{};
+  CHECK_NAPI(WrapperInfo::Wrap(env, js_object, &info));
+
+  info->AddFinalizer([finalize_cb, finalize_data, finalize_hint](WrapperInfo* info) {
+    finalize_cb(info->Env(), finalize_data, finalize_hint);
+  });
+
+  if (result != nullptr) {
+    CHECK_NAPI(napi_create_reference(env, js_object, 0, result));
+  }
+
+  return napi_ok;
 }
 
 napi_status napi_adjust_external_memory(napi_env env,
