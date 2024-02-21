@@ -89,10 +89,10 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
     set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
 endif()
 
-if(JSRUNTIMEHOST_TESTS AND (WIN32 OR (APPLE AND NOT IOS) OR (UNIX AND NOT ANDROID)))
+if(JSRUNTIMEHOST_TESTS)
     if(WIN32)
         # For Windows: Prevent overriding the parent project's compiler/linker settings
-        # Default build type for my test projects are /MDd (MultiThreaded DLL) but GTests default to /MTd (MultiTreaded)
+        # Default build type for my test projects are /MDd (MultiThreaded DLL) but GTests default to /MTd (MultiThreaded)
         # see https://github.com/google/googletest/blob/main/googletest/README.md
         # "Enabling this option will make gtest link the runtimes dynamically too, and match the project in which it is included."
         set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
