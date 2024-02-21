@@ -358,20 +358,17 @@ inline napi_status Unwrap(napi_env env,
   RETURN_STATUS_IF_FALSE(env, value->IsObject(), napi_invalid_arg);
   v8::Local<v8::Object> obj = value.As<v8::Object>();
   
-  auto key = v8::String::NewFromUtf8(env->isolate, "_wrapped").ToLocalChecked();
-  auto val = obj->Get(context, key).ToLocalChecked();
-  v8::String::Utf8Value str(env->isolate, val);
-  RETURN_STATUS_IF_FALSE(env, val->IsExternal(), napi_invalid_arg);
+  // [BABYLON-NATIVE-ADDITION]: Increase perf by using internal field instead of private property
   Reference* reference =
-      static_cast<v8impl::Reference*>(val.As<v8::External>()->Value());
+      static_cast<v8impl::Reference*>(obj->GetAlignedPointerFromInternalField(0));
 
   if (result) {
     *result = reference->Data();
   }
 
   if (action == RemoveWrap) {
-    CHECK(obj->DeletePrivate(context, NAPI_PRIVATE_KEY(context))
-              .FromJust());
+    // [BABYLON-NATIVE-ADDITION]: Increase perf by using internal field instead of private property
+    obj->SetAlignedPointerInInternalField(0, nullptr);
     if (reference->ownership() == Ownership::kUserland) {
       // When the wrap is been removed, the finalizer should be reset.
       reference->ResetFinalizer();
@@ -596,8 +593,9 @@ inline napi_status Wrap(napi_env env,
         native_object,
         finalize_cb == nullptr ? nullptr : finalize_hint);
   }
-  auto key = v8::String::NewFromUtf8(env->isolate, "_wrapped").ToLocalChecked();
-  obj->Set(context, key, v8::External::New(env->isolate, reference));
+
+  // [BABYLON-NATIVE-ADDITION]: Increase perf by using internal field instead of private property
+  obj->SetAlignedPointerInInternalField(0, reference);
 
   return GET_RETURN_STATUS(env);
 }
@@ -926,6 +924,9 @@ napi_define_class(napi_env env,
   v8::Local<v8::FunctionTemplate> tpl;
   STATUS_CALL(v8impl::FunctionCallbackWrapper::NewTemplate(
       env, constructor, callback_data, &tpl));
+
+  // [BABYLON-NATIVE-ADDITION]: Increase perf by using internal field instead of private property
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
   v8::Local<v8::String> name_string;
   CHECK_NEW_FROM_UTF8_LEN(env, name_string, utf8name, length);
