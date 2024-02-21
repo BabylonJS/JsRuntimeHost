@@ -491,18 +491,18 @@ inline Error Env::GetAndClearPendingException() const {
   return Error(_env, value);
 }
 
-inline MaybeOrValue<Value> Env::RunScript(const char* utf8script) const {
+inline MaybeOrValue<Value> Env::RunScript(const char* utf8script, const char* url) const {
   String script = String::New(_env, utf8script);
-  return RunScript(script);
+  return RunScript(script, url);
 }
 
-inline MaybeOrValue<Value> Env::RunScript(const std::string& utf8script) const {
-  return RunScript(utf8script.c_str());
+inline MaybeOrValue<Value> Env::RunScript(const std::string& utf8script, const char* url) const {
+  return RunScript(utf8script.c_str(), url);
 }
 
-inline MaybeOrValue<Value> Env::RunScript(String script) const {
+inline MaybeOrValue<Value> Env::RunScript(String script, const char* url) const {
   napi_value result;
-  napi_status status = napi_run_script(_env, script, "",  & result);
+  napi_status status = napi_run_script(_env, script, url,  & result);
   NAPI_RETURN_OR_THROW_IF_FAILED(
       _env, status, Napi::Value(_env, result), Napi::Value);
 }

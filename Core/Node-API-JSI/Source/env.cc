@@ -14,9 +14,8 @@ namespace Napi
     delete env_ptr;
   }
 
-  Napi::Value Eval(Napi::Env env, const char* string, const char* sourceUrl)
+  Napi::Value Eval(Napi::Env env, const char* source, const char* sourceUrl)
   {
-    napi_env__* env_ptr{env};
-    return {env_ptr, env_ptr->rt.evaluateJavaScript(std::make_shared<facebook::jsi::StringBuffer>(string), sourceUrl)};
+    return env.RunScript(source, sourceUrl);
   }
 }

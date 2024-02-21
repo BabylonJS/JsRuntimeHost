@@ -316,9 +316,11 @@ class Env {
   bool IsExceptionPending() const;
   Error GetAndClearPendingException() const;
 
-  MaybeOrValue<Value> RunScript(const char* utf8script) const;
-  MaybeOrValue<Value> RunScript(const std::string& utf8script) const;
-  MaybeOrValue<Value> RunScript(String script) const;
+  // [BABYLON-NATIVE-ADDITION] 
+  // url added and forwarded to napi_run_script call
+  MaybeOrValue<Value> RunScript(const char* utf8script, const char* url = "") const;
+  MaybeOrValue<Value> RunScript(const std::string& utf8script, const char* url = "") const;
+  MaybeOrValue<Value> RunScript(String script, const char* url = "") const;
 
 #if NAPI_VERSION > 2
   template <typename Hook, typename Arg = void>
