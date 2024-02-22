@@ -423,27 +423,27 @@ class TryCatch : public v8::TryCatch {
 
     v8::Local<v8::Message> message = Message();
     if (!message.IsEmpty()) {
-    v8::Local<v8::Context> context(isolate->GetCurrentContext());
+      v8::Local<v8::Context> context(isolate->GetCurrentContext());
 
-    v8::ScriptOrigin script_origin = message->GetScriptOrigin();
-    v8::Local<v8::Value> filename = script_origin.ResourceName();
+      v8::ScriptOrigin script_origin = message->GetScriptOrigin();
+      v8::Local<v8::Value> filename = script_origin.ResourceName();
 
-    setLocalValueAsProperty(context, exception_obj, filename, "url");
+      setLocalValueAsProperty(context, exception_obj, filename, "url");
 
-    int column_start = message->GetStartColumn();
-    int column_end = message->GetEndColumn();
-    int length = column_end - column_start;
-    setIntAsProperty(isolate, context, exception_obj, message->GetLineNumber(context).ToChecked(), "line");
-    setIntAsProperty(isolate, context, exception_obj, column_start, "column");
-    setIntAsProperty(isolate, context, exception_obj, length, "length");
+      int column_start = message->GetStartColumn();
+      int column_end = message->GetEndColumn();
+      int length = column_end - column_start;
+      setIntAsProperty(isolate, context, exception_obj, message->GetLineNumber(context).ToChecked(), "line");
+      setIntAsProperty(isolate, context, exception_obj, column_start, "column");
+      setIntAsProperty(isolate, context, exception_obj, length, "length");
 
-    v8::Local<v8::String> sourceLine = message->GetSourceLine(context).ToLocalChecked();
-    setLocalValueAsProperty(context, exception_obj, sourceLine, "source");
+      v8::Local<v8::String> sourceLine = message->GetSourceLine(context).ToLocalChecked();
+      setLocalValueAsProperty(context, exception_obj, sourceLine, "source");
 
-    v8::Local<v8::Value> stack_trace_string;
-    if (StackTrace(context).ToLocal(&stack_trace_string) &&
-      stack_trace_string->IsString() &&
-      stack_trace_string.As<v8::String>()->Length() > 0) {
+      v8::Local<v8::Value> stack_trace_string;
+      if (StackTrace(context).ToLocal(&stack_trace_string) &&
+        stack_trace_string->IsString() &&
+        stack_trace_string.As<v8::String>()->Length() > 0) {
         setLocalValueAsProperty(context, exception_obj, stack_trace_string, "stack");
       }
     }
