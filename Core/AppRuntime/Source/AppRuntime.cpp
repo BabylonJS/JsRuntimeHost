@@ -2,6 +2,28 @@
 #include "WorkQueue.h"
 #include <sstream>
 
+namespace {
+    std::string GetStringPropertyFromError(Napi::Error error, const char* propertyName)
+    {
+        Napi::Value value = error.Get(propertyName);
+        if (value.IsUndefined())
+        {
+            return "";
+        }
+        return value.ToString().Utf8Value();
+    }
+
+    int32_t GetNumberPropertyFromError(Napi::Error error, const char* propertyName)
+    {
+        Napi::Value value = error.Get(propertyName);
+        if (value.IsUndefined())
+        {
+            return -1;
+        }
+        return value.ToNumber().Int32Value();
+    }
+}
+
 namespace Babylon
 {
     AppRuntime::AppRuntime()
@@ -37,26 +59,6 @@ namespace Babylon
         m_workQueue->Resume();
     }
 
-    std::string getStringPropertyFromError(Napi::Error error, const char* propertyName)
-    {
-        Napi::Value value = error.Get(propertyName);
-        if (value.IsUndefined())
-        {
-            return "";
-        }
-        return value.ToString().Utf8Value();
-    }
-
-    int32_t getNumberPropertyFromError(Napi::Error error, const char* propertyName)
-    {
-        Napi::Value value = error.Get(propertyName);
-        if (value.IsUndefined())
-        {
-            return -1;
-        }
-        return value.ToNumber().Int32Value();
-    }
-
     void AppRuntime::Dispatch(Dispatchable<void(Napi::Env)> func)
     {
         m_workQueue->Append([this, func{std::move(func)}](Napi::Env env) mutable {
@@ -70,16 +72,16 @@ namespace Babylon
                     std::ostringstream ss{};
 
                     std::string msg = error.Message();
-                    std::string source = getStringPropertyFromError(error, "source");
-                    std::string url = getStringPropertyFromError(error, "url");
-                    int32_t line = getNumberPropertyFromError(error, "line");
-                    int32_t column = getNumberPropertyFromError(error, "column");
-                    int32_t length = getNumberPropertyFromError(error, "length");
-                    std::string stack = getStringPropertyFromError(error, "stack");
+                    std::string source = GetStringPropertyFromError(error, "source");
+                    std::string url = GetStringPropertyFromError(error, "url");
+                    int32_t line = GetNumberPropertyFromError(error, "line");
+                    int32_t column = GetNumberPropertyFromError(error, "column");
+                    int32_t length = GetNumberPropertyFromError(error, "length");
+                    std::string stack = GetStringPropertyFromError(error, "stack");
 
                     ss << "Error on line " << line << " and column " << column
                        << ": " << msg << ". Length: " << length << ". Source: " << source << ". URL: " << url << ". Stack:" << std::endl << stack << std::endl;
-                    
+
                     Napi::Error newError = Napi::Error::New(env, ss.str());
                     m_unhandledExceptionHandler(newError);
                 }
