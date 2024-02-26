@@ -45,18 +45,12 @@ namespace Babylon
         void Start(const unsigned short port, const std::string& appName);
         void Stop();
 
-        void waitForDebugger();
+        void WaitForDebugger();
 
         bool IsStarted();
         bool IsConnected();
-        void WaitForDisconnect();
-
-        void FatalException(
-            v8::Local<v8::Value> error,
-            v8::Local<v8::Message> message);
 
         void PostIncomingMessage(int session_id, const std::string& message);
-        void ResumeStartup() {}
 
     private:
         using MessageQueue =
@@ -70,12 +64,6 @@ namespace Babylon
             kError
         };
 
-        static void ThreadCbIO(void* agent);
-        static void WriteCbIO(/*uv_async_t* async*/);
-
-        void InstallInspectorOnProcess();
-
-        void SetConnected(bool connected);
         void DispatchMessages();
         void Write(
             int session_id,
@@ -87,7 +75,6 @@ namespace Babylon
         void SwapBehindLock(MessageQueue* vector1, MessageQueue* vector2);
         void WaitForFrontendMessage();
         void NotifyMessageReceived();
-        State ToState(State state);
 
         std::mutex incoming_message_cond_m_;
         std::condition_variable incoming_message_cond_;
@@ -95,8 +82,6 @@ namespace Babylon
         std::mutex state_m;
 
         unsigned short port_;
-        bool wait_;
-        bool shutting_down_;
         State state_;
 
         bool waiting_for_frontend_ = true;
@@ -108,6 +93,7 @@ namespace Babylon
         bool dispatching_messages_;
         int session_id_;
         std::unique_ptr<InspectorSocketServer> server_;
+        std::thread thread_;
 
         std::string script_name_;
 
@@ -135,6 +121,11 @@ namespace Babylon
         {
         }
 
+    private:
+        // ------------------
+        // v8::Task overrides
+        // ------------------
+
         void Run() override
         {
             agent_.DispatchMessages();
@@ -154,27 +145,26 @@ namespace Babylon
         virtual ~ChannelImpl() {}
 
     private:
+        // --------------------------------------------
+        // v8_inspector::V8Inspector::Channel overrides
+        // --------------------------------------------
+
         void sendResponse(
             int /*callId*/,
             std::unique_ptr<v8_inspector::StringBuffer> message) override
         {
-            sendMessageToFrontend(std::move(message));
+            agent_.Write(agent_.session_id_, std::move(message));
         }
 
         void sendNotification(
             std::unique_ptr<v8_inspector::StringBuffer> message) override
         {
-            sendMessageToFrontend(std::move(message));
+            agent_.Write(agent_.session_id_, std::move(message));
         }
 
         void flushProtocolNotifications() override {}
 
-        void sendMessageToFrontend(
-            std::unique_ptr<v8_inspector::StringBuffer> message)
-        {
-            agent_.Write(agent_.session_id_, std::move(message));
-        }
-
+    private:
         AgentImpl& agent_;
     };
 
@@ -191,7 +181,7 @@ namespace Babylon
         {
         }
 
-        void setupContext(
+        void SetupContext(
             v8::Local<v8::Context> context,
             const char* context_name /*must be null terminated*/)
         {
@@ -203,6 +193,55 @@ namespace Babylon
 
             inspector_->contextCreated(info);
         }
+
+        void ConnectFrontend()
+        {
+            session_ = inspector_->connect(
+                1, new ChannelImpl(agent_), v8_inspector::StringView()
+// v8-android package and v8 nuget do not share the same V8 version. A change in V8_inspector API forces us to add this
+// ifndef check. This will be fixed in a future nuget package update.
+#ifndef ANDROID
+                , v8_inspector::V8Inspector::kFullyTrusted
+#endif
+            );
+        }
+
+        void DisconnectFrontend()
+        {
+            session_.reset();
+        }
+
+        void DispatchMessageFromFrontend(const v8_inspector::StringView& message)
+        {
+            std::string messagestr = utils::StringViewToUtf8(message);
+
+            if (agent_.waiting_for_frontend_)
+                agent_.waiting_for_frontend_ =
+                    messagestr.find("Runtime.runIfWaitingForDebugger") !=
+                    std::string::npos;
+
+            session_->dispatchProtocolMessage(message);
+        }
+
+        V8Inspector* Inspector()
+        {
+            return inspector_.get();
+        }
+
+        bool IsWaitingForResume()
+        {
+            return waiting_for_resume_;
+        }
+
+        void SchedulePauseOnNextStatement(const v8_inspector::StringView& reason, const v8_inspector::StringView& details)
+        {
+            session_->schedulePauseOnNextStatement(reason, details);
+        }
+
+    private:
+        // -----------------------------------------
+        // v8_inspector::V8InspectorClient overrides
+        // -----------------------------------------
 
         void runMessageLoopOnPause(int /*context_group_id*/) override
         {
@@ -223,41 +262,12 @@ namespace Babylon
         {
             auto duration = std::chrono::system_clock::now().time_since_epoch();
             return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(duration)
-                .count());
+                                           .count());
         }
 
         void quitMessageLoopOnPause() override
         {
             waiting_for_resume_ = false;
-        }
-
-        void connectFrontend()
-        {
-            session_ = inspector_->connect(
-                1, new ChannelImpl(agent_), v8_inspector::StringView()
-// v8-android package and v8 nuget do not share the same V8 version. A change in V8_inspector API forces us to add this
-// ifndef check. This will be fixed in a future nuget package update.
-#ifndef ANDROID
-                , v8_inspector::V8Inspector::kFullyTrusted
-#endif
-            );
-        }
-
-        void disconnectFrontend()
-        {
-            session_.reset();
-        }
-
-        void dispatchMessageFromFrontend(const v8_inspector::StringView& message)
-        {
-            std::string messagestr = utils::StringViewToUtf8(message);
-
-            if (agent_.waiting_for_frontend_)
-                agent_.waiting_for_frontend_ =
-                    messagestr.find("Runtime.runIfWaitingForDebugger") !=
-                    std::string::npos;
-
-            session_->dispatchProtocolMessage(message);
         }
 
         v8::Local<v8::Context> ensureDefaultContextInGroup(
@@ -266,23 +276,12 @@ namespace Babylon
             return v8::Isolate::GetCurrent()->GetCurrentContext();
         }
 
-        V8Inspector* inspector()
-        {
-            return inspector_.get();
-        }
-
-        bool isWaitingForResume()
-        {
-            return waiting_for_resume_;
-        }
-
-        std::unique_ptr<v8_inspector::V8InspectorSession> session_;
-
     private:
         AgentImpl& agent_;
         std::atomic<bool> waiting_for_resume_{false};
         bool running_nested_loop_;
         std::unique_ptr<V8Inspector> inspector_;
+        std::unique_ptr<v8_inspector::V8InspectorSession> session_;
     };
 
     AgentImpl::AgentImpl(
@@ -290,9 +289,7 @@ namespace Babylon
         v8::Isolate* isolate,
         v8::Local<v8::Context> context,
         const char* context_name)
-        : wait_(false)
-        , shutting_down_(false)
-        , state_(State::kNew)
+        : state_(State::kNew)
         , inspector_(nullptr)
         , isolate_(isolate)
         , dispatching_messages_(false)
@@ -301,7 +298,7 @@ namespace Babylon
         , platform_(platform)
     {
         inspector_ = std::make_unique<V8NodeInspector>(*this);
-        inspector_->setupContext(context, context_name);
+        inspector_->SetupContext(context, context_name);
     }
 
     AgentImpl::~AgentImpl() {}
@@ -378,8 +375,8 @@ namespace Babylon
             throw std::runtime_error("can't start again the server as previous InspectorSocketServer is still active.");
         }
         auto self(shared_from_this());
-        std::thread([this, self]() {
-            auto delegate = std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, wait_);
+        thread_ = std::thread([this, self]() {
+            auto delegate = std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, false);
             server_ = std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
 
             state_ = State::kAccepting;
@@ -393,10 +390,10 @@ namespace Babylon
             server_->Stop();
 
             server_.reset();
-        }).detach();
+        });
     }
 
-    void AgentImpl::waitForDebugger()
+    void AgentImpl::WaitForDebugger()
     {
         WaitForFrontendMessage();
 
@@ -415,16 +412,22 @@ namespace Babylon
             details(
                 reinterpret_cast<const uint8_t*>(reasonstr.c_str()),
                 reasonstr.size());
-        inspector_->session_->schedulePauseOnNextStatement(reason, details);
+        inspector_->SchedulePauseOnNextStatement(reason, details);
     }
 
     void AgentImpl::Stop()
     {
         if (server_)
         {
-            server_->Stop();
+            inspector_->DisconnectFrontend();
             inspector_.reset();
-            // server_ is not resetted here. memory deallocation is done in thread func after the server has stopped.
+
+            server_->Stop();
+
+            if (thread_.joinable())
+            {
+                thread_.join();
+            }
         }
     }
 
@@ -436,20 +439,6 @@ namespace Babylon
     bool AgentImpl::IsStarted()
     {
         return !!server_;
-    }
-
-    void AgentImpl::WaitForDisconnect()
-    {
-        if (state_ == State::kConnected)
-        {
-            shutting_down_ = true;
-            // Gives a signal to stop accepting new connections
-            // TODO(eugeneo): Introduce an API with explicit request names.
-            Write(0, v8_inspector::StringBuffer::create((v8_inspector::StringView())));
-            fprintf(stderr, "Waiting for the debugger to disconnect...\n");
-            fflush(stderr);
-            inspector_->runMessageLoopOnPause(0);
-        }
     }
 
     std::unique_ptr<v8_inspector::StringBuffer> ToProtocolString(
@@ -466,41 +455,6 @@ namespace Babylon
         string_value->Write(v8::Isolate::GetCurrent(), &buffer[0], 0, len);
         return v8_inspector::StringBuffer::create(
             v8_inspector::StringView(buffer.data(), len));
-    }
-
-    void AgentImpl::FatalException(
-        v8::Local<v8::Value> error,
-        v8::Local<v8::Message> message)
-    {
-        if (!IsStarted())
-            return;
-        v8::Local<v8::Context> context =
-            v8::Isolate::GetCurrent()->GetCurrentContext();
-
-        int script_id = message->GetScriptOrigin().ScriptId();
-
-        v8::Local<v8::StackTrace> stack_trace = message->GetStackTrace();
-
-        if (!stack_trace.IsEmpty() && stack_trace->GetFrameCount() > 0 &&
-            script_id ==
-                stack_trace->GetFrame(v8::Isolate::GetCurrent(), 0)->GetScriptId())
-        {
-            script_id = 0;
-        }
-
-        const uint8_t DETAILS[] = "Uncaught";
-
-        inspector_->inspector()->exceptionThrown(
-            context,
-            v8_inspector::StringView(DETAILS, sizeof(DETAILS) - 1),
-            error,
-            ToProtocolString(message->Get())->string(),
-            ToProtocolString(message->GetScriptResourceName())->string(),
-            message->GetLineNumber(context).FromMaybe(0),
-            message->GetStartColumn(context).FromMaybe(0),
-            inspector_->inspector()->createStackTrace(stack_trace),
-            script_id);
-        WaitForDisconnect();
     }
 
     bool AgentImpl::AppendMessage(
@@ -580,29 +534,20 @@ namespace Babylon
 
                 if (tag == TAG_CONNECT)
                 {
-                    //CHECK_EQ(State::kAccepting, state_);
+                    CHECK_EQ(State::kAccepting, state_);
                     session_id_ = pair.first;
                     state_ = State::kConnected;
-                    inspector_->connectFrontend();
+                    inspector_->ConnectFrontend();
                 }
                 else if (tag == TAG_DISCONNECT)
                 {
                     CHECK_EQ(State::kConnected, state_);
-                    if (shutting_down_)
-                    {
-                        state_ = State::kDone;
-                    }
-                    else
-                    {
-                        state_ = State::kAccepting;
-                    }
-
-                    inspector_->quitMessageLoopOnPause();
-                    inspector_->disconnectFrontend();
+                    state_ = State::kAccepting;
+                    inspector_->DisconnectFrontend();
                 }
                 else if (inspector_)
                 {
-                    inspector_->dispatchMessageFromFrontend(message);
+                    inspector_->DispatchMessageFromFrontend(message);
                 }
                 else
                 {
@@ -666,17 +611,17 @@ namespace Babylon
     {
     }
 
-    void V8InspectorAgent::waitForDebugger()
+    void V8InspectorAgent::WaitForDebugger()
     {
-        impl->waitForDebugger();
+        impl->WaitForDebugger();
     }
 
-    void V8InspectorAgent::stop()
+    void V8InspectorAgent::Stop()
     {
         impl->Stop();
     }
 
-    void V8InspectorAgent::start(const unsigned short port, const std::string& appName)
+    void V8InspectorAgent::Start(const unsigned short port, const std::string& appName)
     {
         impl->Start(port, appName);
     }
@@ -689,18 +634,6 @@ namespace Babylon
     bool V8InspectorAgent::IsConnected()
     {
         return impl->IsConnected();
-    }
-
-    void V8InspectorAgent::WaitForDisconnect()
-    {
-        impl->WaitForDisconnect();
-    }
-
-    void V8InspectorAgent::FatalException(
-        v8::Local<v8::Value> error,
-        v8::Local<v8::Message> message)
-    {
-        impl->FatalException(error, message);
     }
 
     InspectorAgentDelegate::InspectorAgentDelegate(
@@ -739,7 +672,6 @@ namespace Babylon
                 std::string::npos)
             {
                 waiting_ = false;
-                agent_.ResumeStartup();
             }
         }
         agent_.PostIncomingMessage(session_id, message);

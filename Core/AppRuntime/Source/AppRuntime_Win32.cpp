@@ -15,6 +15,13 @@ namespace Babylon
         constexpr size_t FILENAME_BUFFER_SIZE = 1024;
     }
 
+    void AppRuntime::DefaultUnhandledExceptionHandler(const std::exception& error)
+    {
+        std::stringstream ss{};
+        ss << "Uncaught Error: " << error.what() << std::endl;
+        OutputDebugStringA(ss.str().data());
+    }
+
     void AppRuntime::RunPlatformTier()
     {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -27,13 +34,6 @@ namespace Babylon
         assert(result != 0);
         (void)result;
         RunEnvironmentTier(filename);
-    }
-
-    void AppRuntime::DefaultUnhandledExceptionHandler(const std::exception& error)
-    {
-        std::stringstream ss{};
-        ss << "Uncaught Error: " << error.what() << std::endl;
-        OutputDebugStringA(ss.str().data());
     }
 
     void AppRuntime::Execute(Dispatchable<void()> callback)

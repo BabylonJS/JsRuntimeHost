@@ -95,7 +95,8 @@ namespace Babylon
 
     void tcp_connection::write_async(std::vector<char> message)
     {
-        async_write(socket_, asio::buffer(message),
+        auto buffer = asio::buffer(message);
+        async_write(socket_, buffer,
             [self = shared_from_this(), message = std::move(message)](asio::error_code ec, std::size_t /*bytes_transferred*/) {
                 if (ec == asio::error::operation_aborted)
                 {
