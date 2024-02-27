@@ -1,6 +1,7 @@
 #include "WorkQueue.h"
 #include "AppRuntime.h"
 #include <exception>
+#include <iostream>
 #include <sstream>
 
 namespace Babylon
