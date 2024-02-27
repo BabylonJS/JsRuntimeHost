@@ -14,15 +14,7 @@ namespace Babylon
     {
         std::stringstream ss{};
         ss << error.what() << std::endl;
-
-        try
-        {
-            throw;
-        }
-        catch (const Napi::Error& error)
-        {
-            ss << GetErrorInfos(error) << std::endl;
-        }
+        ss << GetErrorInfos(error) << std::endl;
 
         NSLog(@"Uncaught Error: %s", ss.str().data());
     }

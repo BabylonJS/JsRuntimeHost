@@ -415,6 +415,7 @@ class TryCatch : public v8::TryCatch {
 
  private:
   napi_env _env;
+
   // [BABYLON-NATIVE-ADDITION]
   void EnhanceV8Exception(v8::Local<v8::Value> exception) {
     v8::Local<v8::Object> exception_obj = exception.As<v8::Object>();
