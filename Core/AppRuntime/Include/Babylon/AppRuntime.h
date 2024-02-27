@@ -46,5 +46,8 @@ namespace Babylon
 
         std::unique_ptr<WorkQueue> m_workQueue{};
         std::function<void(const std::exception&)> m_unhandledExceptionHandler{};
+        static std::string GetStringPropertyFromError(Napi::Error error, const char* propertyName);
+        static int32_t GetNumberPropertyFromError(Napi::Error error, const char* propertyName);
+        static std::string GetErrorInfos(Napi::Error error);
     };
 }
