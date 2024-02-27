@@ -1,6 +1,6 @@
 #include "AppRuntime.h"
 #include <exception>
-
+#include <iostream>
 #import <Foundation/NSObjCRuntime.h>
 
 namespace Babylon
