@@ -1,16 +1,13 @@
 #include "AppRuntime.h"
-
 #include <Windows.h>
-
-#include <exception>
 #include <sstream>
 
 namespace Babylon
 {
     void AppRuntime::DefaultUnhandledExceptionHandler(const std::exception& error)
     {
-        std::stringstream ss{};
-        ss << "Uncaught Error: " << error.what() << std::endl;
+        std::ostringstream ss{};
+        ss << "[Uncaught Error] " << error.Get("stack").As<Napi::String>().Utf8Value() << std::endl;
         OutputDebugStringA(ss.str().data());
     }
 

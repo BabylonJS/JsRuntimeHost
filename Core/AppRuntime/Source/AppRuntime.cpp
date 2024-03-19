@@ -1,5 +1,6 @@
 #include "AppRuntime.h"
 #include "WorkQueue.h"
+#include <cassert>
 
 namespace Babylon
 {
@@ -44,12 +45,13 @@ namespace Babylon
                 {
                     func(env);
                 }
-                catch (const std::exception& error)
+                catch (const Napi::Error& error)
                 {
                     m_options.UnhandledExceptionHandler(error);
                 }
                 catch (...)
                 {
+                    assert(false);
                     std::abort();
                 }
             });

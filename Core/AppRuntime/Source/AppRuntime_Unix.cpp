@@ -1,13 +1,11 @@
-#include "WorkQueue.h"
 #include "AppRuntime.h"
-#include <exception>
 #include <iostream>
 
 namespace Babylon
 {
     void AppRuntime::DefaultUnhandledExceptionHandler(const std::exception& error)
     {
-        std::cerr << "Uncaught Error: " << error.what() << std::endl;
+        std::cerr << "[Uncaught Error] " << error.Get("stack").As<Napi::String>().Utf8Value().data() << std::endl;
     }
 
     void AppRuntime::RunPlatformTier()

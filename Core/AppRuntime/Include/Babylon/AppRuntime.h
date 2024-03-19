@@ -19,7 +19,7 @@ namespace Babylon
         {
         public:
             // Optional handler for unhandled exceptions.
-            std::function<void(const std::exception&)> UnhandledExceptionHandler{DefaultUnhandledExceptionHandler};
+            std::function<void(const Napi::Error&)> UnhandledExceptionHandler{DefaultUnhandledExceptionHandler};
 
             // Waits for the debugger to be attached before the execution of any script. Only implemented for V8.
             bool WaitForDebugger{false};
@@ -35,7 +35,7 @@ namespace Babylon
         void Dispatch(Dispatchable<void(Napi::Env)> callback);
 
         // Default unhandled exception handler that outputs the error message to the program output.
-        static void DefaultUnhandledExceptionHandler(const std::exception& error);
+        static void DefaultUnhandledExceptionHandler(const Napi::Error& error);
 
     private:
         // These three methods are the mechanism by which platform- and JavaScript-specific

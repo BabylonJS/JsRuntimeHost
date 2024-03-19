@@ -1,13 +1,11 @@
 #include "AppRuntime.h"
-#include <exception>
-
 #import <Foundation/NSObjCRuntime.h>
 
 namespace Babylon
 {
-    void AppRuntime::DefaultUnhandledExceptionHandler(const std::exception& error)
+    void AppRuntime::DefaultUnhandledExceptionHandler(const Napi::Error& error)
     {
-        NSLog(@"Uncaught Error: %s", error.what());
+        NSLog(@"[Uncaught Error] %s", error.Get("stack").As<Napi::String>().Utf8Value().data());
     }
 
     void AppRuntime::RunPlatformTier()
