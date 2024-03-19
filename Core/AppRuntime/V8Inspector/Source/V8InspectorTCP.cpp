@@ -9,9 +9,9 @@
 namespace Babylon
 {
     tcp_server::tcp_server(unsigned short port, ConnectionCallback callback, void* data)
-        : io_service_()
-        , acceptor_(io_service_)
-        , socket_(io_service_)
+        : io_context_()
+        , acceptor_(io_context_)
+        , socket_(io_context_)
         , callbackData_(data)
         , connectionCallback_(callback)
     {
@@ -26,16 +26,14 @@ namespace Babylon
 
     void tcp_server::run()
     {
-        io_service_.run();
+        io_context_.run();
     }
 
     void tcp_server::stop()
     {
-        asio::error_code ec;
-        acceptor_.close(ec);
-        socket_.close(ec);
-
-        io_service_.stop();
+        acceptor_.close();
+        socket_.close();
+        io_context_.stop();
     }
 
     void tcp_server::do_accept()

@@ -32,7 +32,7 @@ namespace Babylon
 
     class V8NodeInspector;
 
-    class AgentImpl : public std::enable_shared_from_this<AgentImpl>
+    class AgentImpl
     {
     public:
         explicit AgentImpl(
@@ -82,7 +82,6 @@ namespace Babylon
         std::mutex state_m;
 
         unsigned short port_;
-        State state_;
 
         bool waiting_for_frontend_ = true;
 
@@ -93,7 +92,6 @@ namespace Babylon
         bool dispatching_messages_;
         int session_id_;
         std::unique_ptr<InspectorSocketServer> server_;
-        std::thread thread_;
 
         std::string script_name_;
 
@@ -289,8 +287,7 @@ namespace Babylon
         v8::Isolate* isolate,
         v8::Local<v8::Context> context,
         const char* context_name)
-        : state_(State::kNew)
-        , inspector_(nullptr)
+        : inspector_(nullptr)
         , isolate_(isolate)
         , dispatching_messages_(false)
         , session_id_(0)
@@ -360,48 +357,28 @@ namespace Babylon
         args.GetReturnValue().Set(v8::Function::New(
             v8::Isolate::GetCurrent()->GetCurrentContext(),
             InspectorConsoleCall,
-            array)
-                                      .ToLocalChecked());
+            array).ToLocalChecked());
     }
 
     void AgentImpl::Start(const unsigned short port, const std::string& appName)
     {
-        this->port_ = port;
-        this->script_name_ = appName;
+        port_ = port;
+        script_name_ = appName;
 
         // be sure server_ is not still in use here or its allocation will be replace in the thread func
         // this can happen if reusing the same AgentImpl object, stopping and restarting before the InspectorSocketServer is properly pulled down 
         if (server_) {
             throw std::runtime_error("can't start again the server as previous InspectorSocketServer is still active.");
         }
-        auto self(shared_from_this());
-        thread_ = std::thread([this, self]() {
-            auto delegate = std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, false);
-            server_ = std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
 
-            state_ = State::kAccepting;
-
-            // This loops
-            if (!server_->Start())
-            {
-                std::abort();
-            }
-
-            server_->Stop();
-
-            server_.reset();
-        });
+        auto delegate = std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, false);
+        server_ = std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
+        server_->Start();
     }
 
     void AgentImpl::WaitForDebugger()
     {
         WaitForFrontendMessage();
-
-        if (state_ == State::kError)
-        {
-            Stop();
-        }
-        state_ = State::kAccepting;
 
         while (waiting_for_frontend_)
             DispatchMessages();
@@ -417,17 +394,15 @@ namespace Babylon
 
     void AgentImpl::Stop()
     {
-        if (server_)
+        if (inspector_)
         {
             inspector_->DisconnectFrontend();
             inspector_.reset();
+        }
 
+        if (server_)
+        {
             server_->Stop();
-
-            if (thread_.joinable())
-            {
-                thread_.join();
-            }
         }
     }
 
@@ -534,15 +509,11 @@ namespace Babylon
 
                 if (tag == TAG_CONNECT)
                 {
-                    CHECK_EQ(State::kAccepting, state_);
                     session_id_ = pair.first;
-                    state_ = State::kConnected;
                     inspector_->ConnectFrontend();
                 }
                 else if (tag == TAG_DISCONNECT)
                 {
-                    CHECK_EQ(State::kConnected, state_);
-                    state_ = State::kAccepting;
                     inspector_->DisconnectFrontend();
                 }
                 else if (inspector_)
@@ -603,7 +574,7 @@ namespace Babylon
         v8::Isolate* isolate,
         v8::Local<v8::Context> context,
         const char* context_name)
-        : impl(std::make_shared<AgentImpl>(platform, isolate, context, context_name))
+        : impl(std::make_unique<AgentImpl>(platform, isolate, context, context_name))
     {
     }
 

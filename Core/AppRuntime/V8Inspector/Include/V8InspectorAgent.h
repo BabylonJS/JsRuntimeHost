@@ -30,6 +30,6 @@ namespace Babylon
         bool IsConnected();
 
     private:
-        std::shared_ptr<AgentImpl> impl;
+        std::unique_ptr<AgentImpl> impl;
     };
 }
