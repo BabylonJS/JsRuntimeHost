@@ -3,7 +3,7 @@
 
 namespace Babylon
 {
-    void AppRuntime::DefaultUnhandledExceptionHandler(const std::exception& error)
+    void AppRuntime::DefaultUnhandledExceptionHandler(const Napi::Error& error)
     {
         std::cerr << "[Uncaught Error] " << error.Get("stack").As<Napi::String>().Utf8Value().data() << std::endl;
     }
