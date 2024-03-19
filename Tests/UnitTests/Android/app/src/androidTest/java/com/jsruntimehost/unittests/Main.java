@@ -17,7 +17,7 @@ import static org.junit.Assert.*;
  */
 @RunWith(AndroidJUnit4.class)
 public class Main {
-    @Test
+    @Test(timeout = 3600000)
     public void javaScriptTests() {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
