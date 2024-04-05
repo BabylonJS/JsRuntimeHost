@@ -1,6 +1,9 @@
 #ifndef SRC_JS_NATIVE_API_H_
 #define SRC_JS_NATIVE_API_H_
 
+// [BABYLON-NATIVE-ADDITION]
+#define NAPI_VERSION 5
+
 // This file needs to be compatible with C compilers.
 #include <stdbool.h>  // NOLINT(modernize-deprecated-headers)
 #include <stddef.h>   // NOLINT(modernize-deprecated-headers)

@@ -90,19 +90,25 @@ namespace Babylon
             Napi::Env env = Napi::Attach(context);
 
 #ifdef ENABLE_V8_INSPECTOR
-            V8InspectorAgent agent{Module::Instance().Platform(), isolate, context, "JsRuntimeHost"};
-            agent.Start(5643, "JsRuntimeHost");
-
-            if (m_options.WaitForDebugger)
+            if (m_options.EnableDebugger)
             {
-                agent.WaitForDebugger();
+                V8InspectorAgent agent{Module::Instance().Platform(), isolate, context, "JsRuntimeHost"};
+                agent.Start(5643, "JsRuntimeHost");
+
+                if (m_options.WaitForDebugger)
+                {
+                    agent.WaitForDebugger();
+                }
             }
 #endif
 
             Run(env);
 
 #ifdef ENABLE_V8_INSPECTOR
-            agent.Stop();
+            if (m_options.EnableDebugger)
+            {
+                agent.Stop();
+            }
 #endif
 
             Napi::Detach(env);

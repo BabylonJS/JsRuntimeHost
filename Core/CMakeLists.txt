@@ -4,6 +4,8 @@ else()
     add_subdirectory(Node-API)
 endif()
 
+add_subdirectory(Node-API-Extensions)
+
 add_subdirectory(JsRuntime)
 
 if(JSRUNTIMEHOST_CORE_APPRUNTIME)

@@ -11,6 +11,7 @@ target_include_directories(JsRuntime PUBLIC "Include")
 
 target_link_libraries(JsRuntime
     PUBLIC napi
+    PUBLIC napi-extensions
     PRIVATE arcana)
 
 set_property(TARGET JsRuntime PROPERTY FOLDER Core)

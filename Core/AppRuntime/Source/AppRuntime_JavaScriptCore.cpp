@@ -6,6 +6,9 @@ namespace Babylon
     void AppRuntime::RunEnvironmentTier(const char*)
     {
         auto globalContext = JSGlobalContextCreateInGroup(nullptr, nullptr);
+
+        JSGlobalContextSetInspectable(globalContext, m_options.EnableDebugger);
+
         Napi::Env env = Napi::Attach(globalContext);
 
         Run(env);
