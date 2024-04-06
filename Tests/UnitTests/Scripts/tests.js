@@ -140,27 +140,27 @@ describe("XMLHTTPRequest", function () {
     });
 
     it("should make a POST request with no body successfully", async function () {
-        const xhr = await createRequest("POST", "https://babylonresponder.azurewebsites.net/api/req200");
+        const xhr = await createRequest("POST", "https://httpbin.io/post");
         expect(xhr).to.have.property('readyState', 4);
         expect(xhr).to.have.property('status', 200);
     });
 
     it("should make a POST request with body successfully", async function () {
-        const xhr = await createRequest("POST", "https://babylonresponder.azurewebsites.net/api/req200", "sampleBody");
+        const xhr = await createRequest("POST", "https://httpbin.io/post", "sampleBody");
         expect(xhr).to.have.property('readyState', 4);
         expect(xhr).to.have.property('status', 200);
     });
 
     it("should make a GET request with headers successfully", async function () {
         const headersMap = new Map([['foo', '3'], ['bar', '3']]);
-        const xhr = await createRequestWithHeaders("GET", "https://babylonresponder.azurewebsites.net/api/req200", headersMap);
+        const xhr = await createRequestWithHeaders("GET", "https://httpbin.io/get", headersMap);
         expect(xhr).to.have.property('readyState', 4);
         expect(xhr).to.have.property('status', 200);
     });
 
     it("should make a POST request with body and headers successfully", async function () {
         const headersMap = new Map([['foo', '3'], ['bar', '3']]);
-        const xhr = await createRequestWithHeaders("POST", "https://babylonresponder.azurewebsites.net/api/req200", headersMap, "testBody");
+        const xhr = await createRequestWithHeaders("POST", "https://httpbin.io/post", headersMap, "testBody");
         expect(xhr).to.have.property('readyState', 4);
         expect(xhr).to.have.property('status', 200);
     });
