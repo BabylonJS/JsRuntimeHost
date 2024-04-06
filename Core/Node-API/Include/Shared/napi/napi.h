@@ -2,10 +2,18 @@
 #define SRC_NAPI_H_
 
 // [BABYLON-NATIVE-ADDITION]
+#ifndef NODE_ADDON_API_DISABLE_DEPRECATED
 #define NODE_ADDON_API_DISABLE_DEPRECATED
+#endif
+#ifndef NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 #define NODE_ADDON_API_DISABLE_NODE_SPECIFIC
+#endif
+#ifndef NAPI_VERSION
 #define NAPI_VERSION 5
+#endif
+#ifndef NAPI_HAS_THREADS
 #define NAPI_HAS_THREADS 0
+#endif
 
 #ifndef NAPI_HAS_THREADS
 #if !defined(__wasm__) || (defined(__EMSCRIPTEN_PTHREADS__) ||                 \
