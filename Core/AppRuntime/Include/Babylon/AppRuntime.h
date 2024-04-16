@@ -23,7 +23,7 @@ namespace Babylon
             // Optional handler for unhandled exceptions.
             std::function<void(const Napi::Error&)> UnhandledExceptionHandler{DefaultUnhandledExceptionHandler};
 
-            // Defines whether to enable the debugger. Defaults to false.
+            // Defines whether to enable the debugger. Only implemented for V8 and Chakra.
             bool EnableDebugger{false};
 
             // Waits for the debugger to be attached before the execution of any script. Only implemented for V8.
