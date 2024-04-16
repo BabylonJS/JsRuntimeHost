@@ -1,16 +1,6 @@
 #include "AppRuntime.h"
 #include <napi/env.h>
 
-#if defined(_MSC_VER)
-#pragma warning(disable : 4100 4267 4127)
-#endif
-#if defined(__clang__)
-#pragma clang diagnostic ignored "-Wunused-parameter"
-#endif
-#if defined(__GNUC__)
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#endif
-#include <v8.h>
 #include <libplatform/libplatform.h>
 
 #ifdef ENABLE_V8_INSPECTOR

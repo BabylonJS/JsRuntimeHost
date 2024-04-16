@@ -97,8 +97,6 @@ if(NAPI_BUILD_ABI)
 
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
                 PUBLIC "${V8_ANDROID_DIR}/jni/${ANDROID_ABI}/libv8android.so")
-
-            set(NAPI_DEFINITIONS PUBLIC V8_COMPRESS_POINTERS)
         elseif(WIN32)
             set_cpu_platform_arch()
             set(V8_VERSION "11.9.169.4")
@@ -143,13 +141,6 @@ if(NAPI_BUILD_ABI)
                 PRIVATE v8::v8_libbase
                 PRIVATE v8::v8_libplatform
                 PRIVATE v8::third_party_zlib)
-
-            if(CPU_ARCH STREQUAL "x64")
-                # Enable V8 Pointer Compression
-                # https://v8.dev/blog/pointer-compression
-                # https://stackoverflow.com/q/62921373
-                set(NAPI_DEFINITIONS PUBLIC V8_COMPRESS_POINTERS V8_ENABLE_SANDBOX)
-            endif()
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
