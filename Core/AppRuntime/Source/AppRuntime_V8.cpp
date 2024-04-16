@@ -17,6 +17,8 @@
 #include <V8InspectorAgent.h>
 #endif
 
+#include <optional>
+
 namespace Babylon
 {
     namespace
@@ -90,14 +92,15 @@ namespace Babylon
             Napi::Env env = Napi::Attach(context);
 
 #ifdef ENABLE_V8_INSPECTOR
+            std::optional<V8InspectorAgent> agent;
             if (m_options.EnableDebugger)
             {
-                V8InspectorAgent agent{Module::Instance().Platform(), isolate, context, "JsRuntimeHost"};
-                agent.Start(5643, "JsRuntimeHost");
+                agent.emplace(Module::Instance().Platform(), isolate, context, "JsRuntimeHost");
+                agent->Start(5643, "JsRuntimeHost");
 
                 if (m_options.WaitForDebugger)
                 {
-                    agent.WaitForDebugger();
+                    agent->WaitForDebugger();
                 }
             }
 #endif
@@ -105,9 +108,9 @@ namespace Babylon
             Run(env);
 
 #ifdef ENABLE_V8_INSPECTOR
-            if (m_options.EnableDebugger)
+            if (agent.has_value())
             {
-                agent.Stop();
+                agent->Stop();
             }
 #endif
 
