@@ -6,6 +6,8 @@ endif()
 
 add_subdirectory(Node-API-Extensions)
 
+add_subdirectory(Foundation)
+
 add_subdirectory(JsRuntime)
 
 if(JSRUNTIMEHOST_CORE_APPRUNTIME)

@@ -7,7 +7,7 @@
 
 namespace Babylon
 {
-    void AppRuntime::DefaultUnhandledExceptionHandler(const Napi::Error& error)
+    void BABYLON_API AppRuntime::DefaultUnhandledExceptionHandler(const Napi::Error& error)
     {
         std::ostringstream ss{};
         ss << "[Uncaught Error] " << Napi::GetErrorString(error) << std::endl;
