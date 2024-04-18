@@ -2956,6 +2956,24 @@ napi_create_external_arraybuffer(napi_env env,
 
     v8::Isolate* isolate = env->isolate;
 
+#ifdef V8_ENABLE_SANDBOX
+    // TODO: We should error out like what happens with node.js. For now, we will copy the buffer instead.
+    auto buffer = v8::ArrayBuffer::New(isolate, byte_length);
+    std::memcpy(buffer->Data(), external_data, byte_length);
+
+    if (finalize_cb != nullptr) {
+      // Create a self-deleting weak reference that invokes the finalizer
+      // callback.
+      v8impl::Reference::New(env,
+          buffer,
+          0,
+          v8impl::Ownership::kUserland,
+          finalize_cb,
+          external_data,
+          finalize_hint);
+    }
+#else
+    // TODO: This code is untested
     struct FinalizeData
     {
       napi_env env;
@@ -2963,16 +2981,22 @@ napi_create_external_arraybuffer(napi_env env,
       void* finalize_hint;
 
       static void Finalize(void* data, size_t length, void* deleter_data) {
+        // TODO: Is this on the right thread?
         auto finalize_data = reinterpret_cast<FinalizeData*>(deleter_data);
-        finalize_data->finalize_cb(finalize_data->env, data, finalize_data->finalize_hint);
+
+        if (finalize_data->finalize_cb != nullptr) {
+          finalize_data->finalize_cb(finalize_data->env, data, finalize_data->finalize_hint);
+        }
+
         delete finalize_data;
       }
     };
 
-    auto backingStore = v8::ArrayBuffer::NewBackingStore(external_data, byte_length, FinalizeData::Finalize, new FinalizeData{env, finalize_cb, finalize_hint});
+    auto buffer = v8::ArrayBuffer::New(isolate, v8::ArrayBuffer::NewBackingStore(external_data, byte_length, FinalizeData::Finalize, new FinalizeData{env, finalize_cb, finalize_hint}));
+#endif
 
-    auto buffer = v8::ArrayBuffer::New(isolate, std::move(backingStore));
     *result = v8impl::JsValueFromV8LocalValue(buffer);
+
     return GET_RETURN_STATUS(env);
 }
 
