@@ -2959,7 +2959,7 @@ napi_create_external_arraybuffer(napi_env env,
 #ifdef V8_ENABLE_SANDBOX
     // TODO: We should error out like what happens with node.js. For now, we will copy the buffer instead.
     auto buffer = v8::ArrayBuffer::New(isolate, byte_length);
-    std::memcpy(buffer->Data(), external_data, byte_length);
+    std::memcpy(buffer->GetBackingStore()->Data(), external_data, byte_length);
 
     if (finalize_cb != nullptr) {
       // Create a self-deleting weak reference that invokes the finalizer
