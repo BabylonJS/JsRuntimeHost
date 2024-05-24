@@ -6,7 +6,7 @@ int main()
 {
     SetConsoleOutputCP(CP_UTF8);
 
-    Babylon::DebugTrace::SetDebugTrace(true);
+    Babylon::DebugTrace::EnableDebugTrace(true);
     Babylon::DebugTrace::SetTraceOutput([](const char* trace) { OutputDebugStringA(trace); });
 
     return RunTests();
