@@ -1,14 +1,17 @@
 #pragma once
 #include <functional>
 
+#if JSRUNTIMEHOST_DEBUG_TRACE
 #define _STRINGIFY(x) #x
 #define _TOSTRING(x) _STRINGIFY(x)
 #define _DEBUG_TRACE(format, ...) Babylon::DebugTrace::Trace(__FILE__ "(" _TOSTRING(__LINE__) "): " format "\n", ##__VA_ARGS__); 
+#define _DEBUG_RUN(lambda) lambda();
 
-#if JSRUNTIMEHOST_DEBUG_TRACE
-#   define DEBUG_TRACE _DEBUG_TRACE
-#else
-#   define DEBUG_TRACE(...)
+#define DEBUG_TRACE _DEBUG_TRACE
+#define DEBUG_RUN _DEBUG_RUN
+#else // No debugging trace enabled
+#define DEBUG_TRACE(...)
+#define DEBUG_RUN(...)
 #endif // JSRUNTIMEHOST_DEBUG_TRACE
 
 namespace Babylon

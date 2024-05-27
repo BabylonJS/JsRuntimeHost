@@ -11,8 +11,15 @@ namespace
     {
         char temp[8192];
         auto len = vsnprintf(temp, sizeof(temp), format, args);
-        temp[len] = '\0';
-        s_traceOutputFunction(temp);
+        if (len >= 0 && len < sizeof(temp))
+        {
+            temp[len] = '\0';
+            s_traceOutputFunction(temp);
+        }
+        else
+        {
+            s_traceOutputFunction("Error while printing trace string.");
+        }
     }
 }
 
