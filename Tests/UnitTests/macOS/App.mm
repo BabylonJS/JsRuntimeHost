@@ -1,5 +1,6 @@
 #include "../Shared/Shared.h"
 #include "Babylon/DebugTrace.h"
+#import <Foundation/Foundation.h>
 
 int main()
 {
