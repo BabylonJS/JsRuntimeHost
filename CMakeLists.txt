@@ -56,7 +56,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # General
 option(JSRUNTIMEHOST_TESTS "Include JsRuntimeHost Tests." ${PROJECT_IS_TOP_LEVEL})
 option(NAPI_BUILD_ABI "Build the ABI layer." ON)
-option(JSRUNTIMEHOST_DEBUG_TRACE "Debug Trace callback."  OFF)
+option(BABYLON_DEBUG_TRACE "Debug Trace callback."  OFF)
 
 # Core
 option(JSRUNTIMEHOST_CORE_APPRUNTIME "Include JsRuntimeHost Core AppRuntime" ON)
@@ -81,8 +81,8 @@ if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
 endif()
 
-if(JSRUNTIMEHOST_DEBUG_TRACE)
-    add_definitions(-DJSRUNTIMEHOST_DEBUG_TRACE)
+if(BABYLON_DEBUG_TRACE)
+    add_definitions(-DBABYLON_DEBUG_TRACE)
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)

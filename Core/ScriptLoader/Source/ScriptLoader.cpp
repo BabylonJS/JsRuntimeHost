@@ -23,6 +23,7 @@ namespace Babylon
             m_task = arcana::when_all(m_task, request.SendAsync()).then(arcana::inline_scheduler, arcana::cancellation::none(), [dispatchFunction = m_dispatchFunction, request = std::move(request), url = std::move(url)](auto) mutable {
                 arcana::task_completion_source<void, std::exception_ptr> taskCompletionSource{};
                 dispatchFunction([taskCompletionSource, request = std::move(request), url = std::move(url)](Napi::Env env) mutable {
+                    DEBUG_TRACE("Evaluating script at url %s", url.c_str());
                     Napi::Eval(env, request.ResponseString().data(), url.data());
                     taskCompletionSource.complete();
                 });
@@ -36,7 +37,6 @@ namespace Babylon
                 [dispatchFunction = m_dispatchFunction, source = std::move(source), url = std::move(url)](auto) mutable {
                     arcana::task_completion_source<void, std::exception_ptr> taskCompletionSource{};
                     dispatchFunction([taskCompletionSource, source = std::move(source), url = std::move(url)](Napi::Env env) mutable {
-                        DEBUG_TRACE("Evaluating script at url %s", url.c_str());
                         Napi::Eval(env, source.data(), url.data());
                         taskCompletionSource.complete();
                     });

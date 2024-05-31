@@ -9,9 +9,5 @@ int main()
     Babylon::DebugTrace::EnableDebugTrace(true);
     Babylon::DebugTrace::SetTraceOutput([](const char* trace) { OutputDebugStringA(trace); });
 
-    DEBUG_RUN([]() {
-        DEBUG_TRACE("This will stop the debugger");
-        DebugBreak();
-        });
     return RunTests();
 }
