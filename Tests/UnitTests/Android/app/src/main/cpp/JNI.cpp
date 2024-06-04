@@ -22,7 +22,7 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     android::global::Initialize(javaVM, context);
 
     Babylon::DebugTrace::EnableDebugTrace(true);
-    Babylon::DebugTrace::SetTraceOutput([](const char* trace) { printf("%s\n", trace); });
+    Babylon::DebugTrace::SetTraceOutput([](const char* trace) { printf("%s\n", trace); fflush(stdout); });
 
     auto testResult = RunTests();
 

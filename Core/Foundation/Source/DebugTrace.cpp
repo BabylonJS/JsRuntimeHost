@@ -5,7 +5,7 @@
 
 namespace
 {
-    bool s_debugTraceEnabled{};
+    bool g_debugTraceEnabled{};
     std::function<void(const char* output)> s_traceOutputFunction;
     void TraceArgs(const char* format, va_list args)
     {
@@ -29,12 +29,12 @@ namespace Babylon
     {
         void EnableDebugTrace(bool enabled)
         {
-            s_debugTraceEnabled = enabled;
+            g_debugTraceEnabled = enabled;
         }
 
         void Trace(const char* format, ...)
         {
-            if (!(s_debugTraceEnabled && s_traceOutputFunction))
+            if (!(g_debugTraceEnabled && s_traceOutputFunction))
             {
                 return;
             }
@@ -46,7 +46,7 @@ namespace Babylon
 
         void SetTraceOutput(std::function<void(const char* trace)> traceOutputFunction)
         {
-            s_traceOutputFunction = std::move(traceOutputFunction);
+            g_traceOutputFunction = std::move(traceOutputFunction);
         }
     }
 }
