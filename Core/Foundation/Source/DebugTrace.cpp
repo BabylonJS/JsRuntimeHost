@@ -6,7 +6,7 @@
 namespace
 {
     bool g_debugTraceEnabled{};
-    std::function<void(const char* output)> s_traceOutputFunction;
+    std::function<void(const char* output)> g_traceOutputFunction;
     void TraceArgs(const char* format, va_list args)
     {
         char temp[8192];
@@ -14,11 +14,11 @@ namespace
         if (len >= 0 && len < sizeof(temp))
         {
             temp[len] = '\0';
-            s_traceOutputFunction(temp);
+            g_traceOutputFunction(temp);
         }
         else
         {
-            s_traceOutputFunction("Error while printing trace string.");
+            g_traceOutputFunction("Error while printing trace string.");
         }
     }
 }
@@ -34,7 +34,7 @@ namespace Babylon
 
         void Trace(const char* format, ...)
         {
-            if (!(g_debugTraceEnabled && s_traceOutputFunction))
+            if (!(g_debugTraceEnabled && g_traceOutputFunction))
             {
                 return;
             }
