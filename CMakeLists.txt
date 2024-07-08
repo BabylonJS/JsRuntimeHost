@@ -97,7 +97,7 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
     set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
 endif()
 
-if(JSRUNTIMEHOST_TESTS)
+if(JSRUNTIMEHOST_TESTS AND (WIN32 OR (APPLE AND NOT IOS) OR (UNIX AND NOT ANDROID)))
     if(WIN32)
         # For Windows: Prevent overriding the parent project's compiler/linker settings
         # Default build type for my test projects are /MDd (MultiThreaded DLL) but GTests default to /MTd (MultiThreaded)
