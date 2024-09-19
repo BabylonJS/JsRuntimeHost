@@ -1,5 +1,9 @@
 #include "WorkQueue.h"
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
+
 namespace Babylon
 {
     WorkQueue::WorkQueue(std::function<void()> threadProcedure)
@@ -29,10 +33,7 @@ namespace Babylon
         });
     }
 
-    void WorkQueue::Resume()
-    {
-        m_suspensionLock.reset();
-    }
+    void WorkQueue::Resume() { m_suspensionLock.reset(); }
 
     void WorkQueue::Run(Napi::Env env)
     {
@@ -41,9 +42,20 @@ namespace Babylon
 
         while (!m_cancelSource.cancelled())
         {
+#if defined(__EMSCRIPTEN__)
+            if (!m_dispatcher.tick(m_cancelSource))
+            {
+                // Do not block when using emscripten. We must ensure
+                // to yield from the call stack so that javascript promises may
+                // execute from the microqueue. This requires ASYNCIFY (tested)
+                // or JSPI (untested).
+                emscripten_sleep(0);
+            }
+#else
             m_dispatcher.blocking_tick(m_cancelSource);
+#endif
         }
 
         m_dispatcher.clear();
     }
-}
+} // namespace Babylon

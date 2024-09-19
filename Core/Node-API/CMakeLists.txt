@@ -8,6 +8,8 @@ elseif(ANDROID)
 elseif(UNIX)
     set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
     set(JAVASCRIPTCORE_LIBRARY "/usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.0.so" CACHE STRING "Path to the JavaScriptCore shared library")
+elseif(EMSCRIPTEN)
+    set(NAPI_JAVASCRIPT_ENGINE "Emscripten" CACHE STRING "JavaScript engine for Nope-API")
 else()
     message(FATAL_ERROR "Unable to select Node-API JavaScript engine for platform")
 endif()
@@ -80,6 +82,12 @@ if(NAPI_BUILD_ABI)
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
+    elseif(NAPI_JAVASCRIPT_ENGINE STREQUAL "Emscripten")
+        set(SOURCES ${SOURCES}
+            "SOURCE/env_emscripten.cc")
+
+        # TODO: Figure out how to import libemnapi.a, library_napi.js, emnapi.min.js for linking
+            
     elseif(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
         set(SOURCES ${SOURCES}
             "Source/env_v8.cc"
