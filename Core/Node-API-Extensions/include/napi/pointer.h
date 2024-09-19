@@ -32,8 +32,7 @@ namespace Napi
         static Napi::Value Create(Napi::Env env, ReturnT (ClassT::*functionPtr)(ArgsT...))
         {
             using PointerT = decltype(functionPtr);
-            auto arrayBuffer = Napi::ArrayBuffer::New(env, PointerTraits<PointerT>::ByteSize);
-            std::memcpy(arrayBuffer.Data(), &functionPtr, sizeof(PointerT));
+            auto arrayBuffer = Napi::ArrayBuffer::New(env, &functionPtr, PointerTraits<PointerT>::ByteSize);
             return Napi::Uint32Array::New(env, PointerTraits<PointerT>::ArraySize, arrayBuffer, 0).template As<Napi::Value>();
         }
     };
@@ -45,8 +44,7 @@ namespace Napi
         static Napi::Value Create(Napi::Env env, const T* pointer)
         {
             using PointerT = T*;
-            auto arrayBuffer = Napi::ArrayBuffer::New(env, PointerTraits<PointerT>::ByteSize);
-            std::memcpy(arrayBuffer.Data(), &pointer, sizeof(PointerT));
+            auto arrayBuffer = Napi::ArrayBuffer::New(env, &pointer, PointerTraits<PointerT>::ByteSize);
             return Napi::Uint32Array::New(env, PointerTraits<PointerT>::ArraySize, arrayBuffer, 0);
         }
 
@@ -60,8 +58,9 @@ namespace Napi
                 callback();
                 delete reinterpret_cast<DataT*>(ptr);
             };
-            auto arrayBuffer = Napi::ArrayBuffer::New(env, new DataT, PointerTraits<PointerT>::ByteSize, std::move(finalizer));
-            std::memcpy(arrayBuffer.Data(), &pointer, sizeof(PointerT));
+            DataT* data = new DataT;
+            std::memcpy(data, &pointer, sizeof(PointerT));
+            auto arrayBuffer = Napi::ArrayBuffer::New(env, data, PointerTraits<PointerT>::ByteSize, std::move(finalizer));
             return Napi::Uint32Array::New(env, PointerTraits<PointerT>::ArraySize, arrayBuffer, 0);
         }
 
