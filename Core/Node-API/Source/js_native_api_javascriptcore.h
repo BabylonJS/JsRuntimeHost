@@ -4,6 +4,7 @@
 #include <napi/js_native_api_types.h>
 #include <JavaScriptCore/JavaScript.h>
 #include <unordered_set>
+#include <unordered_map>
 #include <list>
 #include <thread>
 #include <cassert>
@@ -12,7 +13,9 @@ struct napi_env__ {
   JSGlobalContextRef context{};
   JSValueRef last_exception{};
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
-  std::unordered_set<napi_value> active_ref_values{};
+//    std::unordered_set<napi_value> active_ref_values{};
+  std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
+  std::unordered_map<napi_value, std::string> active_ref_values_names{};
   std::list<napi_ref> strong_refs{};
 
   const std::thread::id thread_id{std::this_thread::get_id()};
@@ -46,7 +49,10 @@ struct napi_env__ {
   } while (0)
 
 #define CHECK_ARG(env, arg) \
-  RETURN_STATUS_IF_FALSE((env), ((arg) != nullptr), napi_invalid_arg)
+do { \
+  if ((arg) == nullptr) *arg; \
+  RETURN_STATUS_IF_FALSE((env), ((arg) != nullptr), napi_invalid_arg); \
+} while (0)
 
 #define CHECK_JSC(env, exception)                \
   do {                                           \

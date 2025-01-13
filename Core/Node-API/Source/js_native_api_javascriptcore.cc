@@ -19,6 +19,12 @@ struct napi_callback_info__ {
 };
 
 namespace {
+  std::unordered_map<napi_value, std::vector<std::tuple<std::uintptr_t, uint32_t, bool, std::string>>> ref_log{};
+  uint32_t objectId = 0;
+  uint64_t referenceObjectId = 0;
+}
+
+namespace {
   class JSString {
    public:
     JSString(const JSString&) = delete;
@@ -477,25 +483,86 @@ namespace {
 
   class ReferenceInfo : public BaseInfoT<ReferenceInfo, NativeType::Reference> {
    public:
-    static napi_status Initialize(napi_env env, napi_value object, FinalizerT finalizer) {
-      ReferenceInfo* info = new ReferenceInfo(env);
+      static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id)
+      {
+          *id = 0;
+
+          if (JSObjectHasProperty(env->context, ToJSObject(env, object), JSString("__finalizerHook")))
+          {
+              JSValueRef exception{};
+              JSValueRef finalizerHook{JSObjectGetProperty(env->context, ToJSObject(env, object), JSString("__finalizerHook"), &exception)};
+              CHECK_JSC(env, exception);
+              auto referenceInfo{ReferenceInfo::Get<ReferenceInfo>(JSValueToObject(env->context, finalizerHook, &exception))};
+              *id = reinterpret_cast<std::uintptr_t>(referenceInfo);
+          }
+
+//          napi_value finalizerHookName{};
+//          napi_create_string_utf8(env, "__finalizerHook", 15, &finalizerHookName);
+//          bool hasFinalizerHook{};
+//          CHECK_NAPI(napi_has_property(env, object, finalizerHookName, &hasFinalizerHook));
+//          if (hasFinalizerHook)
+//          {
+//              napi_value finalizerHook{};
+//              CHECK_NAPI(napi_get_property(env, object, finalizerHookName, &finalizerHook));
+//              auto referenceInfo{ReferenceInfo::Get<ReferenceInfo>(ToJSObject(env, finalizerHook))};
+//              *id = referenceInfo->GetObjectId();
+//          }
+
+          return napi_ok;
+      }
+
+      //static napi_status Initialize(napi_env env, napi_value object, FinalizerT finalizer, std::uintptr_t* objectId) {
+      static napi_status Initialize(napi_env env, napi_value object, FinalizerT finalizer) {
+
+          JSValueRef exception{};
+//          if (JSObjectHasProperty(env->context, ToJSObject(env, object), JSString("__finalizerHook")))
+//          {
+//              JSValueRef value{JSObjectGetProperty(env->context, ToJSObject(env, object), JSString("__finalizerHook"), &exception)};
+//              auto existingReferenceInfo{ReferenceInfo::Get<ReferenceInfo>(JSValueToObject(env->context, value, &exception))};
+//              *objectId = reinterpret_cast<std::uintptr_t>(existingReferenceInfo);
+//              return napi_ok;
+//          }
+//          
+          ReferenceInfo* info = new ReferenceInfo(env);
       if (info == nullptr) {
         return napi_set_last_error(env, napi_generic_failure);
       }
 
       JSObjectRef prototype{JSObjectMake(env->context, info->_class, info)};
-      JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, ToJSObject(env, object)));
-      JSObjectSetPrototype(env->context, ToJSObject(env, object), prototype);
+//      JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, ToJSObject(env, object)));
+//      JSObjectSetPrototype(env->context, ToJSObject(env, object), prototype);
+
+        JSObjectSetProperty(
+          env->context,
+          ToJSObject(env, object),
+          JSString("__finalizerHook"),
+          prototype,
+          kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete,
+          &exception);
+        CHECK_JSC(env, exception);
 
       info->AddFinalizer(finalizer);
+          
+//          *objectId = reinterpret_cast<std::uintptr_t>(info);
+          
       return napi_ok;
     }
 
+    std::uintptr_t GetObjectId()
+    {
+        return reinterpret_cast<std::uintptr_t>(this);
+    }
+
    private:
+//      static uint64_t _lastObjectId;
+//      uint64_t _objectId;
     ReferenceInfo(napi_env env)
+//      : _objectId{_lastObjectId++}, BaseInfoT{env, "Native (Reference)"} {
       : BaseInfoT{env, "Native (Reference)"} {
     }
   };
+
+//  uint64_t ReferenceInfo::_lastObjectId = 0;
 
   class WrapperInfo : public BaseInfoT<WrapperInfo, NativeType::Wrapper> {
    public:
@@ -577,21 +644,120 @@ namespace {
 }
 
 struct napi_ref__ {
+    void log(std::string action)
+    {
+        auto entry = ref_log.find(_value);
+        if (entry == ref_log.end())
+        {
+            entry = ref_log.insert({_value, {}}).first;
+        }
+        entry->second.push_back({reinterpret_cast<std::uintptr_t>(this), std::get<0>(*_data), std::get<1>(*_data), action});
+    }
+    
   napi_ref__(napi_value value, uint32_t count)
-    : _value{value}
-    , _count{count} {
+    : _value{value} {
+        std::get<0>(*_data) = count;
+        log("constructed");
   }
+
+  napi_ref__(const napi_ref__&) = delete;
+  napi_ref__& operator=(const napi_ref__&) = delete;
 
   napi_status init(napi_env env) {
     // track the ref values to support weak refs
-    auto pair{env->active_ref_values.insert(_value)};
-    if (pair.second) {
-      CHECK_NAPI(ReferenceInfo::Initialize(env, _value, [value = _value](ReferenceInfo* info) {
-        info->Env()->active_ref_values.erase(value);
-      }));
-    }
+      
+      std::string funcName{};
+      char stringBuff[1024]{};
+      if (JSValueIsObject(env->context, reinterpret_cast<JSValueRef>(_value)))
+      {
+          napi_value name;
+//          napi_create_string_utf8(env, "name", 4, &name);
+//          napi_value functionName;
+//          napi_get_property(env, _value, name, &functionName);
+//          napi_get_value_string_utf8(env, functionName, stringBuff, sizeof(stringBuff), nullptr);
+          
+          napi_create_string_utf8(env, "toString", 8, &name);
+          napi_value function;
+          napi_get_property(env, _value, name, &function);
+          if (JSValueIsObject(env->context, reinterpret_cast<JSValueRef>(function)) && JSObjectIsFunction(env->context, ToJSObject(env, function)))
+          {
+              napi_value funcStr;
+              napi_call_function(env, _value, function, 0, nullptr, &funcStr);
+              napi_get_value_string_utf8(env, funcStr, stringBuff, sizeof(stringBuff), nullptr);
+              funcName = stringBuff;
+              std::get<2>(*_data) = funcName;
+          }
+          
+          napi_value objectIdName;
+          napi_create_string_utf8(env, "_ryanObjectId", 13, &objectIdName);
+          bool hasObjectId{};
+          napi_has_property(env, _value, objectIdName, &hasObjectId);
+          if (hasObjectId)
+          {
+              napi_value objectId;
+              napi_get_property(env, _value, objectIdName, &objectId);
+              int32_t objectIdRaw{};
+              napi_get_value_int32(env, objectId, &objectIdRaw);
+              log(std::to_string(objectIdRaw));
+          }
+          
+          napi_value finalizerHookName;
+          napi_create_string_utf8(env, "__finalizerHook", 15, &finalizerHookName);
+          bool hasFinalizerHook{};
+          napi_has_property(env, _value, finalizerHookName, &hasFinalizerHook);
+          if (hasFinalizerHook) {
+              log("finalizer previously attached");
+          }
+      }
+      log("init");
+      log(funcName);
+      env->active_ref_values_names.insert({_value, funcName});
+      
+//      CHECK_NAPI(ReferenceInfo::Initialize(env, _value, [value = _value, data = _data, thisPtr = reinterpret_cast<std::uintptr_t>(this)](ReferenceInfo* info) {
+//          //if (_count != 0)
+//          if (std::get<0>(*data) != 0)
+//          {
+//              throw std::runtime_error{"finalizing with non-zero ref count"};
+//          }
+////          log("finalized");
+//        info->Env()->active_ref_values.erase(value);
+//          std::get<1>(*data) = true;
+//          ref_log.find(value)->second.push_back({thisPtr, std::get<0>(*data), true, "finalized"});
+//      }));
+      
+//      auto existingEntry{env->active_ref_values.find(_value)};
+//      if (existingEntry == env->active_ref_values.end() || existingEntry->second)
 
-    if (_count != 0) {
+      CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
+      if (_objectId == 0) {
+          log("added finalizer");
+        CHECK_NAPI(ReferenceInfo::Initialize(env, _value, [value = _value, data = _data, thisPtr = reinterpret_cast<std::uintptr_t>(this)](ReferenceInfo* info) {
+            //if (_count != 0)
+            if (std::get<0>(*data) != 0)
+            {
+                throw std::runtime_error{"finalizing with non-zero ref count"};
+            }
+            auto entry{info->Env()->active_ref_values.find(value)};
+            if (entry != info->Env()->active_ref_values.end() && entry->second == info->GetObjectId())
+            {
+                info->Env()->active_ref_values.erase(entry);
+            }
+//          info->Env()->active_ref_values.erase(value);
+            std::get<1>(*data) = true;
+            ref_log.find(value)->second.push_back({thisPtr, std::get<0>(*data), true, "finalized"});
+        }));
+
+          CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
+          assert(_objectId);
+          env->active_ref_values[_value] = _objectId;
+      }
+
+    //if (_count != 0) {
+      if (std::get<0>(*_data) != 0) {
+          if (std::get<0>(*_data) != 1) {
+              throw std::runtime_error{"ref count must be 0 or 1"};
+          }
+          log("init protect");
       protect(env);
     }
 
@@ -599,36 +765,69 @@ struct napi_ref__ {
   }
 
   void deinit(napi_env env) {
-    if (_count != 0) {
+    //if (_count != 0) {
+      if (std::get<0>(*_data) != 0) {
+          log("deinit unprotect");
       unprotect(env);
     }
 
     _value = nullptr;
-    _count = 0;
+//    _count = 0;
+      std::get<0>(*_data) = 0;
   }
 
   void ref(napi_env env) {
-    if (_count++ == 0) {
+//    if (_count++ == 0) {
+      if (std::get<1>(*_data))
+      {
+          throw std::runtime_error{"object is already finalized"};
+      }
+    if (std::get<0>(*_data)++ == 0) {
+        log("ref protect");
       protect(env);
     }
   }
 
   void unref(napi_env env) {
-    if (--_count == 0) {
+//    if (--_count == 0) {
+      if (std::get<0>(*_data) == 0) {
+          throw std::runtime_error{"deref below zero"};
+      }
+    if (--std::get<0>(*_data) == 0) {
+        log("unref unprotect");
       unprotect(env);
     }
   }
 
   uint32_t count() const {
-    return _count;
+    //return _count;
+      return std::get<0>(*_data);
   }
 
   napi_value value(napi_env env) const {
-    if (env->active_ref_values.find(_value) == env->active_ref_values.end()) {
+      if (env->active_ref_values.find(_value) != env->active_ref_values.end())
+      {
+          std::uintptr_t objectId{};
+          if (ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId) {
+              return _value;
+          }
+      }
+      
+      auto nameValue = env->active_ref_values_names.find(_value);
+      auto funcName = nameValue->second;
+      auto funcName2 = funcName.data();
+      auto log = ref_log.find(_value);
       return nullptr;
-    }
 
-    return _value;
+//      if (env->active_ref_values.find(_value) == env->active_ref_values.end()) {
+//        auto nameValue = env->active_ref_values_names.find(_value);
+//        auto funcName = nameValue->second;
+//        auto funcName2 = funcName.data();
+//        auto log = ref_log.find(_value);
+//      return nullptr;
+//    }
+//
+//    return _value;
   }
 
  private:
@@ -643,7 +842,10 @@ struct napi_ref__ {
   }
 
   napi_value _value{};
-  uint32_t _count{};
+//    std::shared_ptr<std::tuple<uint32_t, bool, std::string>> _data{0, false, ""}; //ryan
+    std::shared_ptr<std::tuple<uint32_t, bool, std::string>> _data{std::make_shared<std::tuple<uint32_t, bool, std::string>>(0, false, "")};
+//  uint32_t _count{};
+    std::uintptr_t _objectId{};
   std::list<napi_ref>::iterator _iter{};
 };
 
@@ -2332,6 +2534,10 @@ napi_status napi_create_promise(napi_env env,
 
   napi_value deferred_value{};
   CHECK_NAPI(napi_create_object(env, &deferred_value));
+  // ryan
+    napi_value object_id{};
+    CHECK_NAPI(napi_create_int32(env, objectId++, &object_id));
+    CHECK_NAPI(napi_set_named_property(env, deferred_value, "_ryanObjectId", object_id));
   CHECK_NAPI(napi_set_named_property(env, deferred_value, "resolve", wrapper.resolve));
   CHECK_NAPI(napi_set_named_property(env, deferred_value, "reject", wrapper.reject));
 
