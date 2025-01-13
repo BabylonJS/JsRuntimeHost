@@ -644,7 +644,7 @@ namespace {
 }
 
 struct napi_ref__ {
-    void log(std::string action)
+    void log(std::string action) const
     {
         auto entry = ref_log.find(_value);
         if (entry == ref_log.end())
@@ -731,21 +731,30 @@ struct napi_ref__ {
       CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
       if (_objectId == 0) {
           log("added finalizer");
-        CHECK_NAPI(ReferenceInfo::Initialize(env, _value, [value = _value, data = _data, thisPtr = reinterpret_cast<std::uintptr_t>(this)](ReferenceInfo* info) {
+        auto napi_result = ReferenceInfo::Initialize(env, _value, [value = _value, data = _data, thisPtr = reinterpret_cast<std::uintptr_t>(this)](ReferenceInfo* info) {
             //if (_count != 0)
             if (std::get<0>(*data) != 0)
             {
                 throw std::runtime_error{"finalizing with non-zero ref count"};
             }
             auto entry{info->Env()->active_ref_values.find(value)};
-            if (entry != info->Env()->active_ref_values.end() && entry->second == info->GetObjectId())
+            if (entry != info->Env()->active_ref_values.end())
             {
-                info->Env()->active_ref_values.erase(entry);
+                if (entry->second == info->GetObjectId())
+                {
+                    ref_log.find(value)->second.push_back({thisPtr, std::get<0>(*data), true, "removing from active values"});
+                    info->Env()->active_ref_values.erase(entry);
+                }
+                else
+                {
+                    ref_log.find(value)->second.push_back({thisPtr, std::get<0>(*data), true, "not removing from active values because replaced"});
+                }	
             }
 //          info->Env()->active_ref_values.erase(value);
             std::get<1>(*data) = true;
             ref_log.find(value)->second.push_back({thisPtr, std::get<0>(*data), true, "finalized"});
-        }));
+        });
+          CHECK_NAPI(napi_result);
 
           CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
           assert(_objectId);
@@ -810,6 +819,10 @@ struct napi_ref__ {
           std::uintptr_t objectId{};
           if (ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId) {
               return _value;
+          }
+          else
+          {
+              log("return null value because this ref is stale");
           }
       }
       
