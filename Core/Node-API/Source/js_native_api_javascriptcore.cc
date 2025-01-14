@@ -480,9 +480,12 @@ namespace {
     static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id) {
       *id = 0;
 
-      if (JSObjectHasProperty(env->context, ToJSObject(env, object), JSString("__finalizerHook"))) {
+      JSValueRef exception{};
+      const auto hasFinalizerHook{JSObjectHasPropertyForKey(env->context, ToJSObject(env, object), env->reference_info_symbol, &exception)};
+      CHECK_JSC(env, exception);
+      if (hasFinalizerHook) {
         JSValueRef exception{};
-        JSValueRef finalizerHook{JSObjectGetProperty(env->context, ToJSObject(env, object), JSString("__finalizerHook"), &exception)};
+        JSValueRef finalizerHook{JSObjectGetPropertyForKey(env->context, ToJSObject(env, object), env->reference_info_symbol, &exception)};
         CHECK_JSC(env, exception);
         auto referenceInfo{ReferenceInfo::Get<ReferenceInfo>(JSValueToObject(env->context, finalizerHook, &exception))};
         *id = referenceInfo->GetObjectId();
@@ -500,10 +503,10 @@ namespace {
       JSObjectRef prototype{JSObjectMake(env->context, info->_class, info)};
 
       JSValueRef exception{};
-      JSObjectSetProperty(
+      JSObjectSetPropertyForKey(
         env->context,
         ToJSObject(env, object),
-        JSString("__finalizerHook"),
+        env->reference_info_symbol,
         prototype,
         kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete,
         &exception);

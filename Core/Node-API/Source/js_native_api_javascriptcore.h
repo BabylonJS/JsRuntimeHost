@@ -15,14 +15,22 @@ struct napi_env__ {
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
 
+  JSValueRef reference_info_symbol{};
+
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
     JSGlobalContextRetain(context);
+    {
+      JSStringRef descriptionRef{JSStringCreateWithUTF8CString("ReferenceInfo")};
+      reference_info_symbol = JSValueMakeSymbol(context, descriptionRef);
+      JSValueProtect(context, reference_info_symbol);
+    }
   }
   
   ~napi_env__() {
     deinit_refs();
+    JSValueUnprotect(context, reference_info_symbol);
     JSGlobalContextRelease(context);
   }
 
