@@ -188,8 +188,48 @@ namespace {
     }
 
     template<typename T>
+    static void Apply(napi_env env, JSObjectRef target, JSObjectRef sentinel) {
+      JSValueRef exception{};
+      JSObjectSetPropertyForKey(
+        env->context,
+        target,
+        T::GetKey(env),
+        sentinel,
+        kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete,
+        &exception);
+
+      CHECK_JSC(env, exception);
+    }
+
+    template<typename T>
     static T* Get(JSObjectRef obj) {
       return reinterpret_cast<T*>(JSObjectGetPrivate(obj));
+    }
+
+    template<typename T>
+    static T* Lookup(napi_env env, JSObjectRef obj) {
+      JSValueRef exception{};
+      const auto hasSentinel{JSObjectHasPropertyForKey(env->context, obj, T::GetKey(env), &exception)};
+      if (exception != nullptr) {
+        return nullptr;
+      }
+
+      if (hasSentinel) {
+        JSValueRef exception{};
+        JSValueRef sentinelValue{JSObjectGetPropertyForKey(env->context, obj, T::GetKey(env), &exception)};
+        if (exception != nullptr) {
+          return nullptr;
+        }
+
+        JSObjectRef sentinel{JSValueToObject(env->context, sentinelValue, &exception)};
+        if (exception != nullptr) {
+          return nullptr;
+        }
+
+        return Get<T>(sentinel);
+      }
+
+      return nullptr;
     }
 
     template<typename T>
@@ -477,21 +517,14 @@ namespace {
 
   class ReferenceInfo : public BaseInfoT<ReferenceInfo, NativeType::Reference> {
    public:
-    static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id) {
-      *id = 0;
-
-      JSValueRef exception{};
-      const auto hasFinalizerHook{JSObjectHasPropertyForKey(env->context, ToJSObject(env, object), env->reference_info_symbol, &exception)};
-      CHECK_JSC(env, exception);
-      if (hasFinalizerHook) {
-        JSValueRef exception{};
-        JSValueRef finalizerHook{JSObjectGetPropertyForKey(env->context, ToJSObject(env, object), env->reference_info_symbol, &exception)};
-        CHECK_JSC(env, exception);
-        auto referenceInfo{ReferenceInfo::Get<ReferenceInfo>(JSValueToObject(env->context, finalizerHook, &exception))};
-        *id = referenceInfo->GetObjectId();
+      static JSValueRef GetKey(napi_env env) {
+          return env->reference_info_symbol;
       }
 
-      return napi_ok;
+    static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id) {
+        ReferenceInfo* referenceInfo{ReferenceInfo::Lookup<ReferenceInfo>(env, ToJSObject(env, object))};
+        *id = referenceInfo == nullptr ? 0 : referenceInfo->GetObjectId();
+        return napi_ok;
     }
 
     static napi_status Initialize(napi_env env, napi_value object, FinalizerT finalizer) {
@@ -500,18 +533,8 @@ namespace {
         return napi_set_last_error(env, napi_generic_failure);
       }
 
-      JSObjectRef prototype{JSObjectMake(env->context, info->_class, info)};
-
-      JSValueRef exception{};
-      JSObjectSetPropertyForKey(
-        env->context,
-        ToJSObject(env, object),
-        env->reference_info_symbol,
-        prototype,
-        kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontEnum | kJSPropertyAttributeDontDelete,
-        &exception);
-      CHECK_JSC(env, exception);
-
+      JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
+      ReferenceInfo::Apply<ReferenceInfo>(env, ToJSObject(env, object), sentinel);
       info->AddFinalizer(finalizer);
       return napi_ok;
     }
