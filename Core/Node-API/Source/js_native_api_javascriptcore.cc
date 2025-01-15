@@ -139,6 +139,10 @@ namespace {
     return reinterpret_cast<napi_value*>(const_cast<OpaqueJSValue**>(values));
   }
 
+  napi_env ToNapi(const JSContextRef context) {
+    return napi_env__::get(context);
+  }
+
   napi_status napi_clear_last_error(napi_env env) {
     env->last_error.error_code = napi_ok;
     env->last_error.engine_error_code = 0;
@@ -263,6 +267,10 @@ namespace {
    public:
     static const NativeType StaticType = NativeType::Constructor;
 
+    static JSValueRef GetKey(napi_env env) {
+      return env->constructor_info_symbol;
+    }
+
     static napi_status Create(napi_env env,
                               const char* utf8name,
                               size_t length,
@@ -355,6 +363,10 @@ namespace {
    public:
     static const NativeType StaticType = NativeType::Function;
 
+    static JSValueRef GetKey(napi_env env) {
+      return env->function_info_symbol;
+    }
+
     static napi_status Create(napi_env env,
                               const char* utf8name,
                               size_t length,
@@ -367,9 +379,8 @@ namespace {
       }
 
       JSObjectRef function{JSObjectMakeFunctionWithCallback(env->context, JSString(utf8name), CallAsFunction)};
-      JSObjectRef prototype{JSObjectMake(env->context, info->_class, info)};
-      JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, function));
-      JSObjectSetPrototype(env->context, function, prototype);
+      JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
+      NativeInfo::Apply<FunctionInfo>(env, function, sentinel);
 
       *result = ToNapi(function);
       return napi_ok;
@@ -398,7 +409,7 @@ namespace {
                                      size_t argumentCount,
                                      const JSValueRef arguments[],
                                      JSValueRef* exception) {
-      FunctionInfo* info = NativeInfo::FindInPrototypeChain<FunctionInfo>(ctx, function);
+      FunctionInfo* info = NativeInfo::Lookup<FunctionInfo>(ToNapi(ctx), function);
 
       // Make sure any errors encountered last time we were in N-API are gone.
       napi_clear_last_error(info->_env);
@@ -726,6 +737,8 @@ void napi_env__::deinit_refs() {
     ref->deinit(this);
   }
 }
+
+std::unordered_map<JSContextRef, napi_env> napi_env__::napi_envs{};
 
 // Warning: Keep in-sync with napi_status enum
 static const char* error_messages[] = {

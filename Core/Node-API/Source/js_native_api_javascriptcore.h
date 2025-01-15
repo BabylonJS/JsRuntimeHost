@@ -15,13 +15,18 @@ struct napi_env__ {
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
 
+  JSValueRef constructor_info_symbol{};
+  JSValueRef function_info_symbol{};
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
 
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
+    napi_envs[context] = this;
     JSGlobalContextRetain(context);
+    init_symbol(constructor_info_symbol, "BabylonNative_ConstructorInfo");
+    init_symbol(function_info_symbol, "BabylonNative_FunctionInfo");
     init_symbol(reference_info_symbol, "BabylonNative_ReferenceInfo");
     init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
   }
@@ -30,10 +35,24 @@ struct napi_env__ {
     deinit_refs();
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
+    deinit_symbol(function_info_symbol);
+    deinit_symbol(constructor_info_symbol);
     JSGlobalContextRelease(context);
+    napi_envs.erase(context);
+  }
+
+  static napi_env get(JSContextRef context) {
+    auto it = napi_envs.find(context);
+    if (it != napi_envs.end()) {
+      return it->second;
+    } else {
+      return nullptr;
+    }
   }
 
  private:
+  static std::unordered_map<JSContextRef, napi_env> napi_envs;
+
   void deinit_refs();
 
   void init_symbol(JSValueRef& symbol, const char* description) {
