@@ -16,26 +16,35 @@ struct napi_env__ {
   std::list<napi_ref> strong_refs{};
 
   JSValueRef reference_info_symbol{};
+  JSValueRef wrapper_info_symbol{};
 
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
     JSGlobalContextRetain(context);
-    {
-      JSStringRef descriptionRef{JSStringCreateWithUTF8CString("ReferenceInfo")};
-      reference_info_symbol = JSValueMakeSymbol(context, descriptionRef);
-      JSValueProtect(context, reference_info_symbol);
-    }
+    init_symbol(reference_info_symbol, "BabylonNative_ReferenceInfo");
+    init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
   }
-  
+
   ~napi_env__() {
     deinit_refs();
-    JSValueUnprotect(context, reference_info_symbol);
+    deinit_symbol(wrapper_info_symbol);
+    deinit_symbol(reference_info_symbol);
     JSGlobalContextRelease(context);
   }
 
  private:
   void deinit_refs();
+
+  void init_symbol(JSValueRef& symbol, const char* description) {
+    JSStringRef descriptionRef{JSStringCreateWithUTF8CString(description)};
+    symbol = JSValueMakeSymbol(context, descriptionRef);
+    JSValueProtect(context, symbol);
+  }
+
+  void deinit_symbol(JSValueRef symbol) {
+    JSValueUnprotect(context, symbol);
+  }
 };
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \

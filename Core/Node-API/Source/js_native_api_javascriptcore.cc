@@ -522,7 +522,7 @@ namespace {
       }
 
     static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id) {
-        ReferenceInfo* referenceInfo{ReferenceInfo::Lookup<ReferenceInfo>(env, ToJSObject(env, object))};
+        ReferenceInfo* referenceInfo{NativeInfo::Lookup<ReferenceInfo>(env, ToJSObject(env, object))};
         *id = referenceInfo == nullptr ? 0 : referenceInfo->GetObjectId();
         return napi_ok;
     }
@@ -534,7 +534,7 @@ namespace {
       }
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      ReferenceInfo::Apply<ReferenceInfo>(env, ToJSObject(env, object), sentinel);
+      NativeInfo::Apply<ReferenceInfo>(env, ToJSObject(env, object), sentinel);
       info->AddFinalizer(finalizer);
       return napi_ok;
     }
@@ -552,6 +552,10 @@ namespace {
 
   class WrapperInfo : public BaseInfoT<WrapperInfo, NativeType::Wrapper> {
    public:
+    static JSValueRef GetKey(napi_env env) {
+      return env->wrapper_info_symbol;
+    }
+
     static napi_status Wrap(napi_env env, napi_value object, WrapperInfo** result) {
       WrapperInfo* info{};
       CHECK_NAPI(Unwrap(env, object, &info));
@@ -561,9 +565,8 @@ namespace {
           return napi_set_last_error(env, napi_generic_failure);
         }
 
-        JSObjectRef prototype{JSObjectMake(env->context, info->_class, info)};
-        JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, ToJSObject(env, object)));
-        JSObjectSetPrototype(env->context, ToJSObject(env, object), prototype);
+        JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
+        NativeInfo::Apply<WrapperInfo>(env, ToJSObject(env, object), sentinel);
       }
 
       *result = info;
@@ -571,7 +574,7 @@ namespace {
     }
 
     static napi_status Unwrap(napi_env env, napi_value object, WrapperInfo** result) {
-      *result = NativeInfo::FindInPrototypeChain<WrapperInfo>(env->context, ToJSObject(env, object));
+      *result = NativeInfo::Lookup<WrapperInfo>(env, ToJSObject(env, object));
       return napi_ok;
     }
 
