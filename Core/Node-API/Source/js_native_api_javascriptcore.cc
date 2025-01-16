@@ -646,6 +646,11 @@ struct napi_ref__ {
     if (_objectId == 0) {
       CHECK_NAPI(ReferenceInfo::Initialize(env, _value, [value = _value](ReferenceInfo* info) {
           auto entry{info->Env()->active_ref_values.find(value)};
+          // NOTE: The finalizer callback is actually on a "sentinel" JS object that is linked to the
+          // actual JS object we are trying to track. This means it is possible for the tracked object
+          // to be garbage collected and a new object created at the same memory address before we get
+          // the callback for the sentinel object finalizer. Guard against this by checking that the
+          // tracked object still has the same unique object id.
           if (entry != info->Env()->active_ref_values.end() && entry->second == info->GetObjectId())
           {
             info->Env()->active_ref_values.erase(entry);
@@ -700,6 +705,8 @@ struct napi_ref__ {
     if (env->active_ref_values.find(_value) != env->active_ref_values.end())
     {
       std::uintptr_t objectId{};
+      // NOTE: This check is needed for the same reason we need a similar check in the init function.
+      // See the comment in init for more details.
       if (ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId) {
         return _value;
       }
