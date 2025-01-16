@@ -265,6 +265,8 @@ namespace {
       }
 
       JSObjectRef constructor{JSObjectMakeConstructor(env->context, nullptr, CallAsConstructor)};
+      // BEGIN TODO: This extra prototype should no longer be needed, but for some reason removing it leads to errors
+      //             when setting properties on some prototypes. This should be investigated and removed.
       JSObjectRef prototype{JSObjectMake(env->context, info->_class, nullptr)};
       JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, constructor));
       JSObjectSetPrototype(env->context, constructor, prototype);
@@ -273,6 +275,7 @@ namespace {
       JSObjectSetProperty(env->context, prototype, JSString("constructor"), constructor,
         kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, &exception);
       CHECK_JSC(env, exception);
+      // END TODO
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
       NativeInfo::Apply<ConstructorInfo>(env, constructor, sentinel);
@@ -721,6 +724,15 @@ void napi_env__::deinit_refs() {
     napi_ref ref{strong_refs.front()};
     ref->deinit(this);
   }
+}
+
+void napi_env__::init_symbol(JSValueRef &symbol, const char *description) {
+  symbol = JSValueMakeSymbol(context, JSString(description));
+  JSValueProtect(context, symbol);
+}
+
+void napi_env__::deinit_symbol(JSValueRef symbol) {
+  JSValueUnprotect(context, symbol);
 }
 
 std::unordered_map<JSContextRef, napi_env> napi_env__::napi_envs{};

@@ -54,16 +54,8 @@ struct napi_env__ {
   static std::unordered_map<JSContextRef, napi_env> napi_envs;
 
   void deinit_refs();
-
-  void init_symbol(JSValueRef& symbol, const char* description) {
-    JSStringRef descriptionRef{JSStringCreateWithUTF8CString(description)};
-    symbol = JSValueMakeSymbol(context, descriptionRef);
-    JSValueProtect(context, symbol);
-  }
-
-  void deinit_symbol(JSValueRef symbol) {
-    JSValueUnprotect(context, symbol);
-  }
+  void init_symbol(JSValueRef& symbol, const char* description);
+  void deinit_symbol(JSValueRef symbol);
 };
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \
