@@ -192,7 +192,7 @@ namespace {
     }
 
     template<typename T>
-    static void Apply(napi_env env, JSObjectRef target, JSObjectRef sentinel) {
+    static void Link(napi_env env, JSObjectRef target, JSObjectRef sentinel) {
       JSValueRef exception{};
       JSObjectSetPropertyForKey(
         env->context,
@@ -211,7 +211,7 @@ namespace {
     }
 
     template<typename T>
-    static T* Lookup(napi_env env, JSObjectRef obj) {
+    static T* Query(napi_env env, JSObjectRef obj) {
       JSValueRef exception{};
       const auto hasSentinel{JSObjectHasPropertyForKey(env->context, obj, T::GetKey(env), &exception)};
       if (exception != nullptr) {
@@ -278,7 +278,7 @@ namespace {
       // END TODO
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      NativeInfo::Apply<ConstructorInfo>(env, constructor, sentinel);
+      NativeInfo::Link<ConstructorInfo>(env, constructor, sentinel);
 
       *result = ToNapi(constructor);
       return napi_ok;
@@ -307,7 +307,7 @@ namespace {
                                          size_t argumentCount,
                                          const JSValueRef arguments[],
                                          JSValueRef* exception) {
-      ConstructorInfo* info = NativeInfo::Lookup<ConstructorInfo>(ToNapi(ctx), constructor);
+      ConstructorInfo* info = NativeInfo::Query<ConstructorInfo>(ToNapi(ctx), constructor);
 
       // Make sure any errors encountered last time we were in N-API are gone.
       napi_clear_last_error(info->_env);
@@ -368,7 +368,7 @@ namespace {
 
       JSObjectRef function{JSObjectMakeFunctionWithCallback(env->context, JSString(utf8name), CallAsFunction)};
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      NativeInfo::Apply<FunctionInfo>(env, function, sentinel);
+      NativeInfo::Link<FunctionInfo>(env, function, sentinel);
 
       *result = ToNapi(function);
       return napi_ok;
@@ -397,7 +397,7 @@ namespace {
                                      size_t argumentCount,
                                      const JSValueRef arguments[],
                                      JSValueRef* exception) {
-      FunctionInfo* info = NativeInfo::Lookup<FunctionInfo>(ToNapi(ctx), function);
+      FunctionInfo* info = NativeInfo::Query<FunctionInfo>(ToNapi(ctx), function);
 
       // Make sure any errors encountered last time we were in N-API are gone.
       napi_clear_last_error(info->_env);
@@ -521,7 +521,7 @@ namespace {
       }
 
     static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id) {
-        ReferenceInfo* referenceInfo{NativeInfo::Lookup<ReferenceInfo>(env, ToJSObject(env, object))};
+        ReferenceInfo* referenceInfo{NativeInfo::Query<ReferenceInfo>(env, ToJSObject(env, object))};
         *id = referenceInfo == nullptr ? 0 : referenceInfo->GetObjectId();
         return napi_ok;
     }
@@ -533,7 +533,7 @@ namespace {
       }
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      NativeInfo::Apply<ReferenceInfo>(env, ToJSObject(env, object), sentinel);
+      NativeInfo::Link<ReferenceInfo>(env, ToJSObject(env, object), sentinel);
       info->AddFinalizer(finalizer);
       return napi_ok;
     }
@@ -565,7 +565,7 @@ namespace {
         }
 
         JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-        NativeInfo::Apply<WrapperInfo>(env, ToJSObject(env, object), sentinel);
+        NativeInfo::Link<WrapperInfo>(env, ToJSObject(env, object), sentinel);
       }
 
       *result = info;
@@ -573,7 +573,7 @@ namespace {
     }
 
     static napi_status Unwrap(napi_env env, napi_value object, WrapperInfo** result) {
-      *result = NativeInfo::Lookup<WrapperInfo>(env, ToJSObject(env, object));
+      *result = NativeInfo::Query<WrapperInfo>(env, ToJSObject(env, object));
       return napi_ok;
     }
 
@@ -632,15 +632,15 @@ namespace {
 }
 
 struct napi_ref__ {
-  napi_ref__(napi_value value, uint32_t count)
-    : _value{value}
-    , _count{count} {
-  }
-
+  napi_ref__() = default;
   napi_ref__(const napi_ref__&) = delete;
   napi_ref__& operator=(const napi_ref__&) = delete;
 
-  napi_status init(napi_env env) {
+  napi_status init(napi_env env, napi_value value, uint32_t count) {
+    assert(!_value);
+    _value = value;
+    _count = count;
+
     // track the ref values to support weak refs
     CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
     if (_objectId == 0) {
@@ -655,6 +655,8 @@ struct napi_ref__ {
       CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
       assert(_objectId);
       env->active_ref_values[_value] = _objectId;
+    } else {
+      assert(env->active_ref_values.find(_value) != env->active_ref_values.end());
     }
 
     if (_count != 0) {
@@ -665,6 +667,7 @@ struct napi_ref__ {
   }
 
   void deinit(napi_env env) {
+    assert(_value);
     if (_count != 0) {
       unprotect(env);
     }
@@ -674,12 +677,14 @@ struct napi_ref__ {
   }
 
   void ref(napi_env env) {
+    assert(_value);
     if (_count++ == 0) {
       protect(env);
     }
   }
 
   void unref(napi_env env) {
+    assert(_value);
     assert(_count != 0);
     if (--_count == 0) {
       unprotect(env);
@@ -691,6 +696,7 @@ struct napi_ref__ {
   }
 
   napi_value value(napi_env env) const {
+    assert(_value);
     if (env->active_ref_values.find(_value) != env->active_ref_values.end())
     {
       std::uintptr_t objectId{};
@@ -1905,12 +1911,12 @@ napi_status napi_create_reference(napi_env env,
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
-  napi_ref__* ref{new napi_ref__{value, initial_refcount}};
+  napi_ref__* ref{new napi_ref__{}};
   if (ref == nullptr) {
     return napi_set_last_error(env, napi_generic_failure);
   }
 
-  ref->init(env);
+  ref->init(env, value, initial_refcount);
   *result = ref;
 
   return napi_ok;
