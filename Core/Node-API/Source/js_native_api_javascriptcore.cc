@@ -236,24 +236,6 @@ namespace {
       return nullptr;
     }
 
-    template<typename T>
-    static T* FindInPrototypeChain(JSContextRef ctx, JSObjectRef obj) {
-      while (true) {
-        JSValueRef exception{};
-        JSObjectRef prototype = JSValueToObject(ctx, JSObjectGetPrototype(ctx, obj), &exception);
-        if (exception != nullptr) {
-          return nullptr;
-        }
-
-        NativeInfo* info = Get<NativeInfo>(prototype);
-        if (info != nullptr && info->Type() == T::StaticType) {
-          return reinterpret_cast<T*>(info);
-        }
-
-        obj = prototype;
-      }
-    }
-
    protected:
     NativeInfo(NativeType type)
       : _type{type} {
@@ -283,7 +265,7 @@ namespace {
       }
 
       JSObjectRef constructor{JSObjectMakeConstructor(env->context, nullptr, CallAsConstructor)};
-      JSObjectRef prototype{JSObjectMake(env->context, info->_class, info)};
+      JSObjectRef prototype{JSObjectMake(env->context, info->_class, nullptr)};
       JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, constructor));
       JSObjectSetPrototype(env->context, constructor, prototype);
 
@@ -291,6 +273,9 @@ namespace {
       JSObjectSetProperty(env->context, prototype, JSString("constructor"), constructor,
         kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, &exception);
       CHECK_JSC(env, exception);
+
+      JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
+      NativeInfo::Apply<ConstructorInfo>(env, constructor, sentinel);
 
       *result = ToNapi(constructor);
       return napi_ok;
@@ -319,7 +304,7 @@ namespace {
                                          size_t argumentCount,
                                          const JSValueRef arguments[],
                                          JSValueRef* exception) {
-      ConstructorInfo* info = NativeInfo::FindInPrototypeChain<ConstructorInfo>(ctx, constructor);
+      ConstructorInfo* info = NativeInfo::Lookup<ConstructorInfo>(ToNapi(ctx), constructor);
 
       // Make sure any errors encountered last time we were in N-API are gone.
       napi_clear_last_error(info->_env);
@@ -2511,6 +2496,18 @@ napi_status napi_run_script(napi_env env,
 
   JSValueRef return_value{JSEvaluateScript(
     env->context, script_str, nullptr, JSString(source_url), 0, &exception)};
+    if (exception) {
+        // Get the stack property of the exception object
+        JSValueRef stackValue = JSObjectGetProperty(env->context, JSValueToObject(env->context, exception, nullptr), JSString("stack"), nullptr);
+        if (stackValue) {
+            // Convert the stack value to a string
+            JSStringRef stackStringRef = JSValueToStringCopy(env->context, stackValue, nullptr);
+            size_t maxSize = JSStringGetMaximumUTF8CStringSize(stackStringRef);
+            std::string stack(maxSize, '\0');
+            JSStringGetUTF8CString(stackStringRef, &stack[0], maxSize);
+            JSStringRelease(stackStringRef);
+        }
+    }
   CHECK_JSC(env, exception);
 
   if (result != nullptr) {
