@@ -262,15 +262,10 @@ namespace {
                               napi_callback cb,
                               void* data,
                               napi_value* result) {
-      ConstructorInfo* info{new ConstructorInfo(env, utf8name, length, cb, data)};
-      if (info == nullptr) {
-        return napi_set_last_error(env, napi_generic_failure);
-      }
-
       JSObjectRef constructor{JSObjectMakeConstructor(env->context, nullptr, CallAsConstructor)};
       // BEGIN TODO: This extra prototype should no longer be needed, but for some reason removing it leads to errors
       //             when setting properties on some prototypes. This should be investigated and removed.
-      JSObjectRef prototype{JSObjectMake(env->context, info->_class, nullptr)};
+      JSObjectRef prototype{JSObjectMake(env->context, nullptr, nullptr)};
       JSObjectSetPrototype(env->context, prototype, JSObjectGetPrototype(env->context, constructor));
       JSObjectSetPrototype(env->context, constructor, prototype);
 
@@ -279,6 +274,11 @@ namespace {
         kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, &exception);
       CHECK_JSC(env, exception);
       // END TODO
+
+      ConstructorInfo* info{new ConstructorInfo(env, utf8name, length, cb, data)};
+      if (info == nullptr) {
+        return napi_set_last_error(env, napi_generic_failure);
+      }
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
       CHECK_NAPI(NativeInfo::Link<ConstructorInfo>(env, constructor, sentinel));
@@ -692,7 +692,6 @@ struct napi_ref__ {
   }
 
   void deinit(napi_env env) {
-    assert(_value);
     if (_count != 0) {
       unprotect(env);
     }
