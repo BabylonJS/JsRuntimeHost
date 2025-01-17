@@ -192,7 +192,7 @@ namespace {
     }
 
     template<typename T>
-    static void Link(napi_env env, JSObjectRef target, JSObjectRef sentinel) {
+    static napi_status Link(napi_env env, JSObjectRef target, JSObjectRef sentinel) {
       JSValueRef exception{};
       JSObjectSetPropertyForKey(
         env->context,
@@ -203,37 +203,40 @@ namespace {
         &exception);
 
       CHECK_JSC(env, exception);
+      return napi_ok;
     }
 
     template<typename T>
-    static T* Get(JSObjectRef obj) {
-      return reinterpret_cast<T*>(JSObjectGetPrivate(obj));
+    static T* Get(JSObjectRef sentinel) {
+      return reinterpret_cast<T*>(JSObjectGetPrivate(sentinel));
     }
 
     template<typename T>
-    static T* Query(napi_env env, JSObjectRef obj) {
-      JSValueRef exception{};
-      const auto hasSentinel{JSObjectHasPropertyForKey(env->context, obj, T::GetKey(env), &exception)};
-      if (exception != nullptr) {
+    static T* Query(napi_env env, JSObjectRef obj, JSValueRef* exception) {
+      const auto hasSentinel{JSObjectHasPropertyForKey(env->context, obj, T::GetKey(env), exception)};
+      if (*exception || !hasSentinel) {
         return nullptr;
       }
 
-      if (hasSentinel) {
-        JSValueRef exception{};
-        JSValueRef sentinelValue{JSObjectGetPropertyForKey(env->context, obj, T::GetKey(env), &exception)};
-        if (exception != nullptr) {
-          return nullptr;
-        }
-
-        JSObjectRef sentinel{JSValueToObject(env->context, sentinelValue, &exception)};
-        if (exception != nullptr) {
-          return nullptr;
-        }
-
-        return Get<T>(sentinel);
+      JSValueRef sentinelValue{JSObjectGetPropertyForKey(env->context, obj, T::GetKey(env), exception)};
+      if (*exception) {
+        return nullptr;
       }
 
-      return nullptr;
+      JSObjectRef sentinel{JSValueToObject(env->context, sentinelValue, exception)};
+      if (*exception) {
+        return nullptr;
+      }
+
+      return Get<T>(sentinel);
+    }
+
+    template<typename T>
+    static napi_status Query(napi_env env, JSObjectRef obj, T** info) {
+      JSValueRef exception{};
+      *info = Query<T>(env, obj, &exception);
+      CHECK_JSC(env, exception);
+      return napi_ok;
     }
 
    protected:
@@ -278,7 +281,7 @@ namespace {
       // END TODO
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      NativeInfo::Link<ConstructorInfo>(env, constructor, sentinel);
+      CHECK_NAPI(NativeInfo::Link<ConstructorInfo>(env, constructor, sentinel));
 
       *result = ToNapi(constructor);
       return napi_ok;
@@ -307,10 +310,14 @@ namespace {
                                          size_t argumentCount,
                                          const JSValueRef arguments[],
                                          JSValueRef* exception) {
-      ConstructorInfo* info = NativeInfo::Query<ConstructorInfo>(ToNapi(ctx), constructor);
+      napi_env env{ToNapi(ctx)};
+      ConstructorInfo* info = NativeInfo::Query<ConstructorInfo>(env, constructor, exception);
+      if (*exception) {
+        return nullptr;
+      }
 
       // Make sure any errors encountered last time we were in N-API are gone.
-      napi_clear_last_error(info->_env);
+      napi_clear_last_error(env);
 
       JSObjectRef instance{JSObjectMake(ctx, nullptr, nullptr)};
       JSObjectSetPrototype(ctx, instance, JSObjectGetPrototype(ctx, constructor));
@@ -322,14 +329,15 @@ namespace {
       cbinfo.argv = ToNapi(arguments);
       cbinfo.data = info->_data;
 
-      napi_value result = info->_cb(info->_env, &cbinfo);
+      napi_value result = info->_cb(env, &cbinfo);
 
-      if (info->_env->last_exception != nullptr) {
-        *exception = info->_env->last_exception;
-        info->_env->last_exception = nullptr;
+      if (env->last_exception != nullptr) {
+        *exception = env->last_exception;
+        env->last_exception = nullptr;
+        return nullptr;
       }
 
-      return ToJSObject(info->_env, result);
+      return ToJSObject(env, result);
     }
 
     // JSObjectFinalizeCallback
@@ -368,7 +376,7 @@ namespace {
 
       JSObjectRef function{JSObjectMakeFunctionWithCallback(env->context, JSString(utf8name), CallAsFunction)};
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      NativeInfo::Link<FunctionInfo>(env, function, sentinel);
+      CHECK_NAPI(NativeInfo::Link<FunctionInfo>(env, function, sentinel));
 
       *result = ToNapi(function);
       return napi_ok;
@@ -397,10 +405,14 @@ namespace {
                                      size_t argumentCount,
                                      const JSValueRef arguments[],
                                      JSValueRef* exception) {
-      FunctionInfo* info = NativeInfo::Query<FunctionInfo>(ToNapi(ctx), function);
+      napi_env env{ToNapi(ctx)};
+      FunctionInfo* info = NativeInfo::Query<FunctionInfo>(env, function, exception);
+      if (*exception) {
+        return nullptr;
+      }
 
       // Make sure any errors encountered last time we were in N-API are gone.
-      napi_clear_last_error(info->_env);
+      napi_clear_last_error(env);
 
       napi_callback_info__ cbinfo{};
       cbinfo.thisArg = ToNapi(thisObject);
@@ -409,11 +421,12 @@ namespace {
       cbinfo.argv = ToNapi(arguments);
       cbinfo.data = info->_data;
 
-      napi_value result = info->_cb(info->_env, &cbinfo);
+      napi_value result = info->_cb(env, &cbinfo);
 
-      if (info->_env->last_exception != nullptr) {
-        *exception = info->_env->last_exception;
-        info->_env->last_exception = nullptr;
+      if (env->last_exception != nullptr) {
+        *exception = env->last_exception;
+        env->last_exception = nullptr;
+        return nullptr;
       }
 
       return ToJSValue(result);
@@ -516,14 +529,15 @@ namespace {
 
   class ReferenceInfo : public BaseInfoT<ReferenceInfo, NativeType::Reference> {
    public:
-      static JSValueRef GetKey(napi_env env) {
-          return env->reference_info_symbol;
-      }
+    static JSValueRef GetKey(napi_env env) {
+      return env->reference_info_symbol;
+    }
 
     static napi_status GetObjectId(napi_env env, napi_value object, std::uintptr_t* id) {
-        ReferenceInfo* referenceInfo{NativeInfo::Query<ReferenceInfo>(env, ToJSObject(env, object))};
-        *id = referenceInfo == nullptr ? 0 : referenceInfo->GetObjectId();
-        return napi_ok;
+      ReferenceInfo* referenceInfo{};
+      CHECK_NAPI(NativeInfo::Query<ReferenceInfo>(env, ToJSObject(env, object), &referenceInfo));
+      *id = referenceInfo == nullptr ? 0 : referenceInfo->GetObjectId();
+      return napi_ok;
     }
 
     static napi_status Initialize(napi_env env, napi_value object, FinalizerT finalizer) {
@@ -533,7 +547,7 @@ namespace {
       }
 
       JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-      NativeInfo::Link<ReferenceInfo>(env, ToJSObject(env, object), sentinel);
+      CHECK_NAPI(NativeInfo::Link<ReferenceInfo>(env, ToJSObject(env, object), sentinel));
       info->AddFinalizer(finalizer);
       return napi_ok;
     }
@@ -565,7 +579,7 @@ namespace {
         }
 
         JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
-        NativeInfo::Link<WrapperInfo>(env, ToJSObject(env, object), sentinel);
+        CHECK_NAPI(NativeInfo::Link<WrapperInfo>(env, ToJSObject(env, object), sentinel));
       }
 
       *result = info;
@@ -573,7 +587,7 @@ namespace {
     }
 
     static napi_status Unwrap(napi_env env, napi_value object, WrapperInfo** result) {
-      *result = NativeInfo::Query<WrapperInfo>(env, ToJSObject(env, object));
+      CHECK_NAPI(NativeInfo::Query<WrapperInfo>(env, ToJSObject(env, object), result));
       return napi_ok;
     }
 
@@ -633,8 +647,14 @@ namespace {
 
 struct napi_ref__ {
   napi_ref__() = default;
+
+  // Copy semantics
   napi_ref__(const napi_ref__&) = delete;
   napi_ref__& operator=(const napi_ref__&) = delete;
+
+  // Move semantics
+  napi_ref__(napi_ref__&&) = delete;
+  napi_ref__& operator=(napi_ref__&&) = delete;
 
   napi_status init(napi_env env, napi_value value, uint32_t count) {
     assert(!_value);
@@ -700,19 +720,20 @@ struct napi_ref__ {
     return _count;
   }
 
-  napi_value value(napi_env env) const {
+  napi_status value(napi_env env, napi_value* result) const {
     assert(_value);
     if (env->active_ref_values.find(_value) != env->active_ref_values.end())
     {
       std::uintptr_t objectId{};
       // NOTE: This check is needed for the same reason we need a similar check in the init function.
       // See the comment in init for more details.
-      if (ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId) {
-        return _value;
+      CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &objectId));
+      if (objectId == _objectId) {
+        *result = _value;
       }
     }
 
-    return nullptr;
+    return napi_ok;
   }
 
  private:
@@ -747,8 +768,6 @@ void napi_env__::init_symbol(JSValueRef &symbol, const char *description) {
 void napi_env__::deinit_symbol(JSValueRef symbol) {
   JSValueUnprotect(context, symbol);
 }
-
-std::unordered_map<JSContextRef, napi_env> napi_env__::napi_envs{};
 
 // Warning: Keep in-sync with napi_status enum
 static const char* error_messages[] = {
@@ -1983,7 +2002,7 @@ napi_status napi_get_reference_value(napi_env env,
   CHECK_ARG(env, ref);
   CHECK_ARG(env, result);
 
-  *result = ref->value(env);
+  CHECK_NAPI(ref->value(env, result));
   return napi_ok;
 }
 
@@ -2521,18 +2540,6 @@ napi_status napi_run_script(napi_env env,
 
   JSValueRef return_value{JSEvaluateScript(
     env->context, script_str, nullptr, JSString(source_url), 0, &exception)};
-    if (exception) {
-        // Get the stack property of the exception object
-        JSValueRef stackValue = JSObjectGetProperty(env->context, JSValueToObject(env->context, exception, nullptr), JSString("stack"), nullptr);
-        if (stackValue) {
-            // Convert the stack value to a string
-            JSStringRef stackStringRef = JSValueToStringCopy(env->context, stackValue, nullptr);
-            size_t maxSize = JSStringGetMaximumUTF8CStringSize(stackStringRef);
-            std::string stack(maxSize, '\0');
-            JSStringGetUTF8CString(stackStringRef, &stack[0], maxSize);
-            JSStringRelease(stackStringRef);
-        }
-    }
   CHECK_JSC(env, exception);
 
   if (result != nullptr) {

@@ -51,7 +51,7 @@ struct napi_env__ {
   }
 
  private:
-  static std::unordered_map<JSContextRef, napi_env> napi_envs;
+  static inline std::unordered_map<JSContextRef, napi_env> napi_envs{};
 
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);
