@@ -14,15 +14,15 @@ jobs:
   steps:
   - script: |
       echo Install Android image
-      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
+      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-35;default;x86_64'
       echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --licenses
       echo Create AVD
-      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
+      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_35 -d pixel -k 'system-images;android-35;default;x86_64'
     displayName: 'Install Android Emulator'
 
   - script: |
       echo Start emulator
-      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window 2>&1 &
+      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_35 -gpu host -no-window 2>&1 &
       echo Wait for emulator
       $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo '.'; sleep 1; done'
       $ANDROID_HOME/platform-tools/adb devices

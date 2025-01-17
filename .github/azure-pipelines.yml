@@ -77,7 +77,7 @@ jobs:
   - template: jobs/ios.yml
     parameters:
       name: 'iOS_Xcode162'
-      vmImage: 'macOS-latest'
+      vmImage: 'macOS-latest-large'
       xCodeVersion: 16.2
       simulator: 'iPhone 16'
 
