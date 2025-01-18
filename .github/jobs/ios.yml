@@ -21,6 +21,11 @@ jobs:
     displayName: 'Configure CMake'
 
   - script: |
+      echo Boot "${{parameters.simulator}}"
+      xcrun simctl boot "${{parameters.simulator}}"
+    displayName: 'Boot Simulator'
+
+  - script: |
       /Applications/Xcode_16.2.app/Contents/Developer/usr/bin/xcodebuild -project Build/iOS/JsRuntimeHost.xcodeproj -scheme UnitTests -showdestinations
     displayName: 'Show Destinations'
 
@@ -34,8 +39,6 @@ jobs:
     displayName: 'Build Xcode Project'
 
   - script: |
-      echo Boot "${{parameters.simulator}}"
-      xcrun simctl boot "${{parameters.simulator}}"
       echo Install UnitTests app
       xcrun simctl install booted "Build/iOS/Tests/UnitTests/RelWithDebInfo-iphonesimulator/UnitTests.app"
       echo Launch UnitTests app
