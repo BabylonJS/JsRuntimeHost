@@ -25,10 +25,6 @@ jobs:
       xcrun simctl boot "${{parameters.simulator}}"
     displayName: 'Boot Simulator'
 
-  - script: |
-      /Applications/Xcode_16.2.app/Contents/Developer/usr/bin/xcodebuild -project Build/iOS/JsRuntimeHost.xcodeproj -scheme UnitTests -showdestinations
-    displayName: 'Show Destinations'
-
   - task: Xcode@5
     inputs:
       xcWorkspacePath: 'Build/iOS/JsRuntimeHost.xcodeproj'
