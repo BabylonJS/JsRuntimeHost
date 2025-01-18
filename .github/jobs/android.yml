@@ -23,7 +23,7 @@ jobs:
 
   - script: |
       echo Start emulator
-      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window 2>&1 &
+      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window -no-audio -no-boot-anim 2>&1 &
       echo Wait for emulator
       $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo '.'; sleep 1; done'
       $ANDROID_HOME/platform-tools/adb devices
