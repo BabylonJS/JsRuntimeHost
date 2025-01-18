@@ -21,7 +21,7 @@ jobs:
     displayName: 'Configure CMake'
 
   - script: |
-      /Applications/Xcode_16.2.app/Contents/Developer/usr/bin/xcodebuild -project Build/iOS/JsRuntimeHost.xcodeproj -scheme UnitTests -showdestination
+      /Applications/Xcode_16.2.app/Contents/Developer/usr/bin/xcodebuild -project Build/iOS/JsRuntimeHost.xcodeproj -scheme UnitTests -showdestinations
     displayName: 'Show Destinations'
 
   - task: Xcode@5
