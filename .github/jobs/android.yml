@@ -39,9 +39,10 @@ jobs:
     displayName: 'Run Connected Android Test'
 
   - script: |
-      export results=$(find ./app/build/outputs/androidTest-results -name "*.txt")
-      echo cat "$results"
-      cat "$results"
+      find ./app/build/outputs/androidTest-results -name "*.txt" -print0 | while IFS= read -r -d '' file; do
+        echo "cat \"$file\""
+        cat "$file"
+      done
     workingDirectory: 'Tests/UnitTests/Android'
     condition: succeededOrFailed()
     displayName: 'Dump logcat from Test Results'
