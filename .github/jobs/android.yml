@@ -35,7 +35,7 @@ jobs:
       workingDirectory: 'Tests/UnitTests/Android'
       options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion)'
       tasks: 'connectedAndroidTest'
-      jdkVersionOption: 1.11
+      jdkVersionOption: 1.17
     displayName: 'Run Connected Android Test'
 
   - script: |
