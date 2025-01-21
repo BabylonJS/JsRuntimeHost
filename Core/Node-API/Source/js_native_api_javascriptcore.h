@@ -41,7 +41,7 @@ struct napi_env__ {
     napi_envs.erase(context);
   }
 
-  static napi_env get(JSContextRef context) {
+  static napi_env get(JSGlobalContextRef context) {
     auto it = napi_envs.find(context);
     if (it != napi_envs.end()) {
       return it->second;
@@ -51,7 +51,7 @@ struct napi_env__ {
   }
 
  private:
-  static inline std::unordered_map<JSContextRef, napi_env> napi_envs{};
+  static inline std::unordered_map<JSGlobalContextRef, napi_env> napi_envs{};
 
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);

@@ -139,7 +139,7 @@ namespace {
     return reinterpret_cast<napi_value*>(const_cast<OpaqueJSValue**>(values));
   }
 
-  napi_env ToNapi(const JSContextRef context) {
+  napi_env ToNapi(const JSGlobalContextRef context) {
     return napi_env__::get(context);
   }
 
@@ -310,7 +310,7 @@ namespace {
                                          size_t argumentCount,
                                          const JSValueRef arguments[],
                                          JSValueRef* exception) {
-      napi_env env{ToNapi(ctx)};
+      napi_env env{ToNapi(JSContextGetGlobalContext(ctx))};
       ConstructorInfo* info = NativeInfo::Query<ConstructorInfo>(env, constructor, exception);
       if (*exception) {
         return nullptr;
@@ -405,7 +405,7 @@ namespace {
                                      size_t argumentCount,
                                      const JSValueRef arguments[],
                                      JSValueRef* exception) {
-      napi_env env{ToNapi(ctx)};
+      napi_env env{ToNapi(JSContextGetGlobalContext(ctx))};
       FunctionInfo* info = NativeInfo::Query<FunctionInfo>(env, function, exception);
       if (*exception) {
         return nullptr;
