@@ -670,8 +670,7 @@ struct napi_ref__ {
         // to be garbage collected and a new object created at the same memory address before we get
         // the callback for the sentinel object finalizer. Guard against this by checking that the
         // tracked object still has the same unique object id.
-        if (entry != info->Env()->active_ref_values.end() && entry->second == info->GetObjectId())
-        {
+        if (entry != info->Env()->active_ref_values.end() && entry->second == info->GetObjectId()) {
           info->Env()->active_ref_values.erase(entry);
         }
       }));
