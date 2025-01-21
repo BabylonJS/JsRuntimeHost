@@ -35,13 +35,14 @@ jobs:
       workingDirectory: 'Tests/UnitTests/Android'
       options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion)'
       tasks: 'connectedAndroidTest'
-      jdkVersionOption: 1.11
+      jdkVersionOption: 1.17
     displayName: 'Run Connected Android Test'
 
   - script: |
-      export results=$(find ./app/build/outputs/androidTest-results -name "*.txt")
-      echo cat "$results"
-      cat "$results"
+      find ./app/build/outputs/androidTest-results -name "*.txt" -print0 | while IFS= read -r -d '' file; do
+        echo "cat \"$file\""
+        cat "$file"
+      done
     workingDirectory: 'Tests/UnitTests/Android'
     condition: succeededOrFailed()
     displayName: 'Dump logcat from Test Results'
