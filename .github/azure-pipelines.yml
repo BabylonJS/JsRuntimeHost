@@ -9,8 +9,7 @@ schedules:
   displayName: Nightly Build
   branches:
     include:
-    - nightly-build
-    # - main
+    - main
   always: true
 
 variables:
