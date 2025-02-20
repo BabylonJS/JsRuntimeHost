@@ -338,15 +338,15 @@ describe("setInterval", function () {
         const id = setInterval(() => {
             try {
                 tickCount++;
-                // Date().getTime() may not have enough precision for this exact check, so give a little buffer (5ms).
-                expect(new Date().getTime() - startTime).to.be.at.least(tickCount * 10 - 5);
-                if (tickCount++ > 2) {
+                expect(new Date().getTime() - startTime).to.be.at.least(tickCount * 10);
+                if (tickCount > 2) {
                     clearInterval(id);
                     done();
                 }
             }
             catch (e) {
                 console.log(`finished with error: ${e}`);
+                clearInterval(id);
                 done(e);
             }
         }, 10);
