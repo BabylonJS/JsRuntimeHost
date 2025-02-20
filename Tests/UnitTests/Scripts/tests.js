@@ -337,12 +337,12 @@ describe("setInterval", function () {
         let tickCount = 0;
         const id = setInterval(() => {
             try {
-                expect(new Date().getTime() - startTime).to.be.at.least(10);
+                tickCount++;
+                // Date().getTime() may not have enough precision for this exact check, so give a little buffer (5ms).
+                expect(new Date().getTime() - startTime).to.be.at.least(tickCount * 10 - 5);
                 if (tickCount++ > 2) {
                     clearInterval(id);
                     done();
-                } else {
-                    startTime = new Date().getTime();
                 }
             }
             catch (e) {
