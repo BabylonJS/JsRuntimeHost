@@ -76,7 +76,7 @@ if(NAPI_BUILD_ABI)
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
                 PUBLIC ${JAVASCRIPTCORE_LIBRARY})
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
-                PUBLIC "/usr/include/webkitgtk-4.0/")
+                PUBLIC "/usr/include/webkitgtk-4.1/")
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
