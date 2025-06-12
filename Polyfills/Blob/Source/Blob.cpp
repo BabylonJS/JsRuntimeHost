@@ -1,0 +1,143 @@
+#include "Blob.h"
+#include <Babylon/JsRuntime.h>
+#include <Babylon/Polyfills/Blob.h>
+
+namespace Babylon::Polyfills::Internal
+{
+    void Blob::Initialize(Napi::Env env)
+    {
+        static constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
+
+        Napi::Function func = DefineClass(
+            env,
+            JS_BLOB_CONSTRUCTOR_NAME,
+            {
+                InstanceAccessor("size", &Blob::GetSize, nullptr),
+                InstanceAccessor("type", &Blob::GetType, nullptr),
+                InstanceMethod("text", &Blob::Text),
+                InstanceMethod("arrayBuffer", &Blob::ArrayBuffer),
+                InstanceMethod("bytes", &Blob::Bytes)
+            });
+
+        if (env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).IsUndefined())
+        {
+            env.Global().Set(JS_BLOB_CONSTRUCTOR_NAME, func);
+        }
+
+        JsRuntime::NativeObject::GetFromJavaScript(env).Set(JS_BLOB_CONSTRUCTOR_NAME, func);
+    }
+
+    Blob::Blob(const Napi::CallbackInfo& info)
+        : Napi::ObjectWrap<Blob>(info)
+        , m_data()
+        , m_type("")
+    {
+        if (info.Length() > 0)
+        {
+            const auto blobParts = info[0].As<Napi::Array>();
+
+            if (blobParts.Length() > 0)
+            {
+                const auto firstPart = blobParts.Get(uint32_t{0});
+                ProcessBlobPart(firstPart);
+
+                if (blobParts.Length() > 1)
+                {
+                    // TODO: Warn
+                }
+            }
+        }
+
+        if (info.Length() > 1)
+        {
+            const auto options = info[1].As<Napi::Object>();
+
+            if (options.Has("type"))
+            {
+                m_type = options.Get("type").As<Napi::String>().Utf8Value();
+            }
+        }
+    }
+
+    Napi::Value Blob::GetSize(const Napi::CallbackInfo& info)
+    {
+        return Napi::Number::New(info.Env(), static_cast<double>(m_data.size()));
+    }
+
+    Napi::Value Blob::GetType(const Napi::CallbackInfo& info)
+    {
+        return Napi::String::New(info.Env(), m_type);
+    }
+
+    Napi::Value Blob::Text(const Napi::CallbackInfo&)
+    {
+        const auto deferred = Napi::Promise::Deferred::New(Env());
+        std::string text(m_data.begin(), m_data.end());
+        deferred.Resolve(Napi::String::New(Env(), text));
+        return deferred.Promise();
+    }
+
+    Napi::Value Blob::ArrayBuffer(const Napi::CallbackInfo&)
+    {
+        const auto deferred = Napi::Promise::Deferred::New(Env());
+        const auto buffer = CreateArrayBuffer();
+        deferred.Resolve(buffer);
+        return deferred.Promise();
+    }
+
+    Napi::Value Blob::Bytes(const Napi::CallbackInfo&)
+    {
+        const auto deferred = Napi::Promise::Deferred::New(Env());
+        const auto buffer = CreateArrayBuffer();
+        const auto uint8Array = Napi::Uint8Array::New(Env(), m_data.size(), buffer, 0);
+        deferred.Resolve(uint8Array);
+        return deferred.Promise();
+    }
+
+    Napi::ArrayBuffer Blob::CreateArrayBuffer() const
+    {
+        const auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_data.size());
+        if (m_data.size() > 0)
+        {
+            std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
+        }
+        return arrayBuffer;
+    }
+
+    void Blob::ProcessBlobPart(const Napi::Value& blobPart)
+    {
+        if (blobPart.IsArrayBuffer())
+        {
+            const auto buffer = blobPart.As<Napi::ArrayBuffer>();
+            const uint8_t* data = static_cast<const uint8_t*>(buffer.Data());
+            m_data.assign(data, data + buffer.ByteLength());
+        }
+        else if (blobPart.IsTypedArray() || blobPart.IsDataView())
+        {
+            const auto array = blobPart.As<Napi::TypedArray>();
+            const auto buffer = array.ArrayBuffer();
+            const uint8_t* data = static_cast<const uint8_t*>(buffer.Data()) + array.ByteOffset();
+            m_data.assign(data, data + array.ByteLength());
+        }
+        else if (blobPart.IsString())
+        {
+            const auto str = blobPart.As<Napi::String>().Utf8Value();
+            m_data.assign(str.begin(), str.end());
+        }
+        else
+        {
+            // Assume it's another Blob object
+            const auto obj = blobPart.As<Napi::Object>();
+            const auto blobObj = Napi::ObjectWrap<Blob>::Unwrap(obj);
+            m_data.assign(blobObj->m_data.begin(), blobObj->m_data.end());
+        }
+    }
+}
+
+namespace Babylon::Polyfills::Blob
+{
+    void BABYLON_API Initialize(Napi::Env env)
+    {
+        Internal::Blob::Initialize(env);
+    }
+}

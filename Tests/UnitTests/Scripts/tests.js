@@ -727,6 +727,113 @@ describe("Console", function () {
     });
 });
 
+describe("Blob", function () {
+    let emptyBlob, stringBlob, uint8Blob, arrayBufferBlob, nestedBlob, utf8Blob, lineEndingsBlob;
+    let mimeBlobs = {};
+
+    before(function () {
+        emptyBlob = new Blob();
+        stringBlob = new Blob(["Hello"]);
+        uint8Blob = new Blob([new Uint8Array([72, 101, 108, 108, 111])]);
+        arrayBufferBlob = new Blob([new Uint8Array([72, 101, 108, 108, 111]).buffer]);
+        nestedBlob = new Blob([stringBlob]);
+        utf8Blob = new Blob(["你好, 世界"]); // "Hello, World" in Chinese
+        lineEndingsBlob = new Blob(["Hello\nWorld"]);
+
+        mimeBlobs = {
+            textPlain: new Blob(["some data"], { type: "text/plain" }),
+            applicationJson: new Blob(["some data"], { type: "application/json" }),
+            modelGltfBinary: new Blob(["some data"], { type: "model/gltf-binary" }),
+            modelGltfJson: new Blob(["some data"], { type: "model/gltf+json" })
+        };
+    });
+
+    // -------------------------------- Blob Construction --------------------------------
+    it("creates empty blob with correct defaults", function () {
+        expect(emptyBlob.size).to.equal(0);
+        expect(emptyBlob.type).to.equal("");
+    });
+
+    it("creates blob from string array", function () {
+        expect(stringBlob.size).to.equal(5);
+        expect(stringBlob.type).to.equal("");
+    });
+
+    it("creates blob from Uint8Array", function () {
+        expect(uint8Blob.size).to.equal(5);
+    });
+
+    it("creates blob from ArrayBuffer", function () {
+        expect(arrayBufferBlob.size).to.equal(5);
+    });
+
+    it("creates blob from another Blob", function () {
+        expect(nestedBlob.size).to.equal(stringBlob.size);
+    });
+
+    it("applies MIME type from options", function () {
+        expect(mimeBlobs.textPlain.type).to.equal("text/plain");
+    });
+
+    it("supports various MIME types", function () {
+        expect(mimeBlobs.applicationJson.type).to.equal("application/json");
+        expect(mimeBlobs.modelGltfBinary.type).to.equal("model/gltf-binary");
+        expect(mimeBlobs.modelGltfJson.type).to.equal("model/gltf+json");
+    });
+
+    // -------------------------------- Blob.text() --------------------------------
+    it("returns empty string for empty blob", async function () {
+        const text = await emptyBlob.text();
+        expect(text).to.equal("");
+    });
+
+    it("returns correct string content", async function () {
+        const text = await stringBlob.text();
+        expect(text).to.equal("Hello");
+    });
+
+    it("handles multi-byte UTF-8 characters", async function () {
+        const text = await utf8Blob.text();
+        expect(text).to.equal("你好, 世界");
+    });
+
+    it("preserves line endings like default transparent mode", async function () {
+        expect(lineEndingsBlob.size).to.equal(11);
+
+        const text = await lineEndingsBlob.text();
+        expect(text).to.equal("Hello\nWorld");
+    });
+
+    // -------------------------------- Blob.arrayBuffer() --------------------------------
+    it("returns empty buffer for empty blob", async function () {
+        const buffer = await emptyBlob.arrayBuffer();
+        expect(buffer.byteLength).to.equal(0);
+    });
+
+    it("returns correct buffer content", async function () {
+        const buffer = await stringBlob.arrayBuffer();
+
+        expect(buffer.byteLength).to.equal(5);
+        const view = new Uint8Array(buffer);
+        expect(view[0]).to.equal(72); // 'H'
+        expect(view[4]).to.equal(111); // 'o'
+    });
+
+    // -------------------------------- Blob.bytes() --------------------------------
+    it("returns empty Uint8Array for empty blob", async function () {
+        const bytes = await emptyBlob.bytes();
+        expect(bytes.length).to.equal(0);
+    });
+
+    it("returns correct Uint8Array content", async function () {
+        const bytes = await stringBlob.bytes();
+
+        expect(bytes.length).to.equal(5);
+        expect(bytes[0]).to.equal(72); // 'H'
+        expect(bytes[4]).to.equal(111); // 'o'
+    });
+});
+
 function runTests() {
     mocha.run(failures => {
         // Test program will wait for code to be set before exiting
