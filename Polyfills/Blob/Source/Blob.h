@@ -21,7 +21,6 @@ namespace Babylon::Polyfills::Internal
         Napi::Value ArrayBuffer(const Napi::CallbackInfo& info);
         Napi::Value Bytes(const Napi::CallbackInfo& info);
 
-        Napi::ArrayBuffer CreateArrayBuffer() const;
         void ProcessBlobPart(const Napi::Value& blobPart);
 
         std::vector<uint8_t> m_data;

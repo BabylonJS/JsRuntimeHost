@@ -29,8 +29,6 @@ namespace Babylon::Polyfills::Internal
 
     Blob::Blob(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<Blob>(info)
-        , m_data()
-        , m_type("")
     {
         if (info.Length() > 0)
         {
@@ -43,7 +41,7 @@ namespace Babylon::Polyfills::Internal
 
                 if (blobParts.Length() > 1)
                 {
-                    // TODO: Warn
+                    throw Napi::Error::New(Env(), "Blob constructor only supports a single BlobPart in the BlobParts array.");
                 }
             }
         }
@@ -59,49 +57,44 @@ namespace Babylon::Polyfills::Internal
         }
     }
 
-    Napi::Value Blob::GetSize(const Napi::CallbackInfo& info)
+    Napi::Value Blob::GetSize(const Napi::CallbackInfo&)
     {
-        return Napi::Number::New(info.Env(), static_cast<double>(m_data.size()));
+        return Napi::Value::From(Env(), m_data.size());
     }
 
-    Napi::Value Blob::GetType(const Napi::CallbackInfo& info)
+    Napi::Value Blob::GetType(const Napi::CallbackInfo&)
     {
-        return Napi::String::New(info.Env(), m_type);
+        return Napi::String::From(Env(), m_type);
     }
 
     Napi::Value Blob::Text(const Napi::CallbackInfo&)
     {
-        const auto deferred = Napi::Promise::Deferred::New(Env());
         std::string text(m_data.begin(), m_data.end());
+
+        const auto deferred = Napi::Promise::Deferred::New(Env());
         deferred.Resolve(Napi::String::New(Env(), text));
         return deferred.Promise();
     }
 
     Napi::Value Blob::ArrayBuffer(const Napi::CallbackInfo&)
     {
+        const auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_data.size());
+        std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
+
         const auto deferred = Napi::Promise::Deferred::New(Env());
-        const auto buffer = CreateArrayBuffer();
-        deferred.Resolve(buffer);
+        deferred.Resolve(arrayBuffer);
         return deferred.Promise();
     }
 
     Napi::Value Blob::Bytes(const Napi::CallbackInfo&)
     {
+        const auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_data.size());
+        std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
+        const auto uint8Array = Napi::Uint8Array::New(Env(), m_data.size(), arrayBuffer, 0);
+
         const auto deferred = Napi::Promise::Deferred::New(Env());
-        const auto buffer = CreateArrayBuffer();
-        const auto uint8Array = Napi::Uint8Array::New(Env(), m_data.size(), buffer, 0);
         deferred.Resolve(uint8Array);
         return deferred.Promise();
-    }
-
-    Napi::ArrayBuffer Blob::CreateArrayBuffer() const
-    {
-        const auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_data.size());
-        if (m_data.size() > 0)
-        {
-            std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
-        }
-        return arrayBuffer;
     }
 
     void Blob::ProcessBlobPart(const Napi::Value& blobPart)
@@ -109,15 +102,15 @@ namespace Babylon::Polyfills::Internal
         if (blobPart.IsArrayBuffer())
         {
             const auto buffer = blobPart.As<Napi::ArrayBuffer>();
-            const uint8_t* data = static_cast<const uint8_t*>(buffer.Data());
-            m_data.assign(data, data + buffer.ByteLength());
+            const uint8_t* begin = static_cast<const uint8_t*>(buffer.Data());
+            m_data.assign(begin, begin + buffer.ByteLength());
         }
         else if (blobPart.IsTypedArray() || blobPart.IsDataView())
         {
             const auto array = blobPart.As<Napi::TypedArray>();
             const auto buffer = array.ArrayBuffer();
-            const uint8_t* data = static_cast<const uint8_t*>(buffer.Data()) + array.ByteOffset();
-            m_data.assign(data, data + array.ByteLength());
+            const uint8_t* begin = static_cast<const uint8_t*>(buffer.Data()) + array.ByteOffset();
+            m_data.assign(begin, begin + array.ByteLength());
         }
         else if (blobPart.IsString())
         {
