@@ -23,7 +23,7 @@ namespace Babylon::Polyfills::Internal
 
         void ProcessBlobPart(const Napi::Value& blobPart);
 
-        std::vector<uint8_t> m_data;
+        std::vector<std::byte> m_data;
         std::string m_type;
     };
 }

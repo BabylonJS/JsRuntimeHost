@@ -66,7 +66,9 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value Blob::Text(const Napi::CallbackInfo&)
     {
-        std::string text(m_data.begin(), m_data.end());
+        // NOTE: This will not check for UTF-8 validity
+        const auto begin = reinterpret_cast<const char*>(m_data.data());
+        std::string text(begin, m_data.size());
 
         const auto deferred = Napi::Promise::Deferred::New(Env());
         deferred.Resolve(Napi::String::New(Env(), text));
@@ -99,20 +101,21 @@ namespace Babylon::Polyfills::Internal
         if (blobPart.IsArrayBuffer())
         {
             const auto buffer = blobPart.As<Napi::ArrayBuffer>();
-            const uint8_t* begin = static_cast<const uint8_t*>(buffer.Data());
+            const auto begin = static_cast<const std::byte*>(buffer.Data());
             m_data.assign(begin, begin + buffer.ByteLength());
         }
         else if (blobPart.IsTypedArray() || blobPart.IsDataView())
         {
             const auto array = blobPart.As<Napi::TypedArray>();
             const auto buffer = array.ArrayBuffer();
-            const uint8_t* begin = static_cast<const uint8_t*>(buffer.Data()) + array.ByteOffset();
+            const auto begin = static_cast<const std::byte*>(buffer.Data()) + array.ByteOffset();
             m_data.assign(begin, begin + array.ByteLength());
         }
         else if (blobPart.IsString())
         {
             const auto str = blobPart.As<Napi::String>().Utf8Value();
-            m_data.assign(str.begin(), str.end());
+            const auto begin = reinterpret_cast<const std::byte*>(str.data());
+            m_data.assign(begin, begin + str.length());
         }
         else
         {
