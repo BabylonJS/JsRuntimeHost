@@ -7,24 +7,21 @@ namespace Babylon::Polyfills::Internal
     void Blob::Initialize(Napi::Env env)
     {
         static constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
-
-        Napi::Function func = DefineClass(
-            env,
-            JS_BLOB_CONSTRUCTOR_NAME,
-            {
-                InstanceAccessor("size", &Blob::GetSize, nullptr),
-                InstanceAccessor("type", &Blob::GetType, nullptr),
-                InstanceMethod("text", &Blob::Text),
-                InstanceMethod("arrayBuffer", &Blob::ArrayBuffer),
-                InstanceMethod("bytes", &Blob::Bytes)
-            });
-
         if (env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).IsUndefined())
         {
+            Napi::Function func = DefineClass(
+                env,
+                JS_BLOB_CONSTRUCTOR_NAME,
+                {
+                    InstanceAccessor("size", &Blob::GetSize, nullptr),
+                    InstanceAccessor("type", &Blob::GetType, nullptr),
+                    InstanceMethod("text", &Blob::Text),
+                    InstanceMethod("arrayBuffer", &Blob::ArrayBuffer),
+                    InstanceMethod("bytes", &Blob::Bytes)
+                });
+
             env.Global().Set(JS_BLOB_CONSTRUCTOR_NAME, func);
         }
-
-        JsRuntime::NativeObject::GetFromJavaScript(env).Set(JS_BLOB_CONSTRUCTOR_NAME, func);
     }
 
     Blob::Blob(const Napi::CallbackInfo& info)
