@@ -38,7 +38,7 @@ namespace Babylon::Polyfills::Internal
 
                 if (blobParts.Length() > 1)
                 {
-                    throw Napi::Error::New(Env(), "Blob constructor only supports a single BlobPart in the BlobParts array.");
+                    throw Napi::Error::New(Env(), "Using multiple BlobParts in Blob constructor is not implemented.");
                 }
             }
         }
