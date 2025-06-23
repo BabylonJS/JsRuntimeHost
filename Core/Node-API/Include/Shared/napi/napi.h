@@ -36,6 +36,7 @@
 #endif  // NAPI_HAS_THREADS
 #include <string>
 #include <vector>
+#include <exception>
 
 // VS2015 RTM has bugs with constexpr, so require min of VS2015 Update 3 (known
 // good version)
