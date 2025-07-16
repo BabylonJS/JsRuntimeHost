@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "esbuild UnitTests/Scripts/tests.ts --bundle --platform=neutral --target=es2015 --format=iife --outfile=UnitTests/dist/tests.js --external:node:path --external:crypto --external:events --external:node:fs --external:debug --external:node:util --external:node:events --external:node:url --external:node:process --external:workerpool --external:he --external:loupe"
+    "build": "esbuild UnitTests/Scripts/tests.ts --bundle --platform=neutral --target=es2015 --format=iife --outfile=UnitTests/dist/tests.js --external:node:path --external:crypto --external:events --external:node:fs --external:debug --external:node:util --external:node:events --external:node:url --external:node:process --external:workerpool --external:he --external:loupe",
+    "postinstall": "npm run build"
   },
   "dependencies": {
     "babylonjs": "^8.3.1",
