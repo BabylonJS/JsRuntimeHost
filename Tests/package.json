@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc"
+    "build": "esbuild UnitTests/Scripts/tests.ts --bundle --platform=neutral --target=es2017 --format=iife --outfile=UnitTests/dist/tests.js --external:node:path --external:crypto --external:events --external:node:fs --external:debug --external:node:util --external:node:events --external:node:url --external:node:process --external:workerpool --external:he --external:loupe"
   },
   "dependencies": {
     "babylonjs": "^8.3.1",
@@ -22,6 +22,8 @@
     "@babel/preset-env": "^7.26.9",
     "@types/chai": "^5.2.2",
     "@types/mocha": "^10.0.10",
+    "chalk": "^5.4.1",
+    "esbuild": "^0.25.6",
     "typescript": "^5.0.0"
   }
 }

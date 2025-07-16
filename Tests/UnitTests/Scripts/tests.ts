@@ -1,11 +1,10 @@
-﻿import chai from "chai";
+﻿import { expect } from "chai";
 import mocha from "mocha";
 mocha.setup("bdd");
 
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
 
-const expect = chai.expect;
 
 describe("AbortController", function () {
     it("should not throw while aborting with no callbacks", function () {
