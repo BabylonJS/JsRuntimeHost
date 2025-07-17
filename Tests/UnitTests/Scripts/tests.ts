@@ -1,6 +1,7 @@
 ﻿import { expect } from "chai";
-import mocha from "mocha";
-mocha.setup("bdd");
+import Mocha from 'mocha';
+
+const mocha = new Mocha({ ui: 'bdd', reporter: 'spec' });
 
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
@@ -744,7 +745,7 @@ describe("Blob", function () {
     let emptyBlobs: Blob[], helloBlobs: Blob[], stringBlob: Blob, typedArrayBlob: Blob, arrayBufferBlob: Blob, blobBlob: Blob;
 
     before(function () {
-        emptyBlobs = [new Blob(), new Blob([])];
+        emptyBlobs = [new Blob([]), new Blob([])];
         stringBlob = new Blob(["Hello"]);
         typedArrayBlob = new Blob([new Uint8Array([72, 101, 108, 108, 111])]),
         arrayBufferBlob = new Blob([new Uint8Array([72, 101, 108, 108, 111]).buffer]),
@@ -855,7 +856,7 @@ describe("Blob", function () {
 });
 
 function runTests() {
-    mocha.run(/*(failures: number) => {
+    mocha.run((failures: number) => {
         // Test program will wait for code to be set before exiting
         if (failures > 0) {
             // Failure
@@ -864,7 +865,7 @@ function runTests() {
             // Success
             setExitCode(0);
         }
-    }*/);
+    });
 }
 
 runTests();
