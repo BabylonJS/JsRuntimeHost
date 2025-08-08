@@ -1,7 +1,9 @@
-﻿import { expect } from "chai";
-import Mocha from 'mocha';
+﻿import MochaDefault from "mocha";
+const Mocha = MochaDefault as typeof import("mocha");
+import { expect } from "chai";
 
-const mocha = new Mocha({ ui: 'bdd', reporter: 'spec' });
+Mocha.setup('bdd');
+Mocha.reporter('spec');
 
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;

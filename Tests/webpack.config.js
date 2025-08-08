@@ -1,28 +1,35 @@
 const path = require('path');
+const webpack = require('webpack');
 
 module.exports = {
-  entry: './UnitTests/Scripts/tests.ts',
-  output: {
-    path: path.resolve(__dirname, 'UnitTests/dist'),
-    filename: 'tests.js',
-    library: {
-      type: 'var',
-      name: 'Tests'
-    },
-    globalObject: 'this'
+  target: 'web',
+  mode: 'development', // or 'production'
+  devtool: false,
+  entry: {
+    UnitTests: './UnitTests/Scripts/tests.ts',
   },
-  target: ['web', 'es5'],
-  mode: 'production',
+  output: {
+    filename: '[name].js',
+    path: path.resolve(__dirname, 'UnitTests/dist'),
+  },
+  plugins: [
+    new webpack.ProvidePlugin({
+    process: 'process/browser',
+    Buffer: ['buffer', 'Buffer'],
+  }),
+    new webpack.optimize.LimitChunkCountPlugin({
+      maxChunks: 1, // ensures all code is in a single chunk
+    }),
+  ],
   resolve: {
     extensions: ['.ts', '.js'],
     fallback: {
-        // ChakraCore compatibility - disable all Node.js modules
         'fs': false,
         'path': false,
         'util': false,
         'process': false,
         'buffer': false,
-        'stream': false,
+        stream: require.resolve('stream-browserify'),
         'events': false,
         'assert': false,
         'crypto': false,
@@ -46,34 +53,20 @@ module.exports = {
         'module': false,
         'timers': false
     }
-},
+  },
   module: {
     rules: [
-      {
-        test: /\.ts$/,
-        use: 'ts-loader',
-        exclude: /node_modules/
-      }
-    ]
+        {
+          test: /\.(js|ts)$/,
+          exclude: (modulePath) => {
+            return (
+              /node_modules/.test(modulePath) &&
+              !/node_modules[\\/](?:@babylonjs|mocha|chai)/.test(modulePath)
+            );
+          },
+          use: 'babel-loader',
+        },
+      ],
   },
-  externals: {
-    'node:path': 'commonjs node:path',
-    'crypto': 'commonjs crypto',
-    'events': 'commonjs events',
-    'node:fs': 'commonjs node:fs',
-    'debug': 'commonjs debug',
-    'node:util': 'commonjs node:util',
-    'node:events': 'commonjs node:events',
-    'node:url': 'commonjs node:url',
-    'node:process': 'commonjs node:process',
-    'workerpool': 'commonjs workerpool',
-    'he': 'commonjs he',
-    'loupe': 'commonjs loupe'
-  },
-    optimization: {
-        minimize: false // Keep code readable for debugging
-    },
-    devtool: 'source-map'
+  watch: false, // enables file watcher
 };
-
-
