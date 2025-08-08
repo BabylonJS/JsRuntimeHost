@@ -3,6 +3,7 @@ const Mocha = MochaDefault as typeof import("mocha");
 import { expect } from "chai";
 
 Mocha.setup('bdd');
+// @ts-ignore
 Mocha.reporter('spec');
 
 declare const hostPlatform: string;
