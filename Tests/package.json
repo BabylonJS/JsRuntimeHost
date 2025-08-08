@@ -7,7 +7,6 @@
     "postinstall": "npm run build"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.21.0",
     "chai": "5.2.0",
     "jsc-android": "^241213.1.0",
     "mocha": "11.1.0",
