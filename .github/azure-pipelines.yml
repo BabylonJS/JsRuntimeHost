@@ -80,6 +80,10 @@ jobs:
 
   # macOS
   - template: jobs/macos.yml
+    parameters:
+      name: 'macOS_Xcode162'
+      vmImage: 'macOS-latest'
+      xCodeVersion: 16.2
 
   # iOS
   - template: jobs/ios.yml
