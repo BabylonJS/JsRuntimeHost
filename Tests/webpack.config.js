@@ -64,8 +64,23 @@ module.exports = {
               !/node_modules[\\/](?:@babylonjs|mocha|chai)/.test(modulePath)
             );
           },
-          use: 'babel-loader',
+          use: {
+          loader: 'babel-loader',
+          options: {
+            compact: false,
+            presets: [
+              ['@babel/preset-env', {
+                targets: {
+                  ie: '11'
+                }
+              }]
+            ],
+            plugins: [
+              path.resolve(__dirname, './babel-plugin-replace-bigint')
+            ]
+          }
         },
+      }
       ],
   },
   watch: false, // enables file watcher

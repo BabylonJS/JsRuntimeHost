@@ -1,5 +1,4 @@
-﻿import MochaDefault from "mocha";
-const Mocha = MochaDefault as typeof import("mocha");
+﻿import * as Mocha from "mocha";
 import { expect } from "chai";
 
 Mocha.setup('bdd');
@@ -583,7 +582,7 @@ describe("URL", function () {
     it("should update href after URLSearchParams are changed", function () {
         // Augment URL with pathname and search
         const url = new URL("https://httpbin.org/en-US/docs?foo=1&bar=2");
-        url.searchParams.set("foo", 999 as any);
+        url.searchParams.set("foo", "999");
         // href should change to reflect searchParams change
         checkURL(url, {
             href: "https://httpbin.org/en-US/docs?foo=999&bar=2",
@@ -597,7 +596,7 @@ describe("URL", function () {
     it("should update href after URLSearchParams are changed (Starting with 0 params)", function () {
         // Augment URL with pathname and search
         const url = new URL("https://httpbin.org/en-US/docs");
-        url.searchParams.set("foo", 999 as any);
+        url.searchParams.set("foo", "999");
         // href should change to reflect searchParams change
         checkURL(url, {
             href: "https://httpbin.org/en-US/docs?foo=999",
@@ -633,6 +632,7 @@ describe("URLSearchParams", function () {
     const paramsSet = new URLSearchParams("");
 
     it("should throw exception when trying to set with less than 2 parameters", function () {
+        // `set` expects parameters, none given.
         // @ts-expect-error
         expect(() => paramsSet.set()).to.throw();
     });
