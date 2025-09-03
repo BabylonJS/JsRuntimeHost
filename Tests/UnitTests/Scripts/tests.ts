@@ -423,7 +423,7 @@ if (hostPlatform !== "Unix") {
             };
 
             ws.onerror = (ev) => {
-                done(new Error(String(ev)));
+                done(new Error("WebSocket failed"));
             };
         });
 
@@ -582,7 +582,7 @@ describe("URL", function () {
     it("should update href after URLSearchParams are changed", function () {
         // Augment URL with pathname and search
         const url = new URL("https://httpbin.org/en-US/docs?foo=1&bar=2");
-        url.searchParams.set("foo", "999");
+        url.searchParams.set("foo", 999 as any);
         // href should change to reflect searchParams change
         checkURL(url, {
             href: "https://httpbin.org/en-US/docs?foo=999&bar=2",
