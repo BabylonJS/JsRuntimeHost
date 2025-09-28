@@ -9,8 +9,8 @@ if (project.hasProperty("jsEngine")) {
 
 android {
     namespace 'com.jsruntimehost.unittests'
-    compileSdk 33
-    ndkVersion = "23.1.7779620"
+    compileSdk 34
+    ndkVersion = "28.0.12674087"
     if (project.hasProperty("ndkVersion")) {
         ndkVersion = project.property("ndkVersion")
     }
@@ -18,7 +18,7 @@ android {
     defaultConfig {
         applicationId "com.jsruntimehost.unittests"
         minSdk 21
-        targetSdk 33
+        targetSdk 34
         versionCode 1
         versionName "1.0"
 

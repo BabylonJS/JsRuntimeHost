@@ -32,7 +32,7 @@ npm install
 _Follow the steps from [All Development Platforms](#all-development-platforms) before proceeding._
 
 **Required Tools:**
-[Android Studio](https://developer.android.com/studio), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
+[Android Studio](https://developer.android.com/studio) (with Android NDK 28.0.12674087 and API level 34 SDK platforms installed), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
 
 The minimal requirement target is Android 5.0.
 

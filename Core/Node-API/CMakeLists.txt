@@ -88,15 +88,44 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_v8_internals.h")
 
         if(ANDROID)
-            set(V8_PACKAGE_NAME "v8-android-jit-nointl-nosnapshot")
-            set(V8_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
-            napi_install_android_package(v8 "dist/org/chromium" ${V8_ANDROID_DIR})
+            if(NOT V8_ANDROID_INCLUDE_DIR)
+                find_path(V8_ANDROID_INCLUDE_DIR
+                    NAMES v8.h
+                    HINTS
+                        "${CMAKE_SYSROOT}/usr/include"
+                        "${CMAKE_SYSROOT}/usr/local/include"
+                    PATH_SUFFIXES
+                        v8
+                        include/v8)
+            endif()
+
+            if(NOT V8_ANDROID_INCLUDE_DIR)
+                message(FATAL_ERROR "Unable to locate V8 headers for Android. Set V8_ANDROID_INCLUDE_DIR to the directory containing v8.h.")
+            endif()
+
+            if(NOT V8_ANDROID_LIBRARY)
+                find_library(V8_ANDROID_LIBRARY
+                    NAMES v8android
+                    HINTS
+                        "${CMAKE_SYSROOT}/usr/lib/${ANDROID_ABI}"
+                        "${CMAKE_SYSROOT}/usr/lib"
+                        "${CMAKE_SYSROOT}/usr/lib64"
+                        "${CMAKE_SYSROOT}/usr/lib32"
+                        "${CMAKE_SYSROOT}/system/lib"
+                        "${CMAKE_SYSROOT}/system/lib64"
+                        "${CMAKE_SYSROOT}/apex/com.android.vndk.current/lib"
+                        "${CMAKE_SYSROOT}/apex/com.android.vndk.current/lib64")
+            endif()
+
+            if(NOT V8_ANDROID_LIBRARY)
+                message(FATAL_ERROR "Unable to locate the system libv8android.so. Set V8_ANDROID_LIBRARY to the path of the library.")
+            endif()
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
-                PUBLIC "${V8_ANDROID_DIR}/include")
+                PUBLIC "${V8_ANDROID_INCLUDE_DIR}")
 
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
-                PUBLIC "${V8_ANDROID_DIR}/jni/${ANDROID_ABI}/libv8android.so")
+                PUBLIC "${V8_ANDROID_LIBRARY}")
         elseif(WIN32)
             set_cpu_platform_arch()
             set(V8_VERSION "11.9.169.4")
