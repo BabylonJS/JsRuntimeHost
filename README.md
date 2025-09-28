@@ -32,9 +32,11 @@ npm install
 _Follow the steps from [All Development Platforms](#all-development-platforms) before proceeding._
 
 **Required Tools:**
-[Android Studio](https://developer.android.com/studio) (with Android NDK 28.0.12674087 and API level 34 SDK platforms installed), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
+[Android Studio](https://developer.android.com/studio) (with Android NDK 28.0.12674087 and API level 35 SDK platforms installed), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
 
 The minimal requirement target is Android 5.0.
+
+> **Note:** Android SDK Platform 35 contains the system-provided `libv8android` headers and binaries under `optional/libv8android`. Install that optional component through the SDK Manager so Gradle can locate the bundled V8 runtime during native builds.
 
 Only building with Android Studio is supported. CMake is not used directly. Instead, Gradle
 is used for building and CMake is automatically invocated for building the native part.

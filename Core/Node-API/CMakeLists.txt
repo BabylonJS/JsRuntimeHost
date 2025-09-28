@@ -88,52 +88,202 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_v8_internals.h")
 
         if(ANDROID)
+            # Derive additional Android-specific metadata used to locate
+            # system-provided V8 headers and libraries.
+            set(_v8_android_api_level "")
+            if(DEFINED ANDROID_PLATFORM)
+                string(REGEX REPLACE "^android-" "" _v8_android_api_level "${ANDROID_PLATFORM}")
+            endif()
+            if(NOT _v8_android_api_level AND DEFINED CMAKE_SYSTEM_VERSION)
+                set(_v8_android_api_level "${CMAKE_SYSTEM_VERSION}")
+            endif()
+
+            set(_v8_android_triple "")
+            set(_v8_android_is_64bit OFF)
+            if(ANDROID_ABI STREQUAL "arm64-v8a")
+                set(_v8_android_triple "aarch64-linux-android")
+                set(_v8_android_is_64bit ON)
+            elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+                set(_v8_android_triple "arm-linux-androideabi")
+            elseif(ANDROID_ABI STREQUAL "x86_64")
+                set(_v8_android_triple "x86_64-linux-android")
+                set(_v8_android_is_64bit ON)
+            elseif(ANDROID_ABI STREQUAL "x86")
+                set(_v8_android_triple "i686-linux-android")
+            endif()
+
+            set(_v8_android_sdk_roots)
+            if(ANDROID_SDK_ROOT)
+                list(APPEND _v8_android_sdk_roots "${ANDROID_SDK_ROOT}")
+            endif()
+            if(DEFINED ENV{ANDROID_SDK_ROOT})
+                list(APPEND _v8_android_sdk_roots "$ENV{ANDROID_SDK_ROOT}")
+            endif()
+            if(DEFINED ENV{ANDROID_HOME})
+                list(APPEND _v8_android_sdk_roots "$ENV{ANDROID_HOME}")
+            endif()
+            list(REMOVE_DUPLICATES _v8_android_sdk_roots)
+
+            set(_v8_android_library_hints)
+            set(_v8_android_header_hints)
+
+            set(_v8_android_sysroots)
+            if(CMAKE_SYSROOT)
+                list(APPEND _v8_android_sysroots "${CMAKE_SYSROOT}")
+            endif()
+            if(DEFINED CMAKE_ANDROID_NDK_TOOLCHAIN_ROOT)
+                list(APPEND _v8_android_sysroots "${CMAKE_ANDROID_NDK_TOOLCHAIN_ROOT}/sysroot")
+            endif()
+            if(CMAKE_ANDROID_NDK)
+                file(GLOB _v8_ndk_prebuilts "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/*/sysroot")
+                list(APPEND _v8_android_sysroots ${_v8_ndk_prebuilts})
+            endif()
+            if(ANDROID_NDK)
+                file(GLOB _v8_env_ndk_prebuilts "${ANDROID_NDK}/toolchains/llvm/prebuilt/*/sysroot")
+                list(APPEND _v8_android_sysroots ${_v8_env_ndk_prebuilts})
+            endif()
+            if(DEFINED ENV{ANDROID_NDK_ROOT})
+                file(GLOB _v8_env_root_prebuilts "$ENV{ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/*/sysroot")
+                list(APPEND _v8_android_sysroots ${_v8_env_root_prebuilts})
+            endif()
+            list(REMOVE_DUPLICATES _v8_android_sysroots)
+
+            foreach(_v8_sysroot IN LISTS _v8_android_sysroots)
+                if(NOT _v8_sysroot)
+                    continue()
+                endif()
+
+                list(APPEND _v8_android_library_hints
+                    "${_v8_sysroot}/usr/lib"
+                    "${_v8_sysroot}/usr/lib32"
+                    "${_v8_sysroot}/usr/lib64"
+                    "${_v8_sysroot}/usr/lib/${ANDROID_ABI}"
+                    "${_v8_sysroot}/usr/lib/${_v8_android_triple}"
+                    "${_v8_sysroot}/system/lib"
+                    "${_v8_sysroot}/system/lib64")
+
+                if(_v8_android_api_level)
+                    list(APPEND _v8_android_library_hints
+                        "${_v8_sysroot}/usr/lib/${_v8_android_triple}/${_v8_android_api_level}"
+                        "${_v8_sysroot}/usr/lib/${_v8_android_triple}/${_v8_android_api_level}/lib"
+                        "${_v8_sysroot}/usr/lib/${_v8_android_triple}/${_v8_android_api_level}/lib64")
+                endif()
+
+                list(APPEND _v8_android_library_hints
+                    "${_v8_sysroot}/apex/com.android.vndk.current/lib")
+                if(_v8_android_is_64bit)
+                    list(APPEND _v8_android_library_hints
+                        "${_v8_sysroot}/apex/com.android.vndk.current/lib64")
+                endif()
+
+                if(_v8_android_api_level)
+                    list(APPEND _v8_android_library_hints
+                        "${_v8_sysroot}/apex/com.android.vndk.v${_v8_android_api_level}/lib")
+                    if(_v8_android_is_64bit)
+                        list(APPEND _v8_android_library_hints
+                            "${_v8_sysroot}/apex/com.android.vndk.v${_v8_android_api_level}/lib64")
+                    endif()
+                endif()
+
+                list(APPEND _v8_android_library_hints
+                    "${_v8_sysroot}/apex/com.android.appsearch/lib"
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/lib")
+                if(_v8_android_is_64bit)
+                    list(APPEND _v8_android_library_hints
+                        "${_v8_sysroot}/apex/com.android.appsearch/lib64"
+                        "${_v8_sysroot}/apex/com.android.xr.runtime/lib64")
+                endif()
+
+                list(APPEND _v8_android_header_hints
+                    "${_v8_sysroot}"
+                    "${_v8_sysroot}/usr"
+                    "${_v8_sysroot}/usr/include"
+                    "${_v8_sysroot}/usr/include/v8"
+                    "${_v8_sysroot}/usr/include/libv8android"
+                    "${_v8_sysroot}/usr/include/libv8android/include"
+                    "${_v8_sysroot}/usr/include/chromium"
+                    "${_v8_sysroot}/usr/include/chromium/libv8android"
+                    "${_v8_sysroot}/usr/include/chromium/libv8android/include"
+                    "${_v8_sysroot}/usr/local/include"
+                    "${_v8_sysroot}/apex/com.android.vndk.current/include"
+                    "${_v8_sysroot}/apex/com.android.vndk.current/include/libv8android"
+                    "${_v8_sysroot}/apex/com.android.vndk.current/include/libv8android/include")
+
+                if(_v8_android_api_level)
+                    list(APPEND _v8_android_header_hints
+                        "${_v8_sysroot}/apex/com.android.vndk.v${_v8_android_api_level}/include"
+                        "${_v8_sysroot}/apex/com.android.vndk.v${_v8_android_api_level}/include/libv8android"
+                        "${_v8_sysroot}/apex/com.android.vndk.v${_v8_android_api_level}/include/libv8android/include")
+                endif()
+
+                list(APPEND _v8_android_header_hints
+                    "${_v8_sysroot}/apex/com.android.appsearch/include"
+                    "${_v8_sysroot}/apex/com.android.appsearch/include/libv8android"
+                    "${_v8_sysroot}/apex/com.android.appsearch/include/libv8android/include"
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/include"
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android"
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android/include")
+            endforeach()
+
+            foreach(_v8_sdk_root IN LISTS _v8_android_sdk_roots)
+                if(NOT _v8_sdk_root)
+                    continue()
+                endif()
+
+                if(_v8_android_api_level)
+                    list(APPEND _v8_android_header_hints
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/include"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/include"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/ndk/include"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/sdk/include")
+
+                    list(APPEND _v8_android_library_hints
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/lib"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/lib64"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/lib"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/lib64"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/lib/${_v8_android_triple}"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/libs/${ANDROID_ABI}"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/${ANDROID_ABI}")
+                endif()
+            endforeach()
+
+            list(REMOVE_DUPLICATES _v8_android_library_hints)
+            list(REMOVE_DUPLICATES _v8_android_header_hints)
+
             if(NOT V8_ANDROID_LIBRARY)
                 find_library(V8_ANDROID_LIBRARY
                     NAMES v8android
-                    HINTS
-                        "${CMAKE_SYSROOT}/usr/lib/${ANDROID_ABI}"
-                        "${CMAKE_SYSROOT}/usr/lib"
-                        "${CMAKE_SYSROOT}/usr/lib64"
-                        "${CMAKE_SYSROOT}/usr/lib32"
-                        "${CMAKE_SYSROOT}/system/lib"
-                        "${CMAKE_SYSROOT}/system/lib64"
-                        "${CMAKE_SYSROOT}/apex/com.android.vndk.current/lib"
-                        "${CMAKE_SYSROOT}/apex/com.android.vndk.current/lib64")
+                    HINTS ${_v8_android_library_hints})
             endif()
-
-            set(_v8_header_hints
-                "${CMAKE_SYSROOT}"
-                "${CMAKE_SYSROOT}/usr"
-                "${CMAKE_SYSROOT}/usr/include"
-                "${CMAKE_SYSROOT}/usr/include/libv8android"
-                "${CMAKE_SYSROOT}/usr/include/libv8android/include"
-                "${CMAKE_SYSROOT}/usr/local/include")
 
             if(V8_ANDROID_LIBRARY)
                 get_filename_component(_v8_library_dir "${V8_ANDROID_LIBRARY}" DIRECTORY)
                 get_filename_component(_v8_usr_dir "${_v8_library_dir}" DIRECTORY)
                 get_filename_component(_v8_root_dir "${_v8_usr_dir}" DIRECTORY)
 
-                list(APPEND _v8_header_hints
+                list(APPEND _v8_android_header_hints
                     "${_v8_library_dir}"
                     "${_v8_usr_dir}"
                     "${_v8_usr_dir}/include"
+                    "${_v8_usr_dir}/include/v8"
                     "${_v8_usr_dir}/include/libv8android"
                     "${_v8_usr_dir}/include/libv8android/include"
                     "${_v8_root_dir}"
                     "${_v8_root_dir}/include"
                     "${_v8_root_dir}/usr/include"
+                    "${_v8_root_dir}/usr/include/v8"
                     "${_v8_root_dir}/usr/include/libv8android"
                     "${_v8_root_dir}/usr/include/libv8android/include")
+                list(REMOVE_DUPLICATES _v8_android_header_hints)
             endif()
-
-            list(REMOVE_DUPLICATES _v8_header_hints)
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
                 find_path(V8_ANDROID_INCLUDE_DIR
                     NAMES v8.h
-                    HINTS ${_v8_header_hints}
+                    HINTS ${_v8_android_header_hints}
                     PATH_SUFFIXES
                         v8
                         include
@@ -141,7 +291,37 @@ if(NAPI_BUILD_ABI)
                         libv8android
                         libv8android/include
                         include/libv8android
-                        include/libv8android/include)
+                        include/libv8android/include
+                        sdk/include
+                        ndk/include)
+            endif()
+
+            if(NOT V8_ANDROID_INCLUDE_DIR)
+                set(_v8_header_scan_roots)
+                foreach(_v8_hint IN LISTS _v8_android_header_hints)
+                    if(_v8_hint)
+                        get_filename_component(_v8_hint_parent "${_v8_hint}" ABSOLUTE)
+                        list(APPEND _v8_header_scan_roots "${_v8_hint_parent}")
+                    endif()
+                endforeach()
+                list(REMOVE_DUPLICATES _v8_header_scan_roots)
+
+                foreach(_v8_scan_root IN LISTS _v8_header_scan_roots)
+                    if(NOT EXISTS "${_v8_scan_root}")
+                        continue()
+                    endif()
+
+                    file(GLOB_RECURSE _v8_found_headers LIST_DIRECTORIES false
+                        "${_v8_scan_root}/v8.h")
+                    if(_v8_found_headers)
+                        list(SORT _v8_found_headers)
+                        list(GET _v8_found_headers 0 _v8_first_header)
+                        get_filename_component(V8_ANDROID_INCLUDE_DIR "${_v8_first_header}" DIRECTORY)
+                        break()
+                    endif()
+                endforeach()
+                unset(_v8_found_headers)
+                unset(_v8_header_scan_roots)
             endif()
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
@@ -152,10 +332,19 @@ if(NAPI_BUILD_ABI)
                 message(FATAL_ERROR "Unable to locate the system libv8android.so. Set V8_ANDROID_LIBRARY to the path of the library.")
             endif()
 
-            unset(_v8_header_hints)
+            unset(_v8_android_sdk_roots)
+            unset(_v8_android_library_hints)
+            unset(_v8_android_header_hints)
+            unset(_v8_android_sysroots)
+            unset(_v8_ndk_prebuilts)
+            unset(_v8_env_ndk_prebuilts)
+            unset(_v8_env_root_prebuilts)
             unset(_v8_library_dir)
             unset(_v8_usr_dir)
             unset(_v8_root_dir)
+            unset(_v8_android_api_level)
+            unset(_v8_android_triple)
+            unset(_v8_android_is_64bit)
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
                 PUBLIC "${V8_ANDROID_INCLUDE_DIR}")
