@@ -88,6 +88,12 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_v8_internals.h")
 
         if(ANDROID)
+            if(NOT COMMAND _jsruntimehost_v8_log)
+                macro(_jsruntimehost_v8_log message_text)
+                    message(STATUS "[JSRUNTIMEHOST_V8] ${message_text}")
+                endmacro()
+            endif()
+
             # Derive additional Android-specific metadata used to locate
             # system-provided V8 headers and libraries.
             set(_v8_android_api_level "")
@@ -112,6 +118,18 @@ if(NAPI_BUILD_ABI)
                 set(_v8_android_triple "i686-linux-android")
             endif()
 
+            if(_v8_android_api_level)
+                _jsruntimehost_v8_log("Target API level: ${_v8_android_api_level}")
+            else()
+                _jsruntimehost_v8_log("Target API level: <unspecified>")
+            endif()
+
+            if(_v8_android_triple)
+                _jsruntimehost_v8_log("ABI: ${ANDROID_ABI} (${_v8_android_triple})")
+            else()
+                _jsruntimehost_v8_log("ABI: ${ANDROID_ABI} (no triple match)")
+            endif()
+
             set(_v8_android_sdk_roots)
             if(ANDROID_SDK_ROOT)
                 list(APPEND _v8_android_sdk_roots "${ANDROID_SDK_ROOT}")
@@ -123,6 +141,14 @@ if(NAPI_BUILD_ABI)
                 list(APPEND _v8_android_sdk_roots "$ENV{ANDROID_HOME}")
             endif()
             list(REMOVE_DUPLICATES _v8_android_sdk_roots)
+
+            if(_v8_android_sdk_roots)
+                foreach(_v8_sdk_root IN LISTS _v8_android_sdk_roots)
+                    _jsruntimehost_v8_log("SDK root hint: ${_v8_sdk_root}")
+                endforeach()
+            else()
+                _jsruntimehost_v8_log("SDK root hint: <none>")
+            endif()
 
             set(_v8_android_library_hints)
             set(_v8_android_header_hints)
@@ -147,6 +173,14 @@ if(NAPI_BUILD_ABI)
                 list(APPEND _v8_android_sysroots ${_v8_env_root_prebuilts})
             endif()
             list(REMOVE_DUPLICATES _v8_android_sysroots)
+
+            if(_v8_android_sysroots)
+                foreach(_v8_sysroot IN LISTS _v8_android_sysroots)
+                    _jsruntimehost_v8_log("Sysroot hint: ${_v8_sysroot}")
+                endforeach()
+            else()
+                _jsruntimehost_v8_log("Sysroot hint: <none>")
+            endif()
 
             foreach(_v8_sysroot IN LISTS _v8_android_sysroots)
                 if(NOT _v8_sysroot)
@@ -204,6 +238,10 @@ if(NAPI_BUILD_ABI)
                     "${_v8_sysroot}/usr/include/chromium"
                     "${_v8_sysroot}/usr/include/chromium/libv8android"
                     "${_v8_sysroot}/usr/include/chromium/libv8android/include"
+                    "${_v8_sysroot}/usr/include/libv8android/public"
+                    "${_v8_sysroot}/usr/include/libv8android/public/include"
+                    "${_v8_sysroot}/usr/include/chromium/libv8android/public"
+                    "${_v8_sysroot}/usr/include/chromium/libv8android/public/include"
                     "${_v8_sysroot}/usr/local/include"
                     "${_v8_sysroot}/apex/com.android.vndk.current/include"
                     "${_v8_sysroot}/apex/com.android.vndk.current/include/libv8android"
@@ -222,7 +260,9 @@ if(NAPI_BUILD_ABI)
                     "${_v8_sysroot}/apex/com.android.appsearch/include/libv8android/include"
                     "${_v8_sysroot}/apex/com.android.xr.runtime/include"
                     "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android"
-                    "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android/include")
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android/include"
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android/public"
+                    "${_v8_sysroot}/apex/com.android.xr.runtime/include/libv8android/public/include")
             endforeach()
 
             foreach(_v8_sdk_root IN LISTS _v8_android_sdk_roots)
@@ -237,6 +277,7 @@ if(NAPI_BUILD_ABI)
                         "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android"
                         "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/include"
                         "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/ndk/include"
+                        "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/public/include"
                         "${_v8_sdk_root}/platforms/android-${_v8_android_api_level}/optional/libv8android/sdk/include")
 
                     list(APPEND _v8_android_library_hints
@@ -253,6 +294,23 @@ if(NAPI_BUILD_ABI)
             list(REMOVE_DUPLICATES _v8_android_library_hints)
             list(REMOVE_DUPLICATES _v8_android_header_hints)
 
+            list(LENGTH _v8_android_library_hints _v8_library_hint_count)
+            list(LENGTH _v8_android_header_hints _v8_header_hint_count)
+            _jsruntimehost_v8_log("Collected ${_v8_library_hint_count} library hint(s)")
+            _jsruntimehost_v8_log("Collected ${_v8_header_hint_count} header hint(s)")
+
+            if(_v8_android_library_hints)
+                foreach(_v8_hint IN LISTS _v8_android_library_hints)
+                    _jsruntimehost_v8_log("Library search hint: ${_v8_hint}")
+                endforeach()
+            endif()
+
+            if(_v8_android_header_hints)
+                foreach(_v8_hint IN LISTS _v8_android_header_hints)
+                    _jsruntimehost_v8_log("Header search hint: ${_v8_hint}")
+                endforeach()
+            endif()
+
             if(NOT V8_ANDROID_LIBRARY)
                 find_library(V8_ANDROID_LIBRARY
                     NAMES v8android
@@ -260,6 +318,7 @@ if(NAPI_BUILD_ABI)
             endif()
 
             if(V8_ANDROID_LIBRARY)
+                _jsruntimehost_v8_log("Resolved libv8android: ${V8_ANDROID_LIBRARY}")
                 get_filename_component(_v8_library_dir "${V8_ANDROID_LIBRARY}" DIRECTORY)
                 get_filename_component(_v8_usr_dir "${_v8_library_dir}" DIRECTORY)
                 get_filename_component(_v8_root_dir "${_v8_usr_dir}" DIRECTORY)
@@ -278,6 +337,8 @@ if(NAPI_BUILD_ABI)
                     "${_v8_root_dir}/usr/include/libv8android"
                     "${_v8_root_dir}/usr/include/libv8android/include")
                 list(REMOVE_DUPLICATES _v8_android_header_hints)
+            else()
+                _jsruntimehost_v8_log("libv8android not resolved from hints")
             endif()
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
@@ -290,13 +351,18 @@ if(NAPI_BUILD_ABI)
                         include/v8
                         libv8android
                         libv8android/include
+                        libv8android/public
+                        libv8android/public/include
                         include/libv8android
                         include/libv8android/include
+                        include/libv8android/public
+                        include/libv8android/public/include
                         sdk/include
                         ndk/include)
             endif()
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
+                _jsruntimehost_v8_log("Falling back to recursive header search")
                 set(_v8_header_scan_roots)
                 foreach(_v8_hint IN LISTS _v8_android_header_hints)
                     if(_v8_hint)
@@ -308,15 +374,18 @@ if(NAPI_BUILD_ABI)
 
                 foreach(_v8_scan_root IN LISTS _v8_header_scan_roots)
                     if(NOT EXISTS "${_v8_scan_root}")
+                        _jsruntimehost_v8_log("Skipping missing header scan root: ${_v8_scan_root}")
                         continue()
                     endif()
 
-                    file(GLOB_RECURSE _v8_found_headers LIST_DIRECTORIES false
+                    _jsruntimehost_v8_log("Scanning for v8.h under: ${_v8_scan_root}")
+                    file(GLOB_RECURSE _v8_found_headers FOLLOW_SYMLINKS LIST_DIRECTORIES false
                         "${_v8_scan_root}/v8.h")
                     if(_v8_found_headers)
                         list(SORT _v8_found_headers)
                         list(GET _v8_found_headers 0 _v8_first_header)
                         get_filename_component(V8_ANDROID_INCLUDE_DIR "${_v8_first_header}" DIRECTORY)
+                        _jsruntimehost_v8_log("Resolved v8.h via recursive scan: ${V8_ANDROID_INCLUDE_DIR}")
                         break()
                     endif()
                 endforeach()
@@ -325,12 +394,18 @@ if(NAPI_BUILD_ABI)
             endif()
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
+                _jsruntimehost_v8_log("Unable to resolve v8.h from collected hints")
                 message(FATAL_ERROR "Unable to locate V8 headers for Android. Set V8_ANDROID_INCLUDE_DIR to the directory containing v8.h.")
             endif()
 
+            _jsruntimehost_v8_log("Using V8 include directory: ${V8_ANDROID_INCLUDE_DIR}")
+
             if(NOT V8_ANDROID_LIBRARY)
+                _jsruntimehost_v8_log("Unable to resolve libv8android from collected hints")
                 message(FATAL_ERROR "Unable to locate the system libv8android.so. Set V8_ANDROID_LIBRARY to the path of the library.")
             endif()
+
+            _jsruntimehost_v8_log("Using libv8android: ${V8_ANDROID_LIBRARY}")
 
             unset(_v8_android_sdk_roots)
             unset(_v8_android_library_hints)
