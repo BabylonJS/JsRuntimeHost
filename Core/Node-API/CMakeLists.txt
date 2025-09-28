@@ -88,21 +88,6 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_v8_internals.h")
 
         if(ANDROID)
-            if(NOT V8_ANDROID_INCLUDE_DIR)
-                find_path(V8_ANDROID_INCLUDE_DIR
-                    NAMES v8.h
-                    HINTS
-                        "${CMAKE_SYSROOT}/usr/include"
-                        "${CMAKE_SYSROOT}/usr/local/include"
-                    PATH_SUFFIXES
-                        v8
-                        include/v8)
-            endif()
-
-            if(NOT V8_ANDROID_INCLUDE_DIR)
-                message(FATAL_ERROR "Unable to locate V8 headers for Android. Set V8_ANDROID_INCLUDE_DIR to the directory containing v8.h.")
-            endif()
-
             if(NOT V8_ANDROID_LIBRARY)
                 find_library(V8_ANDROID_LIBRARY
                     NAMES v8android
@@ -117,9 +102,40 @@ if(NAPI_BUILD_ABI)
                         "${CMAKE_SYSROOT}/apex/com.android.vndk.current/lib64")
             endif()
 
+            if(V8_ANDROID_LIBRARY)
+                get_filename_component(_v8_library_dir "${V8_ANDROID_LIBRARY}" DIRECTORY)
+                get_filename_component(_v8_root_dir "${_v8_library_dir}" DIRECTORY)
+                set(_v8_header_hints
+                    "${CMAKE_SYSROOT}/usr/include"
+                    "${CMAKE_SYSROOT}/usr/local/include"
+                    "${_v8_root_dir}/include"
+                    "${_v8_root_dir}/usr/include")
+            else()
+                set(_v8_header_hints
+                    "${CMAKE_SYSROOT}/usr/include"
+                    "${CMAKE_SYSROOT}/usr/local/include")
+            endif()
+
+            if(NOT V8_ANDROID_INCLUDE_DIR)
+                find_path(V8_ANDROID_INCLUDE_DIR
+                    NAMES v8.h
+                    HINTS ${_v8_header_hints}
+                    PATH_SUFFIXES
+                        v8
+                        include/v8)
+            endif()
+
+            if(NOT V8_ANDROID_INCLUDE_DIR)
+                message(FATAL_ERROR "Unable to locate V8 headers for Android. Set V8_ANDROID_INCLUDE_DIR to the directory containing v8.h.")
+            endif()
+
             if(NOT V8_ANDROID_LIBRARY)
                 message(FATAL_ERROR "Unable to locate the system libv8android.so. Set V8_ANDROID_LIBRARY to the path of the library.")
             endif()
+
+            unset(_v8_header_hints)
+            unset(_v8_library_dir)
+            unset(_v8_root_dir)
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
                 PUBLIC "${V8_ANDROID_INCLUDE_DIR}")
