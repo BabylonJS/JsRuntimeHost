@@ -102,19 +102,33 @@ if(NAPI_BUILD_ABI)
                         "${CMAKE_SYSROOT}/apex/com.android.vndk.current/lib64")
             endif()
 
+            set(_v8_header_hints
+                "${CMAKE_SYSROOT}"
+                "${CMAKE_SYSROOT}/usr"
+                "${CMAKE_SYSROOT}/usr/include"
+                "${CMAKE_SYSROOT}/usr/include/libv8android"
+                "${CMAKE_SYSROOT}/usr/include/libv8android/include"
+                "${CMAKE_SYSROOT}/usr/local/include")
+
             if(V8_ANDROID_LIBRARY)
                 get_filename_component(_v8_library_dir "${V8_ANDROID_LIBRARY}" DIRECTORY)
-                get_filename_component(_v8_root_dir "${_v8_library_dir}" DIRECTORY)
-                set(_v8_header_hints
-                    "${CMAKE_SYSROOT}/usr/include"
-                    "${CMAKE_SYSROOT}/usr/local/include"
+                get_filename_component(_v8_usr_dir "${_v8_library_dir}" DIRECTORY)
+                get_filename_component(_v8_root_dir "${_v8_usr_dir}" DIRECTORY)
+
+                list(APPEND _v8_header_hints
+                    "${_v8_library_dir}"
+                    "${_v8_usr_dir}"
+                    "${_v8_usr_dir}/include"
+                    "${_v8_usr_dir}/include/libv8android"
+                    "${_v8_usr_dir}/include/libv8android/include"
+                    "${_v8_root_dir}"
                     "${_v8_root_dir}/include"
-                    "${_v8_root_dir}/usr/include")
-            else()
-                set(_v8_header_hints
-                    "${CMAKE_SYSROOT}/usr/include"
-                    "${CMAKE_SYSROOT}/usr/local/include")
+                    "${_v8_root_dir}/usr/include"
+                    "${_v8_root_dir}/usr/include/libv8android"
+                    "${_v8_root_dir}/usr/include/libv8android/include")
             endif()
+
+            list(REMOVE_DUPLICATES _v8_header_hints)
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
                 find_path(V8_ANDROID_INCLUDE_DIR
@@ -122,7 +136,12 @@ if(NAPI_BUILD_ABI)
                     HINTS ${_v8_header_hints}
                     PATH_SUFFIXES
                         v8
-                        include/v8)
+                        include
+                        include/v8
+                        libv8android
+                        libv8android/include
+                        include/libv8android
+                        include/libv8android/include)
             endif()
 
             if(NOT V8_ANDROID_INCLUDE_DIR)
@@ -135,6 +154,7 @@ if(NAPI_BUILD_ABI)
 
             unset(_v8_header_hints)
             unset(_v8_library_dir)
+            unset(_v8_usr_dir)
             unset(_v8_root_dir)
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
