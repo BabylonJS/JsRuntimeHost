@@ -7,10 +7,12 @@ if (project.hasProperty("jsEngine")) {
     jsEngine = project.property("jsEngine")
 }
 
+def targetApiLevel = 35
+
 android {
     namespace 'com.jsruntimehost.unittests'
-    compileSdk 35
-    ndkVersion = "28.0.12674087"
+    compileSdk targetApiLevel
+    ndkVersion = "28.2.13676358"
     if (project.hasProperty("ndkVersion")) {
         ndkVersion = project.property("ndkVersion")
     }
@@ -18,7 +20,7 @@ android {
     defaultConfig {
         applicationId "com.jsruntimehost.unittests"
         minSdk 21
-        targetSdk 35
+        targetSdk targetApiLevel
         versionCode 1
         versionName "1.0"
 
@@ -29,7 +31,8 @@ android {
                 arguments (
                     "-DANDROID_STL=c++_shared",
                     "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
-                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
+                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON",
+                    "-DJSRUNTIMEHOST_ANDROID_TARGET_API=${targetApiLevel}"
                 )
             }
         }
