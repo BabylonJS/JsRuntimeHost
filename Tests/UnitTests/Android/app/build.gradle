@@ -8,145 +8,7 @@ if (project.hasProperty("jsEngine")) {
 }
 
 def targetApiLevel = 35
-def requiredNdkVersion = "28.2.13676358"
-if (project.hasProperty("ndkVersion")) {
-    requiredNdkVersion = project.property("ndkVersion")
-}
-def resolvePreferredNdkDir = {
-    def parseMajorMinor = { String version ->
-        def numericParts = version ? (version =~ /\d+/).findAll() : []
-        def major = numericParts.size() > 0 ? numericParts[0].toInteger() : 0
-        def minor = numericParts.size() > 1 ? numericParts[1].toInteger() : 0
-        [major, minor]
-    }
-
-    def requiredMajorMinor = parseMajorMinor(requiredNdkVersion)
-
-    def classifyNdkDir = { File candidate ->
-        if (candidate == null || !candidate.exists()) {
-            return null
-        }
-
-        def revisionValue = ""
-        def sourceProperties = new File(candidate, "source.properties")
-        if (sourceProperties.exists()) {
-            def revisionLine = sourceProperties.readLines().find { it.startsWith("Pkg.Revision = ") }
-            if (revisionLine != null) {
-                revisionValue = revisionLine.substring("Pkg.Revision = ".length()).trim()
-            }
-        }
-
-        def revisionMajorMinor = parseMajorMinor(revisionValue)
-        def compatible = revisionValue.isEmpty() ||
-            revisionValue.startsWith(requiredNdkVersion) ||
-            revisionMajorMinor[0] > requiredMajorMinor[0] ||
-            (revisionMajorMinor[0] == requiredMajorMinor[0] && revisionMajorMinor[1] >= requiredMajorMinor[1])
-
-        [dir: candidate, revision: revisionValue, parts: revisionMajorMinor, compatible: compatible]
-    }
-
-    def resolveIfCompatible = { File candidate ->
-        def info = classifyNdkDir(candidate)
-        info?.compatible ? info.dir : null
-    }
-
-    def pickBestCompatible = { Collection<File> candidates ->
-        def bestInfo = null
-        candidates.each { File candidate ->
-            def info = classifyNdkDir(candidate)
-            if (info?.compatible) {
-                if (bestInfo == null) {
-                    bestInfo = info
-                } else {
-                    def comparison = (info.parts[0] <=> bestInfo.parts[0])
-                    if (comparison == 0) {
-                        comparison = (info.parts[1] <=> bestInfo.parts[1])
-                    }
-                    if (comparison == 0) {
-                        comparison = (info.revision ?: "") <=> (bestInfo.revision ?: "")
-                    }
-                    if (comparison > 0) {
-                        bestInfo = info
-                    }
-                }
-            }
-        }
-        bestInfo?.dir
-    }
-
-    def androidExtension = project.extensions.findByName('android')
-    if (androidExtension != null && androidExtension.hasProperty('ndkDirectory')) {
-        def resolved = resolveIfCompatible(androidExtension.ndkDirectory)
-        if (resolved != null) {
-            return resolved
-        }
-    }
-
-    def ndkEnvVars = [
-        System.getenv("ANDROID_NDK"),
-        System.getenv("ANDROID_NDK_HOME"),
-        System.getenv("ANDROID_NDK_ROOT"),
-        System.getenv("ANDROID_NDK_PATH")
-    ]
-
-    for (envPath in ndkEnvVars) {
-        def resolved = resolveIfCompatible(envPath ? new File(envPath) : null)
-        if (resolved != null) {
-            return resolved
-        }
-    }
-
-    def sdkRoots = [] as LinkedHashSet
-    def sdkRootEnv = System.getenv("ANDROID_SDK_ROOT")
-    if (sdkRootEnv) {
-        sdkRoots.add(sdkRootEnv)
-    }
-    def androidHomeEnv = System.getenv("ANDROID_HOME")
-    if (androidHomeEnv) {
-        sdkRoots.add(androidHomeEnv)
-    }
-
-    def localProperties = project.rootProject.file("local.properties")
-    if (localProperties.exists()) {
-        def lines = localProperties.readLines()
-        def ndkProperty = lines.find { it.startsWith("ndk.dir=") }
-        if (ndkProperty) {
-            def ndkDir = ndkProperty.substring("ndk.dir=".length()).trim()
-            def resolved = resolveIfCompatible(ndkDir ? new File(ndkDir) : null)
-            if (resolved != null) {
-                return resolved
-            }
-        }
-
-        def sdkProperty = lines.find { it.startsWith("sdk.dir=") }
-        if (sdkProperty) {
-            def sdkDir = sdkProperty.substring("sdk.dir=".length()).trim()
-            if (!sdkDir.isEmpty()) {
-                sdkRoots.add(sdkDir)
-            }
-        }
-    }
-
-    for (root in sdkRoots) {
-        def ndkRoot = new File(root, "ndk")
-        if (!ndkRoot.exists()) {
-            continue
-        }
-
-        def explicit = resolveIfCompatible(new File(ndkRoot, requiredNdkVersion))
-        if (explicit != null) {
-            return explicit
-        }
-
-        def sideBySide = ndkRoot.listFiles()?.findAll { it.isDirectory() } ?: []
-        def resolved = pickBestCompatible(sideBySide)
-        if (resolved != null) {
-            return resolved
-        }
-    }
-
-    return null
-}
+def requiredNdkVersion = project.findProperty("ndkVersion") ?: "28.2.13676358"
 
 android {
     namespace 'com.jsruntimehost.unittests'
@@ -164,26 +26,12 @@ android {
 
         externalNativeBuild {
             cmake {
-                def cmakeArguments = [
+                arguments(
                     "-DANDROID_STL=c++_shared",
                     "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
                     "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON",
                     "-DJSRUNTIMEHOST_ANDROID_TARGET_API=${targetApiLevel}"
-                ]
-
-                def resolvedNdkDir = resolvePreferredNdkDir()
-                if (resolvedNdkDir != null) {
-                    def ndkPath = resolvedNdkDir.absolutePath
-                    cmakeArguments += [
-                        "-DANDROID_NDK=${ndkPath}",
-                        "-DCMAKE_ANDROID_NDK=${ndkPath}",
-                        "-DCMAKE_TOOLCHAIN_FILE=${ndkPath}/build/cmake/android.toolchain.cmake"
-                    ]
-                } else {
-                    logger.lifecycle("[JSRUNTIMEHOST_ANDROID] Unable to locate Android NDK ${requiredNdkVersion}. Set ANDROID_NDK_HOME or install the matching side-by-side NDK via the SDK Manager.")
-                }
-
-                arguments(*cmakeArguments)
+                )
             }
         }
 
@@ -256,24 +104,45 @@ tasks.configureEach { task ->
 }
 
 afterEvaluate {
-    def preferredNdkDir = resolvePreferredNdkDir()
-    if (preferredNdkDir != null) {
-        def ndkPath = preferredNdkDir.absolutePath
-        def androidExtension = project.extensions.findByName('android')
-        if (androidExtension != null && androidExtension.hasProperty('ndkPath')) {
-            androidExtension.ndkPath = ndkPath
+    def androidExtension = project.extensions.findByName('android')
+    def sdkDir = androidExtension?.sdkDirectory
+    def ndkDir = androidExtension?.ndkDirectory
+
+    if (sdkDir != null) {
+        def sdkPath = sdkDir.absolutePath
+        tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildTask).configureEach { task ->
+            task.environment("ANDROID_SDK_ROOT", sdkPath)
+            task.environment("ANDROID_HOME", sdkPath)
         }
         tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildJsonTask).configureEach { task ->
-            task.environment("ANDROID_NDK", ndkPath)
-            task.environment("ANDROID_NDK_HOME", ndkPath)
-            task.environment("ANDROID_NDK_ROOT", ndkPath)
+            task.environment("ANDROID_SDK_ROOT", sdkPath)
+            task.environment("ANDROID_HOME", sdkPath)
+        }
+    }
+
+    if (ndkDir == null && sdkDir != null) {
+        def candidate = new File(sdkDir, "ndk/${requiredNdkVersion}")
+        if (candidate.exists()) {
+            ndkDir = candidate
+        }
+    }
+
+    if (ndkDir != null) {
+        def ndkPath = ndkDir.absolutePath
+        if (androidExtension?.hasProperty('ndkPath')) {
+            androidExtension.ndkPath = ndkPath
         }
         tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildTask).configureEach { task ->
             task.environment("ANDROID_NDK", ndkPath)
             task.environment("ANDROID_NDK_HOME", ndkPath)
             task.environment("ANDROID_NDK_ROOT", ndkPath)
         }
-    } else {
-        throw new GradleException("Android NDK ${requiredNdkVersion} is required but was not found. Install it with 'sdkmanager \"ndk;${requiredNdkVersion}\"' or point ANDROID_NDK_HOME to the installation directory.")
+        tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildJsonTask).configureEach { task ->
+            task.environment("ANDROID_NDK", ndkPath)
+            task.environment("ANDROID_NDK_HOME", ndkPath)
+            task.environment("ANDROID_NDK_ROOT", ndkPath)
+        }
+    } else if (sdkDir != null) {
+        logger.lifecycle("[JSRUNTIMEHOST_ANDROID] Expected Android NDK ${requiredNdkVersion} under ${sdkDir}. Install it with 'sdkmanager \"ndk;${requiredNdkVersion}\"'.")
     }
 }
