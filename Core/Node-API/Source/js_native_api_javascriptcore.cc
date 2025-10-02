@@ -19,6 +19,38 @@ struct napi_callback_info__ {
 };
 
 namespace {
+  // Template specialization to provide char_traits functionality for JSChar (unsigned short)
+  // at compile time, mimicking std::char_traits interface
+  template<typename CharT>
+  struct jschar_traits;
+
+  template<>
+  struct jschar_traits<JSChar> {
+    using char_type = JSChar;
+
+    static constexpr size_t length(const char_type* str) noexcept {
+      if (!str) return 0;
+      const char_type* s = str;
+      while (*s) ++s;
+      return s - str;
+    }
+
+    static constexpr int compare(const char_type* s1, const char_type* s2, size_t n) noexcept {
+      for (size_t i = 0; i < n; ++i) {
+        if (s1[i] < s2[i]) return -1;
+        if (s1[i] > s2[i]) return 1;
+      }
+      return 0;
+    }
+
+    static constexpr const char_type* find(const char_type* s, size_t n, const char_type& c) noexcept {
+      for (size_t i = 0; i < n; ++i) {
+        if (s[i] == c) return s + i;
+      }
+      return nullptr;
+    }
+  };
+
   class JSString {
    public:
     JSString(const JSString&) = delete;
@@ -33,7 +65,7 @@ namespace {
     }
 
     JSString(const JSChar* string, size_t length = NAPI_AUTO_LENGTH)
-      : _string{JSStringCreateWithCharacters(string, length == NAPI_AUTO_LENGTH ? std::char_traits<JSChar>::length(string) : length)} {
+      : _string{JSStringCreateWithCharacters(string, length == NAPI_AUTO_LENGTH ? jschar_traits<JSChar>::length(string) : length)} {
     }
 
     ~JSString() {
