@@ -1,5 +1,5 @@
 #include <jni.h>
-#include <Android/log.h>
+#include <android/log.h>
 #include <AndroidExtensions/Globals.h>
 #include <AndroidExtensions/JavaWrappers.h>
 #include <AndroidExtensions/StdoutLogger.h>
@@ -17,16 +17,17 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     jclass webSocketClass{env->FindClass("com/jsruntimehost/unittests/WebSocket")};
     java::websocket::WebSocketClient::InitializeJavaWebSocketClass(webSocketClass, env);
 
-    android::StdoutLogger::Start();
+    // Temporarily disable StdoutLogger due to fdsan issue with NDK 28
+    // android::StdoutLogger::Start();
 
     android::global::Initialize(javaVM, context);
 
     Babylon::DebugTrace::EnableDebugTrace(true);
-    Babylon::DebugTrace::SetTraceOutput([](const char* trace) { printf("%s\n", trace); fflush(stdout); });
+    Babylon::DebugTrace::SetTraceOutput([](const char* trace) { __android_log_print(ANDROID_LOG_INFO, "JsRuntimeHost", "%s", trace); });
 
     auto testResult = RunTests();
 
-    android::StdoutLogger::Stop();
+    // android::StdoutLogger::Stop();
 
     java::websocket::WebSocketClient::DestructJavaWebSocketClass(env);
     return testResult;
