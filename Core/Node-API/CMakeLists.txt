@@ -32,6 +32,9 @@ if(NAPI_BUILD_ABI)
             npm(install --no-package-lock --silent WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
             file(GLOB_RECURSE ANDROID_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/node_modules/${V8_PACKAGE_NAME}/${aar_path}/*.aar")
+            if(NOT ANDROID_ARCHIVE)
+                message(FATAL_ERROR "Could not find archive at ${CMAKE_CURRENT_BINARY_DIR}/node_modules/${V8_PACKAGE_NAME}/${aar_path}/*.aar")
+            endif()
             file(ARCHIVE_EXTRACT INPUT ${ANDROID_ARCHIVE} DESTINATION ${output_directory} PATTERNS jni)
             message(STATUS "Extracting ${V8_PACKAGE_NAME} archive - done")
 
@@ -56,6 +59,7 @@ if(NAPI_BUILD_ABI)
         if(ANDROID)
             set(V8_PACKAGE_NAME "jsc-android")
             set(JSC_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
+            # Use android-jsc (nointl) to match V8's nointl build profile and reduce binary size
             napi_install_android_package(jsc "dist/org/webkit/android-jsc" ${JSC_ANDROID_DIR})
 
             # Add `JavaScriptCore` prefix to the include path

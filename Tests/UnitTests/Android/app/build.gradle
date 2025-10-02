@@ -29,8 +29,7 @@ android {
                 arguments(
                     "-DANDROID_STL=c++_shared",
                     "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
-                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON",
-                    "-DJSRUNTIMEHOST_ANDROID_TARGET_API=${targetApiLevel}"
+                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
                 )
             }
         }
@@ -103,46 +102,5 @@ tasks.configureEach { task ->
     }
 }
 
-afterEvaluate {
-    def androidExtension = project.extensions.findByName('android')
-    def sdkDir = androidExtension?.sdkDirectory
-    def ndkDir = androidExtension?.ndkDirectory
-
-    if (sdkDir != null) {
-        def sdkPath = sdkDir.absolutePath
-        tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildTask).configureEach { task ->
-            task.environment("ANDROID_SDK_ROOT", sdkPath)
-            task.environment("ANDROID_HOME", sdkPath)
-        }
-        tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildJsonTask).configureEach { task ->
-            task.environment("ANDROID_SDK_ROOT", sdkPath)
-            task.environment("ANDROID_HOME", sdkPath)
-        }
-    }
-
-    if (ndkDir == null && sdkDir != null) {
-        def candidate = new File(sdkDir, "ndk/${requiredNdkVersion}")
-        if (candidate.exists()) {
-            ndkDir = candidate
-        }
-    }
-
-    if (ndkDir != null) {
-        def ndkPath = ndkDir.absolutePath
-        if (androidExtension?.hasProperty('ndkPath')) {
-            androidExtension.ndkPath = ndkPath
-        }
-        tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildTask).configureEach { task ->
-            task.environment("ANDROID_NDK", ndkPath)
-            task.environment("ANDROID_NDK_HOME", ndkPath)
-            task.environment("ANDROID_NDK_ROOT", ndkPath)
-        }
-        tasks.withType(com.android.build.gradle.tasks.ExternalNativeBuildJsonTask).configureEach { task ->
-            task.environment("ANDROID_NDK", ndkPath)
-            task.environment("ANDROID_NDK_HOME", ndkPath)
-            task.environment("ANDROID_NDK_ROOT", ndkPath)
-        }
-    } else if (sdkDir != null) {
-        logger.lifecycle("[JSRUNTIMEHOST_ANDROID] Expected Android NDK ${requiredNdkVersion} under ${sdkDir}. Install it with 'sdkmanager \"ndk;${requiredNdkVersion}\"'.")
-    }
-}
+// Note: The Android Gradle Plugin should handle NDK location automatically
+// If you encounter NDK issues, ensure you have NDK 28.2.13676358 installed via SDK Manager
