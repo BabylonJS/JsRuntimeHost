@@ -12,19 +12,39 @@ jobs:
     vmImage: macos-latest
 
   steps:
+  - task: JavaToolInstaller@0
+    displayName: 'Set up JDK 17'
+    inputs:
+      versionSpec: '17'
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+
   - script: |
       echo "Install NDK and Android SDK"
+      # Use Java 17 which is compatible with modern Android tooling
       export JAVA_HOME=$JAVA_HOME_17_X64
-      export _JAVA_OPTIONS="--add-modules java.xml.bind"
-      echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;$(ndkVersion)"
-      echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "platforms;android-35"
-      echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "system-images;android-35;google_apis;x86_64"
-      echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --licenses
+      export PATH=$JAVA_HOME/bin:$PATH
+      # Clear any problematic Java options - not needed with Java 17
+      unset _JAVA_OPTIONS
+
+      echo "Java version:"
+      java -version
+
+      # Use cmdline-tools instead of deprecated tools/bin path
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;$(ndkVersion)"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "build-tools;35.0.0"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "system-images;android-35;google_apis;x86_64"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
       echo "Create AVD"
-      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_35 -d pixel -k "system-images;android-35;google_apis;x86_64"
+      $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_API_35 -d pixel -k "system-images;android-35;google_apis;x86_64"
     displayName: 'Install Android Emulator'
 
   - script: |
+      export JAVA_HOME=$JAVA_HOME_17_X64
+      export PATH=$JAVA_HOME/bin:$PATH
+      unset _JAVA_OPTIONS
+
       echo Start emulator
       nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_35 -gpu host -no-window -no-audio -no-boot-anim 2>&1 &
       echo Wait for emulator
