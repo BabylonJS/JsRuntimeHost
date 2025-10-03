@@ -11,6 +11,9 @@
 #include <gtest/gtest.h>
 #include <future>
 #include <iostream>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 namespace
 {
@@ -40,8 +43,12 @@ TEST(JavaScript, All)
     Babylon::AppRuntime::Options options{};
 
     options.UnhandledExceptionHandler = [&exitCodePromise](const Napi::Error& error) {
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_ERROR, "JavaScript", "[Uncaught Error] %s", Napi::GetErrorString(error).c_str());
+#else
         std::cerr << "[Uncaught Error] " << Napi::GetErrorString(error) << std::endl;
         std::cerr.flush();
+#endif
 
         exitCodePromise.set_value(-1);
     };
@@ -56,8 +63,13 @@ TEST(JavaScript, All)
 
     runtime.Dispatch([&exitCodePromise](Napi::Env env) mutable {
         Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
+#ifdef __ANDROID__
+            // On Android, use Android logging to avoid fdsan issues with stdout capture
+            __android_log_print(ANDROID_LOG_INFO, "JavaScript", "[%s] %s", EnumToString(logLevel), message);
+#else
             std::cout << "[" << EnumToString(logLevel) << "] " << message << std::endl;
             std::cout.flush();
+#endif
         });
 
         Babylon::Polyfills::AbortController::Initialize(env);
@@ -96,9 +108,14 @@ TEST(Console, Log)
             const char* test = "foo bar";
             if (strcmp(message, test) != 0)
             {
+#ifdef __ANDROID__
+                __android_log_print(ANDROID_LOG_ERROR, "Test", "Expected: %s", test);
+                __android_log_print(ANDROID_LOG_ERROR, "Test", "Received: %s", message);
+#else
                 std::cout << "Expected: " << test << std::endl;
                 std::cout << "Received: " << message << std::endl;
                 std::cout.flush();
+#endif
                 ADD_FAILURE();
             }
         });
