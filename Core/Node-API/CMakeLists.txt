@@ -59,8 +59,8 @@ if(NAPI_BUILD_ABI)
         if(ANDROID)
             set(V8_PACKAGE_NAME "jsc-android")
             set(JSC_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
-            # Use android-jsc (nointl) to match V8's nointl build profile and reduce binary size
-            napi_install_android_package(jsc "dist/org/webkit/android-jsc" ${JSC_ANDROID_DIR})
+            # Use android-jsc-intl for full intl support
+            napi_install_android_package(jsc "dist/org/webkit/android-jsc-intl" ${JSC_ANDROID_DIR})
 
             # Add `JavaScriptCore` prefix to the include path
             file(RENAME "${JSC_ANDROID_DIR}/include" "${JSC_ANDROID_DIR}/JavaScriptCore")
