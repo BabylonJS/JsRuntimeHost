@@ -67,13 +67,19 @@ jobs:
     displayName: 'Run Connected Android Test'
 
   - script: |
+      # Dump test failure details when tests fail
+      if [ -f ./app/build/outputs/androidTest-results/connected/TEST-*.xml ]; then
+        echo "=== Test Results Summary ==="
+        grep -h "testcase\|failure" ./app/build/outputs/androidTest-results/connected/TEST-*.xml || true
+      fi
+      # Dump logcat output which contains our detailed error messages
       find ./app/build/outputs/androidTest-results -name "*.txt" -print0 | while IFS= read -r -d '' file; do
-        echo "cat \"$file\""
-        cat "$file"
+        echo "=== Logcat Output from: $file ==="
+        cat "$file" | grep -E "(FAILED|TEST FAILURES|Error:|Stack:|JsRuntimeHost)" || cat "$file"
       done
     workingDirectory: 'Tests/UnitTests/Android'
     condition: succeededOrFailed()
-    displayName: 'Dump logcat from Test Results'
+    displayName: 'Dump test failure details and logcat'
 
   - task: PublishBuildArtifacts@1
     inputs:

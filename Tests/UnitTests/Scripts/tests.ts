@@ -862,14 +862,27 @@ function runTests() {
     // Import the engine compatibility tests after Mocha is set up
     require("./engine-compat-tests");
 
-    mocha.run((failures: number) => {
+    const runner = mocha.run((failures: number) => {
         // Test program will wait for code to be set before exiting
         if (failures > 0) {
             // Failure
+            console.error(`\n===== TEST FAILURES: ${failures} tests failed =====`);
             setExitCode(1);
         } else {
             // Success
+            console.log(`\n===== ALL TESTS PASSED =====`);
             setExitCode(0);
+        }
+    });
+
+    // Add detailed failure reporting
+    runner.on('fail', (test: any, err: any) => {
+        console.error(`\n[FAILED] ${test.fullTitle()}`);
+        console.error(`  File: ${test.file || 'unknown'}`);
+        console.error(`  Error: ${err.message}`);
+        if (err.stack) {
+            const stackLines = err.stack.split('\n').slice(0, 3);
+            console.error(`  Stack: ${stackLines.join('\n         ')}`);
         }
     });
 }
