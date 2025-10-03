@@ -36,8 +36,13 @@ jobs:
       echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "build-tools;35.0.0"
       echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "system-images;android-35;google_apis;x86_64"
       echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-      echo "Create AVD"
-      $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_API_35 -d pixel -k "system-images;android-35;google_apis;x86_64"
+      echo "Create AVD with Pixel 2 profile and optimized memory"
+      echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_2_API_35 -d pixel_2 -k "system-images;android-35;google_apis;x86_64"
+      # Optimize AVD for CI - reduce memory and disk size
+      echo "hw.ramSize=1024" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
+      echo "disk.dataPartition.size=2G" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
+      echo "hw.gpu.enabled=yes" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
+      echo "hw.gpu.mode=swiftshader_indirect" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
     displayName: 'Install Android Emulator'
 
   - script: |
@@ -45,10 +50,10 @@ jobs:
       export PATH=$JAVA_HOME/bin:$PATH
       unset _JAVA_OPTIONS
 
-      echo Start emulator
-      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_35 -gpu host -no-window -no-audio -no-boot-anim 2>&1 &
+      echo Start emulator with optimized settings
+      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_2_API_35 -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -no-snapshot-save -memory 1024 -partition-size 2048 2>&1 &
       echo Wait for emulator
-      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo '.'; sleep 1; done'
+      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo "Waiting for boot..."; sleep 2; done'
       $ANDROID_HOME/platform-tools/adb devices
     displayName: 'Start Android Emulator'
 
