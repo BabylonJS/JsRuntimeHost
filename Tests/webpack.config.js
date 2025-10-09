@@ -4,7 +4,7 @@ const webpack = require('webpack');
 module.exports = {
   target: 'web',
   mode: 'development', // or 'production'
-  devtool: false,
+  devtool: 'inline-source-map', // Enable source maps for better error reporting
   entry: {
     tests: './UnitTests/Scripts/tests.ts',
   },

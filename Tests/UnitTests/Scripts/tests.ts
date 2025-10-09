@@ -8,11 +8,21 @@ Mocha.reporter('spec');
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
 
+// Polyfill for globalThis for older engines like Chakra
+// Must be defined before any usage of globalThis
+const globalThisPolyfill = (function() {
+    if (typeof globalThis !== 'undefined') return globalThis;
+    if (typeof self !== 'undefined') return self;
+    if (typeof window !== 'undefined') return window;
+    if (typeof global !== 'undefined') return global;
+    throw new Error('unable to locate global object');
+})();
+
 // Detect JavaScript engine for conditional test execution
 // Note: Android JSC has known limitations compared to V8, particularly with XHR and WebSocket APIs
 // These are limitations of the Android JSC port, not JavaScriptCore itself
 // See: https://github.com/react-native-community/jsc-android-buildscripts for more details
-const isV8 = typeof (globalThis as any)?.v8 !== 'undefined';
+const isV8 = typeof (globalThisPolyfill as any).v8 !== 'undefined';
 const isChakra = hostPlatform === "Win32" && !isV8;
 const isJSC = !isV8 && !isChakra; // Assume JSC if not V8 or Chakra
 
