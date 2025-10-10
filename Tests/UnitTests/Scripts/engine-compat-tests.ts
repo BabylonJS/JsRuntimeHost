@@ -4,12 +4,26 @@ import { expect } from "chai";
 declare const hostPlatform: string;
 
 // Polyfill for globalThis for older engines like Chakra
+// NOTE: We use Function constructor instead of checking self/window/global because
+// in V8 Android embedding, these variables don't exist and accessing them can throw
+// ReferenceError even with typeof checks in certain bundling/strict mode contexts
 const globalThisPolyfill = (function() {
+    // First check if globalThis is already available (V8 7.1+, modern browsers)
     if (typeof globalThis !== 'undefined') return globalThis;
-    if (typeof self !== 'undefined') return self;
-    if (typeof window !== 'undefined') return window;
-    if (typeof global !== 'undefined') return global;
-    throw new Error('unable to locate global object');
+
+    // Use Function constructor to safely get global object
+    // This works in all contexts (strict mode, non-strict, browser, Node, embedded V8)
+    try {
+        // In non-strict mode, this returns the global object
+        return Function('return this')();
+    } catch (e) {
+        // If Function constructor fails (CSP restrictions), fall back to checking globals
+        // Wrap each check in try-catch to handle ReferenceErrors in embedded contexts
+        try { if (typeof self !== 'undefined') return self; } catch (e) {}
+        try { if (typeof window !== 'undefined') return window; } catch (e) {}
+        try { if (typeof global !== 'undefined') return global; } catch (e) {}
+        throw new Error('unable to locate global object');
+    }
 })();
 
 // Skip these tests on Windows with Chakra as it doesn't support many modern ES features
