@@ -109,6 +109,44 @@ describe("XMLHTTPRequest", function () {
         return;
     }
 
+    // Helper function to retry requests with doubling delay
+    async function retryRequest<T>(
+        requestFn: () => Promise<T>,
+        validateFn: (result: T) => boolean,
+        maxRetries: number = 3,
+        baseDelay: number = 1000
+    ): Promise<T> {
+        let lastError: Error | null = null;
+        let currentDelay = baseDelay;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const result = await requestFn();
+                if (validateFn(result)) {
+                    return result;
+                }
+
+                // If validation fails, treat it as an error for retry
+                lastError = new Error(`Validation failed on attempt ${attempt + 1}`);
+
+                if (attempt < maxRetries) {
+                    console.log(`Request attempt ${attempt + 1} failed validation, retrying in ${currentDelay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, currentDelay));
+                    currentDelay = currentDelay * 2; // Double the delay for next retry
+                }
+            } catch (error) {
+                lastError = error as Error;
+                if (attempt < maxRetries) {
+                    console.log(`Request attempt ${attempt + 1} failed with error: ${error}, retrying in ${currentDelay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, currentDelay));
+                    currentDelay = currentDelay * 2; // Double the delay for next retry
+                }
+            }
+        }
+
+        throw new Error(`Request failed after ${maxRetries + 1} attempts. Last error: ${lastError?.message}`);
+    }
+
     function createRequest(method: string, url: string, body: any = undefined, responseType: any = undefined): Promise<XMLHttpRequest> {
         return new Promise((resolve) => {
             const xhr = new XMLHttpRequest();
@@ -134,27 +172,57 @@ describe("XMLHTTPRequest", function () {
     this.timeout(0);
 
     it("should have readyState=4 when load ends", async function () {
-        const xhr = await createRequest("GET", "https://github.com/");
+        this.timeout(15000); // Extended timeout for retries
+        const xhr = await retryRequest(
+            () => createRequest("GET", "https://github.com/"),
+            (result) => result.readyState === 4,
+            3,
+            1000
+        );
         expect(xhr.readyState).to.equal(4);
     });
 
     it("should have status=200 for a file that exists", async function () {
-        const xhr = await createRequest("GET", "https://github.com/");
+        this.timeout(15000); // Extended timeout for retries
+        const xhr = await retryRequest(
+            () => createRequest("GET", "https://github.com/"),
+            (result) => result.status === 200,
+            3, // max retries
+            1000 // base delay
+        );
         expect(xhr.status).to.equal(200);
     });
 
     it("should load URLs with escaped unicode characters", async function () {
-        const xhr = await createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/%CF%83%CF%84%CF%81%CE%BF%CE%B3%CE%B3%CF%85%CE%BB%CE%B5%CE%BC%CE%AD%CE%BD%CE%BF%CF%82%20%25%20%CE%BA%CF%8D%CE%B2%CE%BF%CF%82.glb");
+        this.timeout(15000); // Extended timeout for retries
+        const xhr = await retryRequest(
+            () => createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/%CF%83%CF%84%CF%81%CE%BF%CE%B3%CE%B3%CF%85%CE%BB%CE%B5%CE%BC%CE%AD%CE%BD%CE%BF%CF%82%20%25%20%CE%BA%CF%8D%CE%B2%CE%BF%CF%82.glb"),
+            (result) => result.status === 200,
+            3,
+            1000
+        );
         expect(xhr.status).to.equal(200);
     });
 
     it("should load URLs with unescaped unicode characters", async function () {
-        const xhr = await createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/στρογγυλεμένος%20%25%20κύβος.glb");
+        this.timeout(15000); // Extended timeout for retries
+        const xhr = await retryRequest(
+            () => createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/στρογγυλεμένος%20%25%20κύβος.glb"),
+            (result) => result.status === 200,
+            3,
+            1000
+        );
         expect(xhr.status).to.equal(200);
     });
 
     it("should load URLs with unescaped unicode characters and spaces", async function () {
-        const xhr = await createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/στρογγυλεμένος %25 κύβος.glb");
+        this.timeout(15000); // Extended timeout for retries
+        const xhr = await retryRequest(
+            () => createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/στρογγυλεμένος %25 κύβος.glb"),
+            (result) => result.status === 200,
+            3,
+            1000
+        );
         expect(xhr.status).to.equal(200);
     });
 
@@ -191,29 +259,53 @@ describe("XMLHTTPRequest", function () {
 
     if (hostPlatform !== "Unix") {
         it("should make a POST request with no body successfully", async function () {
-            const xhr = await createRequest("POST", "https://httpbin.org/post");
+            this.timeout(15000); // Extended timeout for retries
+            const xhr = await retryRequest(
+                () => createRequest("POST", "https://httpbin.org/post"),
+                (result) => result.readyState === 4 && result.status === 200,
+                3,
+                1000
+            );
             expect(xhr).to.have.property("readyState", 4);
             expect(xhr).to.have.property("status", 200);
         });
 
         it("should make a POST request with body successfully", async function () {
-            const xhr = await createRequest("POST", "https://httpbin.org/post", "sampleBody");
+            this.timeout(15000); // Extended timeout for retries
+            const xhr = await retryRequest(
+                () => createRequest("POST", "https://httpbin.org/post", "sampleBody"),
+                (result) => result.readyState === 4 && result.status === 200,
+                3,
+                1000
+            );
             expect(xhr).to.have.property("readyState", 4);
             expect(xhr).to.have.property("status", 200);
         });
     }
 
     it("should make a GET request with headers successfully", async function () {
+        this.timeout(15000); // Extended timeout for retries
         const headersMap = new Map([["foo", "3"], ["bar", "3"]]);
-        const xhr = await createRequestWithHeaders("GET", "https://httpbin.org/get", headersMap);
+        const xhr = await retryRequest(
+            () => createRequestWithHeaders("GET", "https://httpbin.org/get", headersMap),
+            (result) => result.readyState === 4 && result.status === 200,
+            3,
+            1000
+        );
         expect(xhr).to.have.property("readyState", 4);
         expect(xhr).to.have.property("status", 200);
     });
 
     if (hostPlatform !== "Unix") {
         it("should make a POST request with body and headers successfully", async function () {
+            this.timeout(15000); // Extended timeout for retries
             const headersMap = new Map([["foo", "3"], ["bar", "3"]]);
-            const xhr = await createRequestWithHeaders("POST", "https://httpbin.org/post", headersMap, "testBody");
+            const xhr = await retryRequest(
+                () => createRequestWithHeaders("POST", "https://httpbin.org/post", headersMap, "testBody"),
+                (result) => result.readyState === 4 && result.status === 200,
+                3,
+                1000
+            );
             expect(xhr).to.have.property("readyState", 4);
             expect(xhr).to.have.property("status", 200);
         });
