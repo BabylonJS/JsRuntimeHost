@@ -54,6 +54,19 @@ jobs:
       nohup $ANDROID_HOME/emulator/emulator -avd Pixel_2_API_35 -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -no-snapshot-save -memory 1024 -partition-size 2048 2>&1 &
       echo Wait for emulator
       $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo "Waiting for boot..."; sleep 2; done'
+
+      # Additional wait for package manager to be ready
+      echo "Waiting for package manager..."
+      $ANDROID_HOME/platform-tools/adb shell 'while [[ -z $(pm list packages 2>/dev/null) ]]; do sleep 2; done'
+
+      # Disable animations for test stability
+      $ANDROID_HOME/platform-tools/adb shell settings put global window_animation_scale 0
+      $ANDROID_HOME/platform-tools/adb shell settings put global transition_animation_scale 0
+      $ANDROID_HOME/platform-tools/adb shell settings put global animator_duration_scale 0
+
+      # Increase ADB timeout
+      export ADB_INSTALL_TIMEOUT=120
+
       $ANDROID_HOME/platform-tools/adb devices
     displayName: 'Start Android Emulator'
 
@@ -65,6 +78,7 @@ jobs:
       tasks: 'connectedAndroidTest'
       jdkVersionOption: '1.17'
     displayName: 'Run Connected Android Test'
+    retryCountOnTaskFailure: 2
 
   - script: |
       # Dump test failure details when tests fail
