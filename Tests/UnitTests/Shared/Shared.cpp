@@ -19,7 +19,6 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
-#include <optional>
 #include <sstream>
 #include <unordered_set>
 #include <vector>

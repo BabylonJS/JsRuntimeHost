@@ -14,6 +14,7 @@ struct napi_env__ {
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
+  bool shutting_down{false};
 
   JSValueRef constructor_info_symbol{};
   JSValueRef function_info_symbol{};
@@ -32,6 +33,7 @@ struct napi_env__ {
   }
 
   ~napi_env__() {
+    shutting_down = true;
     deinit_refs();
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
