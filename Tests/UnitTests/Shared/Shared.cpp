@@ -12,7 +12,6 @@
 #include <future>
 #include <iostream>
 #include <mutex>
-#include <optional>
 #include <sstream>
 #include <unordered_set>
 #include <vector>
