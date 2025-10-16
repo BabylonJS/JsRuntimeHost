@@ -24,8 +24,6 @@ jobs:
       # Use Java 17 which is compatible with modern Android tooling
       export JAVA_HOME=$JAVA_HOME_17_X64
       export PATH=$JAVA_HOME/bin:$PATH
-      # Clear any problematic Java options - not needed with Java 17
-      unset _JAVA_OPTIONS
 
       echo "Java version:"
       java -version
@@ -48,7 +46,6 @@ jobs:
   - script: |
       export JAVA_HOME=$JAVA_HOME_17_X64
       export PATH=$JAVA_HOME/bin:$PATH
-      unset _JAVA_OPTIONS
 
       echo Start emulator with optimized settings
       nohup $ANDROID_HOME/emulator/emulator -avd Pixel_2_API_35 -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -no-snapshot-save -memory 1024 -partition-size 2048 2>&1 &
