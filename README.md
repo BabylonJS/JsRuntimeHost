@@ -36,8 +36,6 @@ _Follow the steps from [All Development Platforms](#all-development-platforms) b
 
 The minimal requirement target is Android 10.0, which has [~95%](https://gs.statcounter.com/android-version-market-share/mobile-tablet/worldwide) active device coverage globally. Android 10 support covers Meta Quest 1 (and newer), HTC Vive Focus 2 (and newer), and Pico 3 (and newer).
 
-> **Note:** JsRuntimeHost uses NDK 28.2 for Android XR compatibility. The project automatically downloads and uses a prebuilt V8 JavaScript engine optimized for Android.
-
 Only building with Android Studio is supported. CMake is not used directly. Instead, Gradle
 is used for building and CMake is automatically invocated for building the native part.
 An `.apk` that can be executed on your device or simulator is the output.

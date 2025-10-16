@@ -17,8 +17,8 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     jclass webSocketClass{env->FindClass("com/jsruntimehost/unittests/WebSocket")};
     java::websocket::WebSocketClient::InitializeJavaWebSocketClass(webSocketClass, env);
 
-    // Temporarily disable StdoutLogger due to fdsan issue with NDK 28
-    // android::StdoutLogger::Start();
+    // StdoutLogger::Start() is now idempotent and safe to call multiple times
+    android::StdoutLogger::Start();
 
     android::global::Initialize(javaVM, context);
 

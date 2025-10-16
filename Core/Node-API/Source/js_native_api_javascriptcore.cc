@@ -19,8 +19,7 @@ struct napi_callback_info__ {
 };
 
 namespace {
-  // Template specialization to provide char_traits functionality for JSChar (unsigned short)
-  // at compile time, mimicking std::char_traits interface
+  // Minimal char_traits-like helper for JSChar (unsigned short) to compute string length at compile time
   template<typename CharT>
   struct jschar_traits;
 
@@ -33,21 +32,6 @@ namespace {
       const char_type* s = str;
       while (*s) ++s;
       return s - str;
-    }
-
-    static constexpr int compare(const char_type* s1, const char_type* s2, size_t n) noexcept {
-      for (size_t i = 0; i < n; ++i) {
-        if (s1[i] < s2[i]) return -1;
-        if (s1[i] > s2[i]) return 1;
-      }
-      return 0;
-    }
-
-    static constexpr const char_type* find(const char_type* s, size_t n, const char_type& c) noexcept {
-      for (size_t i = 0; i < n; ++i) {
-        if (s[i] == c) return s + i;
-      }
-      return nullptr;
     }
   };
 

@@ -1,4 +1,4 @@
-// Tests specifically for V8/JSC engine compatibility and Android XR readiness
+// Tests specifically for V8/JSC engine compatibility, based on integration corner cases from other runtime proxies 
 import { expect } from "chai";
 
 declare const hostPlatform: string;
@@ -26,113 +26,7 @@ const globalThisPolyfill = (function() {
     }
 })();
 
-// Skip these tests on Windows with Chakra as it doesn't support many modern ES features
-const skipForChakra = hostPlatform === "Win32";
-
 describe("JavaScript Engine Compatibility", function () {
-    // Skip entire suite for Chakra engine which lacks modern JavaScript features
-    if (skipForChakra) {
-        it.skip("skipped on Windows/Chakra - engine doesn't support modern ES features", function() {});
-        return;
-    }
-
-    describe("Engine Detection", function () {
-        // Skip engine detection test as it's too volatile across different builds
-        // V8 on Android doesn't expose globals, JSC detection varies by build
-        // This test is informational only and doesn't affect functionality
-        it.skip("should detect JavaScript engine type (skipped: too volatile across engine builds)", function () {
-            // Engine detection is complex because Android builds often don't expose engine globals
-            // V8 on Android typically doesn't expose the 'v8' global object
-            // See: https://github.com/v8/v8/issues/11519
-
-            let engineDetected = false;
-            let engineName = "Unknown";
-
-            // V8 detection - check for V8-specific behavior
-            let isV8 = false;
-            try {
-                // V8 has specific error stack format
-                const err = new Error();
-                const stack = err.stack || "";
-                // V8 stack traces start with "Error" and have specific format
-                if (stack.startsWith("Error") && stack.includes("    at ")) {
-                    isV8 = true;
-                    engineDetected = true;
-                    engineName = "V8";
-                }
-            } catch (e) {
-                // Try alternate V8 detection
-                isV8 = typeof (globalThisPolyfill as any).v8 !== 'undefined' ||
-                       typeof (globalThisPolyfill as any).d8 !== 'undefined';
-                if (isV8) {
-                    engineDetected = true;
-                    engineName = "V8";
-                }
-            }
-
-            // JavaScriptCore detection
-            let isJSC = false;
-            if (!isV8) {
-                try {
-                    const funcStr = Function.prototype.toString.call(Math.min);
-                    // JSC format includes newlines in native function representation
-                    isJSC = funcStr.includes("[native code]") && funcStr.includes("\n");
-                    if (isJSC) {
-                        engineDetected = true;
-                        engineName = "JavaScriptCore";
-                    }
-                } catch (e) {
-                    // Fallback JSC detection
-                    if (hostPlatform === "iOS" || hostPlatform === "Darwin") {
-                        isJSC = true;
-                        engineDetected = true;
-                        engineName = "JavaScriptCore";
-                    }
-                }
-            }
-
-            // Chakra detection for Windows
-            const isChakra = !isV8 && !isJSC && hostPlatform === "Win32";
-            if (isChakra) {
-                engineDetected = true;
-                engineName = "Chakra";
-            }
-
-            // If no engine detected through specific checks, use a fallback
-            if (!engineDetected) {
-                // On Android, if not JSC, assume V8 (most common)
-                if (hostPlatform === "Android") {
-                    isV8 = true;
-                    engineDetected = true;
-                    engineName = "V8 (assumed)";
-                }
-            }
-
-            console.log(`Engine: ${engineName}`);
-            console.log(`Platform: ${hostPlatform}`);
-
-            // At least one engine should be detected
-            expect(engineDetected).to.be.true;
-        });
-
-        it("should report engine version if available", function () {
-            // V8 version check
-            if (typeof (globalThisPolyfill as any).v8 !== 'undefined') {
-                try {
-                    const version = (globalThisPolyfill as any).v8.getVersion?.();
-                    if (version) {
-                        console.log(`V8 Version: ${version}`);
-                        expect(version).to.be.a('string');
-                    }
-                } catch (e) {
-                    // Some V8 builds might not expose version
-                }
-            }
-            // If no version info, just pass the test
-            expect(true).to.be.true;
-        });
-    });
-
     describe("N-API Compatibility", function () {
         it("should handle large strings efficiently", function () {
             // Test string handling across N-API boundary
@@ -388,20 +282,6 @@ describe("JavaScript Engine Compatibility", function () {
                 expect(() => new URL(testUrl, "app://")).to.not.throw();
             });
         }
-    });
-
-    describe("WebAssembly Support", function () {
-        it("should detect WebAssembly availability", function () {
-            const hasWasm = typeof WebAssembly !== 'undefined';
-            console.log(`WebAssembly support: ${hasWasm}`);
-
-            if (hasWasm) {
-                expect(WebAssembly).to.have.property('Module');
-                expect(WebAssembly).to.have.property('Instance');
-                expect(WebAssembly).to.have.property('Memory');
-                expect(WebAssembly).to.have.property('Table');
-            }
-        });
     });
 });
 

@@ -11,26 +11,9 @@
 #include <gtest/gtest.h>
 #include <future>
 #include <iostream>
-#ifdef __ANDROID__
-#include <AndroidExtensions/StdoutLogger.h>
-#endif
 
 namespace
 {
-#ifdef __ANDROID__
-    // Global flag to track if StdoutLogger has been initialized
-    static bool s_stdoutLoggerInitialized = false;
-
-    void EnsureStdoutLoggerStarted()
-    {
-        if (!s_stdoutLoggerInitialized)
-        {
-            android::StdoutLogger::Start();
-            s_stdoutLoggerInitialized = true;
-        }
-    }
-#endif
-
     const char* EnumToString(Babylon::Polyfills::Console::LogLevel logLevel)
     {
         switch (logLevel)
@@ -49,11 +32,6 @@ namespace
 
 TEST(JavaScript, All)
 {
-#ifdef __ANDROID__
-    // Initialize StdoutLogger to redirect stdout/stderr to Android logcat
-    EnsureStdoutLoggerStarted();
-#endif
-
     // Change this to true to wait for the JavaScript debugger to attach (only applies to V8)
     constexpr const bool waitForDebugger = false;
 
@@ -111,11 +89,6 @@ TEST(JavaScript, All)
 
 TEST(Console, Log)
 {
-#ifdef __ANDROID__
-    // Initialize StdoutLogger to redirect stdout/stderr to Android logcat
-    EnsureStdoutLoggerStarted();
-#endif
-
     Babylon::AppRuntime runtime{};
 
     runtime.Dispatch([](Napi::Env env) mutable {
