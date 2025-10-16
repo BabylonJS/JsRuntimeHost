@@ -10,7 +10,7 @@ polyfills that consumers can include if required.
 
 ## **Building - All Development Platforms**
 
-**Required Tools:** [git](https://git-scm.com/), [CMake 3.29 (or newer)](https://cmake.org/), [node.js (20.x or newer)](https://nodejs.org/en/)
+**Required Tools:** [git](https://git-scm.com/), [CMake 3.29 or newer](https://cmake.org/), [node.js 20.x or newer](https://nodejs.org/en/)
 
 The first step for all development environments and targets is to clone this repository. 
 
