@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(UnitTestsJNI)
 
+if(ANDROID AND DEFINED ENV{JSRUNTIMEHOST_ENABLE_ASAN})
+    message(STATUS "AddressSanitizer enabled via JSRUNTIMEHOST_ENABLE_ASAN")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
+
 get_filename_component(UNIT_TESTS_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
 get_filename_component(TESTS_DIR "${UNIT_TESTS_DIR}/.." ABSOLUTE)
 get_filename_component(REPO_ROOT_DIR "${TESTS_DIR}/.." ABSOLUTE)

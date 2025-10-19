@@ -34,9 +34,29 @@ android {
             }
         }
 
-        if (project.hasProperty("abiFilters")) {
-            ndk {
-                abiFilters project.getProperty("abiFilters")
+        ndk {
+            def abiFiltersProp = project.findProperty("abiFilters")?.toString()
+            if (abiFiltersProp) {
+                def propFilters = abiFiltersProp.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+                if (!propFilters.isEmpty()) {
+                    abiFilters(*propFilters)
+                }
+            } else {
+                // Prefer injected ABI hints and fall back to a host-aware default
+                def requestedAbi = project.findProperty("android.injected.build.abi") ?: System.getenv("ANDROID_ABI")
+                def defaultAbis = []
+                if (requestedAbi) {
+                    defaultAbis = requestedAbi.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+                }
+                if (defaultAbis.isEmpty()) {
+                    def hostArch = (System.getProperty("os.arch") ?: "").toLowerCase()
+                    if (hostArch.contains("aarch64") || hostArch.contains("arm64")) {
+                        defaultAbis = ['arm64-v8a']
+                    } else {
+                        defaultAbis = ['arm64-v8a', 'x86_64']
+                    }
+                }
+                abiFilters(*defaultAbis)
             }
         }
     }
