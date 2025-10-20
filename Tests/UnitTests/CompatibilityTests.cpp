@@ -114,33 +114,34 @@ TEST_F(EngineCompatTest, LargeStringRoundtrip)
     EXPECT_EQ(Await(future), 1'000'000u);
 }
 
+// approximates a Hermes embedding issue triggered by MobX in another project
 TEST_F(EngineCompatTest, SymbolCrossing)
 {
     std::promise<std::tuple<bool, bool, std::string>> donePromise;
+    std::promise<bool> nativeRoundtripPromise;
 
     auto completionFlag = std::make_shared<std::atomic<bool>>(false);
+    auto roundtripFlag = std::make_shared<std::atomic<bool>>(false);
 
     Runtime().Dispatch([&](Napi::Env env) {
+        auto nativeSymbol = Napi::Symbol::New(env, "native-roundtrip");
+        env.Global().Set("nativeSymbolFromCpp", nativeSymbol);
+
         auto fn = Napi::Function::New(env, [completionFlag, &donePromise](const Napi::CallbackInfo& info) {
             std::tuple<bool, bool, std::string> result{true, false, {}};
             try
             {
-                if (info.Length() == 4 && info[0].IsSymbol() && info[1].IsSymbol() && info[2].IsSymbol() && info[3].IsSymbol())
+                if (info.Length() == 3 && info[0].IsBoolean() && info[1].IsBoolean() && info[2].IsString())
                 {
-                    const auto sym1 = info[0].As<Napi::Symbol>();
-                    const auto sym2 = info[1].As<Napi::Symbol>();
-                    const auto sym3 = info[2].As<Napi::Symbol>();
-                    const auto sym4 = info[3].As<Napi::Symbol>();
-
                     result = {
-                        sym1.StrictEquals(sym2),
-                        sym3.StrictEquals(sym4),
-                        sym3.ToString().Utf8Value()
+                        info[0].As<Napi::Boolean>().Value(),
+                        info[1].As<Napi::Boolean>().Value(),
+                        info[2].As<Napi::String>().Utf8Value()
                     };
                 }
                 else
                 {
-                    ADD_FAILURE() << "nativeCheckSymbols expected four symbol arguments.";
+                    ADD_FAILURE() << "nativeCheckSymbols expected (bool, bool, string) arguments.";
                 }
             }
             catch (const std::exception& e)
@@ -166,6 +167,44 @@ TEST_F(EngineCompatTest, SymbolCrossing)
         }, "nativeCheckSymbols");
 
         env.Global().Set("nativeCheckSymbols", fn);
+
+        auto validateNativeSymbolFn = Napi::Function::New(env, [roundtripFlag, &nativeRoundtripPromise](const Napi::CallbackInfo& info) {
+            bool matches = false;
+            try
+            {
+                if (info.Length() > 0 && info[0].IsSymbol())
+                {
+                    auto stored = info.Env().Global().Get("nativeSymbolFromCpp");
+                    if (stored.IsSymbol())
+                    {
+                        matches = info[0].As<Napi::Symbol>().StrictEquals(stored.As<Napi::Symbol>());
+                    }
+                    else
+                    {
+                        ADD_FAILURE() << "nativeSymbolFromCpp was not a symbol when validated.";
+                    }
+                }
+                else
+                {
+                    ADD_FAILURE() << "nativeValidateNativeSymbol expected a symbol argument.";
+                }
+            }
+            catch (const std::exception& e)
+            {
+                ADD_FAILURE() << "nativeValidateNativeSymbol threw exception: " << e.what();
+            }
+            catch (...)
+            {
+                ADD_FAILURE() << "nativeValidateNativeSymbol threw an unknown exception.";
+            }
+
+            if (!roundtripFlag->exchange(true))
+            {
+                nativeRoundtripPromise.set_value(matches);
+            }
+        }, "nativeValidateNativeSymbol");
+
+        env.Global().Set("nativeValidateNativeSymbol", validateNativeSymbolFn);
     });
 
     Eval(
@@ -173,13 +212,17 @@ TEST_F(EngineCompatTest, SymbolCrossing)
         "const sym2 = Symbol('test');"
         "const sym3 = Symbol.for('global');"
         "const sym4 = Symbol.for('global');"
-        "nativeCheckSymbols(sym1, sym2, sym3, sym4);");
+        "nativeValidateNativeSymbol(nativeSymbolFromCpp);"
+        "nativeCheckSymbols(sym1 === sym2, sym3 === sym4, Symbol.keyFor(sym3));");
 
-    auto future = donePromise.get_future();
-    auto [sym1EqualsSym2, sym3EqualsSym4, sym3String] = Await(future);
+    auto symbolFuture = donePromise.get_future();
+    auto [sym1EqualsSym2, sym3EqualsSym4, sym3String] = Await(symbolFuture);
     EXPECT_FALSE(sym1EqualsSym2);
     EXPECT_TRUE(sym3EqualsSym4);
     EXPECT_NE(sym3String.find("global"), std::string::npos);
+
+    auto nativeFuture = nativeRoundtripPromise.get_future();
+    EXPECT_TRUE(Await(nativeFuture)) << "Native-created symbol did not survive JS roundtrip.";
 }
 
 TEST_F(EngineCompatTest, Utf16SurrogatePairs)
