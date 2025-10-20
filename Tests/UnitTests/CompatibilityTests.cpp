@@ -80,41 +80,6 @@ TEST_F(EngineCompatTest, LargeStringRoundtrip)
     EXPECT_EQ(Await(future), 1'000'000u);
 }
 
-#if !defined(_WIN32)
-TEST_F(EngineCompatTest, GlobalThisRoundtrip)
-{
-    std::promise<bool> promise;
-
-    Runtime.Dispatch([&](Napi::Env env) {
-        auto persistentGlobal = Napi::Persistent(env.Global());
-        persistentGlobal.SuppressDestruct();
-        auto globalRef = std::make_shared<Napi::ObjectReference>(std::move(persistentGlobal));
-
-        auto fn = Napi::Function::New(env, [globalRef, &promise](const Napi::CallbackInfo& info) {
-            bool matchesGlobal = false;
-            if (info.Length() > 0 && info[0].IsObject())
-            {
-                matchesGlobal = info[0].As<Napi::Object>().StrictEquals(globalRef->Value());
-            }
-            promise.set_value(matchesGlobal);
-        }, "nativeCheckGlobalThis");
-
-        env.Global().Set("nativeCheckGlobalThis", fn);
-        env.Global().Set("nativeGlobalFromCpp", globalRef->Value());
-    });
-
-    Eval(
-        "const resolvedGlobal = (function(){"
-        "  if (typeof globalThis !== 'undefined') return globalThis;"
-        "  try { return Function('return this')(); } catch (_) { return nativeGlobalFromCpp; }"
-        "})();"
-        "nativeCheckGlobalThis(resolvedGlobal);");
-
-    auto future = promise.get_future();
-    EXPECT_TRUE(Await(future));
-}
-#endif
-
 TEST_F(EngineCompatTest, SymbolCrossing)
 {
     std::promise<bool> donePromise;
@@ -510,3 +475,40 @@ TEST_F(EngineCompatTest, BigIntRoundtrip)
     GTEST_SKIP() << "BigInt support requires N-API version > 5.";
 #endif
 }
+TEST_F(EngineCompatTest, GlobalThisRoundtrip)
+{
+#if !defined(_WIN32)
+    std::promise<bool> promise;
+
+    Runtime.Dispatch([&](Napi::Env env) {
+        auto persistentGlobal = Napi::Persistent(env.Global());
+        persistentGlobal.SuppressDestruct();
+        auto globalRef = std::make_shared<Napi::ObjectReference>(std::move(persistentGlobal));
+
+        auto fn = Napi::Function::New(env, [globalRef, &promise](const Napi::CallbackInfo& info) {
+            bool matchesGlobal = false;
+            if (info.Length() > 0 && info[0].IsObject())
+            {
+                matchesGlobal = info[0].As<Napi::Object>().StrictEquals(globalRef->Value());
+            }
+            promise.set_value(matchesGlobal);
+        }, "nativeCheckGlobalThis");
+
+        env.Global().Set("nativeCheckGlobalThis", fn);
+        env.Global().Set("nativeGlobalFromCpp", globalRef->Value());
+    });
+
+    Eval(
+        "const resolvedGlobal = (function(){"
+        "  if (typeof globalThis !== 'undefined') return globalThis;"
+        "  try { return Function('return this')(); } catch (_) { return nativeGlobalFromCpp; }"
+        "})();"
+        "nativeCheckGlobalThis(resolvedGlobal);");
+
+    auto future = promise.get_future();
+    EXPECT_TRUE(Await(future));
+#else
+    GTEST_SKIP() << "Chakra does not support globalThis";
+#endif
+}
+
