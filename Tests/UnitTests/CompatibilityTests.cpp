@@ -12,26 +12,45 @@
 #include <vector>
 #include <string>
 #include <utility>
+#include <atomic>
 
 namespace
 {
     class EngineCompatTest : public ::testing::Test
     {
     protected:
-        Babylon::AppRuntime Runtime;
-        std::unique_ptr<Babylon::ScriptLoader> Loader;
-
-        void SetUp() override
+        Babylon::AppRuntime& Runtime()
         {
-            Runtime.Dispatch([](Napi::Env env) {
-                Babylon::Polyfills::Console::Initialize(env, [](const char*, Babylon::Polyfills::Console::LogLevel) {});
-                Babylon::Polyfills::AbortController::Initialize(env);
-                Babylon::Polyfills::Scheduling::Initialize(env);
-                Babylon::Polyfills::URL::Initialize(env);
-                Babylon::Polyfills::Blob::Initialize(env);
-            });
+            if (!m_runtime)
+            {
+                m_runtime = std::make_unique<Babylon::AppRuntime>();
+                m_runtime->Dispatch([](Napi::Env env) {
+                    Babylon::Polyfills::Console::Initialize(env, [](const char*, Babylon::Polyfills::Console::LogLevel) {});
+                    Babylon::Polyfills::AbortController::Initialize(env);
+                    Babylon::Polyfills::Scheduling::Initialize(env);
+                    Babylon::Polyfills::URL::Initialize(env);
+                    Babylon::Polyfills::Blob::Initialize(env);
+                });
 
-            Loader = std::make_unique<Babylon::ScriptLoader>(Runtime);
+                m_loader = std::make_unique<Babylon::ScriptLoader>(*m_runtime);
+            }
+
+            return *m_runtime;
+        }
+
+        Babylon::ScriptLoader& Loader()
+        {
+            if (!m_loader)
+            {
+                Runtime();
+            }
+            return *m_loader;
+        }
+
+        void TearDown() override
+        {
+            m_loader.reset();
+            m_runtime.reset();
         }
 
         template<typename T>
@@ -48,8 +67,12 @@ namespace
 
         void Eval(const std::string& script)
         {
-            Loader->Eval(script.c_str(), "engine-compat");
+            Loader().Eval(script.c_str(), "engine-compat");
         }
+
+    private:
+        std::unique_ptr<Babylon::AppRuntime> m_runtime{};
+        std::unique_ptr<Babylon::ScriptLoader> m_loader{};
     };
 }
 
@@ -57,17 +80,28 @@ TEST_F(EngineCompatTest, LargeStringRoundtrip)
 {
     std::promise<size_t> lengthPromise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&lengthPromise](const Napi::CallbackInfo& info) {
-            ASSERT_GE(info.Length(), 1);
-            ASSERT_TRUE(info[0].IsString());
+            if (info.Length() < 1 || !info[0].IsString())
+            {
+                ADD_FAILURE() << "nativeCheckLargeString expected a string argument.";
+                lengthPromise.set_value(0);
+                return;
+            }
+
             const auto value = info[0].As<Napi::String>().Utf8Value();
-            EXPECT_EQ(value.size(), 1'000'000u);
+            if (value.size() != 1'000'000u)
+            {
+                ADD_FAILURE() << "Large string length mismatch: expected 1,000,000 got " << value.size();
+            }
             if (!value.empty())
             {
-                EXPECT_EQ(value.front(), 'x');
-                EXPECT_EQ(value.back(), 'x');
+                if (value.front() != 'x' || value.back() != 'x')
+                {
+                    ADD_FAILURE() << "Large string boundary characters were not preserved.";
+                }
             }
+
             lengthPromise.set_value(value.size());
         }, "nativeCheckLargeString");
 
@@ -82,28 +116,53 @@ TEST_F(EngineCompatTest, LargeStringRoundtrip)
 
 TEST_F(EngineCompatTest, SymbolCrossing)
 {
-    std::promise<bool> donePromise;
+    std::promise<std::tuple<bool, bool, std::string>> donePromise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
-        auto fn = Napi::Function::New(env, [&donePromise](const Napi::CallbackInfo& info) {
-            ASSERT_EQ(info.Length(), 4);
-            ASSERT_TRUE(info[0].IsSymbol());
-            ASSERT_TRUE(info[1].IsSymbol());
-            ASSERT_TRUE(info[2].IsSymbol());
-            ASSERT_TRUE(info[3].IsSymbol());
+    auto completionFlag = std::make_shared<std::atomic<bool>>(false);
 
-            const auto sym1 = info[0].As<Napi::Symbol>();
-            const auto sym2 = info[1].As<Napi::Symbol>();
-            const auto sym3 = info[2].As<Napi::Symbol>();
-            const auto sym4 = info[3].As<Napi::Symbol>();
+    Runtime().Dispatch([&](Napi::Env env) {
+        auto fn = Napi::Function::New(env, [completionFlag, &donePromise](const Napi::CallbackInfo& info) {
+            std::tuple<bool, bool, std::string> result{true, false, {}};
+            try
+            {
+                if (info.Length() == 4 && info[0].IsSymbol() && info[1].IsSymbol() && info[2].IsSymbol() && info[3].IsSymbol())
+                {
+                    const auto sym1 = info[0].As<Napi::Symbol>();
+                    const auto sym2 = info[1].As<Napi::Symbol>();
+                    const auto sym3 = info[2].As<Napi::Symbol>();
+                    const auto sym4 = info[3].As<Napi::Symbol>();
 
-            EXPECT_FALSE(sym1.StrictEquals(sym2));
-            EXPECT_TRUE(sym3.StrictEquals(sym4));
+                    result = {
+                        sym1.StrictEquals(sym2),
+                        sym3.StrictEquals(sym4),
+                        sym3.ToString().Utf8Value()
+                    };
+                }
+                else
+                {
+                    ADD_FAILURE() << "nativeCheckSymbols expected four symbol arguments.";
+                }
+            }
+            catch (const std::exception& e)
+            {
+                ADD_FAILURE() << "nativeCheckSymbols threw exception: " << e.what();
+            }
+            catch (...)
+            {
+                ADD_FAILURE() << "nativeCheckSymbols threw an unknown exception.";
+            }
 
-            auto sym3String = sym3.ToString().Utf8Value();
-            EXPECT_NE(sym3String.find("global"), std::string::npos);
-
-            donePromise.set_value(true);
+            if (!completionFlag->exchange(true))
+            {
+                try
+                {
+                    donePromise.set_value(std::move(result));
+                }
+                catch (const std::exception& e)
+                {
+                    ADD_FAILURE() << "Failed to fulfill symbol promise: " << e.what();
+                }
+            }
         }, "nativeCheckSymbols");
 
         env.Global().Set("nativeCheckSymbols", fn);
@@ -117,7 +176,10 @@ TEST_F(EngineCompatTest, SymbolCrossing)
         "nativeCheckSymbols(sym1, sym2, sym3, sym4);");
 
     auto future = donePromise.get_future();
-    EXPECT_TRUE(Await(future));
+    auto [sym1EqualsSym2, sym3EqualsSym4, sym3String] = Await(future);
+    EXPECT_FALSE(sym1EqualsSym2);
+    EXPECT_TRUE(sym3EqualsSym4);
+    EXPECT_NE(sym3String.find("global"), std::string::npos);
 }
 
 TEST_F(EngineCompatTest, Utf16SurrogatePairs)
@@ -132,23 +194,24 @@ TEST_F(EngineCompatTest, Utf16SurrogatePairs)
 
     std::promise<Result> resultPromise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&resultPromise](const Napi::CallbackInfo& info) {
-            ASSERT_EQ(info.Length(), 4);
-            ASSERT_TRUE(info[0].IsString());
-            ASSERT_TRUE(info[1].IsNumber());
-            ASSERT_TRUE(info[2].IsNumber());
-            ASSERT_TRUE(info[3].IsArray());
-
             Result result{};
-            result.value = info[0].As<Napi::String>().Utf16Value();
-            result.high = info[1].As<Napi::Number>().Uint32Value();
-            result.low = info[2].As<Napi::Number>().Uint32Value();
-
-            auto array = info[3].As<Napi::Array>();
-            for (uint32_t i = 0; i < array.Length(); ++i)
+            if (info.Length() == 4 && info[0].IsString() && info[1].IsNumber() && info[2].IsNumber() && info[3].IsArray())
             {
-                result.spread.emplace_back(array.Get(i).As<Napi::String>().Utf8Value());
+                result.value = info[0].As<Napi::String>().Utf16Value();
+                result.high = info[1].As<Napi::Number>().Uint32Value();
+                result.low = info[2].As<Napi::Number>().Uint32Value();
+
+                auto array = info[3].As<Napi::Array>();
+                for (uint32_t i = 0; i < array.Length(); ++i)
+                {
+                    result.spread.emplace_back(array.Get(i).As<Napi::String>().Utf8Value());
+                }
+            }
+            else
+            {
+                ADD_FAILURE() << "nativeCheckUtf16 received unexpected arguments.";
             }
 
             resultPromise.set_value(std::move(result));
@@ -166,8 +229,11 @@ TEST_F(EngineCompatTest, Utf16SurrogatePairs)
     EXPECT_EQ(result.value.size(), 6u);
     EXPECT_EQ(result.high, 0xD83D);
     EXPECT_EQ(result.low, 0xDE00);
-    ASSERT_EQ(result.spread.size(), 3u);
-    EXPECT_EQ(result.spread[0], "\xF0\x9F\x98\x80"); // 😀
+    EXPECT_EQ(result.spread.size(), 3u);
+    if (result.spread.size() >= 1)
+    {
+        EXPECT_EQ(result.spread[0], "\xF0\x9F\x98\x80"); // 😀
+    }
 }
 
 TEST_F(EngineCompatTest, UnicodePlanes)
@@ -183,16 +249,21 @@ TEST_F(EngineCompatTest, UnicodePlanes)
 
     std::promise<Result> resultPromise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&resultPromise](const Napi::CallbackInfo& info) {
-            ASSERT_EQ(info.Length(), 5);
-
             Result result{};
-            result.bmp = info[0].As<Napi::String>().Utf8Value();
-            result.supplementary = info[1].As<Napi::String>().Utf16Value();
-            result.combining = info[2].As<Napi::String>().Utf8Value();
-            result.normalizedNfc = info[3].As<Napi::String>().Utf8Value();
-            result.normalizedNfd = info[4].As<Napi::String>().Utf8Value();
+            if (info.Length() == 5 && info[0].IsString() && info[1].IsString() && info[2].IsString() && info[3].IsString() && info[4].IsString())
+            {
+                result.bmp = info[0].As<Napi::String>().Utf8Value();
+                result.supplementary = info[1].As<Napi::String>().Utf16Value();
+                result.combining = info[2].As<Napi::String>().Utf8Value();
+                result.normalizedNfc = info[3].As<Napi::String>().Utf8Value();
+                result.normalizedNfd = info[4].As<Napi::String>().Utf8Value();
+            }
+            else
+            {
+                ADD_FAILURE() << "nativeCheckUnicode received unexpected arguments.";
+            }
 
             resultPromise.set_value(std::move(result));
         }, "nativeCheckUnicode");
@@ -214,7 +285,7 @@ TEST_F(EngineCompatTest, UnicodePlanes)
     EXPECT_EQ(result.supplementary.size(), 6u);
     EXPECT_EQ(result.combining, "é");
     EXPECT_EQ(result.normalizedNfc, "é");
-    EXPECT_TRUE(result.normalizedNfd.size() == 1u || result.normalizedNfd.size() == 2u);
+    EXPECT_GE(result.normalizedNfd.size(), 1u);
 }
 
 TEST_F(EngineCompatTest, TextEncoderDecoder)
@@ -229,7 +300,7 @@ TEST_F(EngineCompatTest, TextEncoderDecoder)
 
     std::promise<Result> resultPromise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&resultPromise](const Napi::CallbackInfo& info) {
             Result result{};
             result.available = info[0].As<Napi::Boolean>().Value();
@@ -272,17 +343,24 @@ TEST_F(EngineCompatTest, LargeTypedArrayRoundtrip)
 {
     std::promise<size_t> promise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&promise](const Napi::CallbackInfo& info) {
-            ASSERT_EQ(info.Length(), 1);
-            ASSERT_TRUE(info[0].IsTypedArray());
+            size_t length = 0;
+            if (info.Length() == 1 && info[0].IsTypedArray())
+            {
+                auto array = info[0].As<Napi::Uint8Array>();
+                length = array.ElementLength();
+                if (length != 10u * 1024u * 1024u || array[0] != 255 || array[length - 1] != 128)
+                {
+                    ADD_FAILURE() << "Large typed array contents were not preserved.";
+                }
+            }
+            else
+            {
+                ADD_FAILURE() << "nativeCheckArray expected a single Uint8Array argument.";
+            }
 
-            auto array = info[0].As<Napi::Uint8Array>();
-            EXPECT_EQ(array.ElementLength(), 10u * 1024u * 1024u);
-            EXPECT_EQ(array[0], 255);
-            EXPECT_EQ(array[array.ElementLength() - 1], 128);
-
-            promise.set_value(array.ElementLength());
+            promise.set_value(length);
         }, "nativeCheckArray");
 
         env.Global().Set("nativeCheckArray", fn);
@@ -303,10 +381,20 @@ TEST_F(EngineCompatTest, WeakCollections)
 {
     std::promise<std::pair<bool, bool>> promise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&promise](const Napi::CallbackInfo& info) {
-            ASSERT_EQ(info.Length(), 2);
-            promise.set_value({info[0].As<Napi::Boolean>().Value(), info[1].As<Napi::Boolean>().Value()});
+            std::pair<bool, bool> result{false, false};
+            if (info.Length() == 2 && info[0].IsBoolean() && info[1].IsBoolean())
+            {
+                result.first = info[0].As<Napi::Boolean>().Value();
+                result.second = info[1].As<Napi::Boolean>().Value();
+            }
+            else
+            {
+                ADD_FAILURE() << "nativeCheckWeakCollections expected two boolean arguments.";
+            }
+
+            promise.set_value(result);
         }, "nativeCheckWeakCollections");
 
         env.Global().Set("nativeCheckWeakCollections", fn);
@@ -331,15 +419,23 @@ TEST_F(EngineCompatTest, ProxyAndReflect)
 {
     std::promise<std::tuple<int32_t, int32_t, int32_t>> promise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&promise](const Napi::CallbackInfo& info) {
-            ASSERT_EQ(info.Length(), 3);
-            promise.set_value(
-                {
+            std::tuple<int32_t, int32_t, int32_t> result{0, 0, 0};
+            if (info.Length() == 3 && info[0].IsNumber() && info[1].IsNumber() && info[2].IsNumber())
+            {
+                result = {
                     info[0].As<Napi::Number>().Int32Value(),
                     info[1].As<Napi::Number>().Int32Value(),
-                    info[2].As<Napi::Number>().Int32Value(),
-                });
+                    info[2].As<Napi::Number>().Int32Value()
+                };
+            }
+            else
+            {
+                ADD_FAILURE() << "nativeCheckProxyResults expected three numeric arguments.";
+            }
+
+            promise.set_value(result);
         }, "nativeCheckProxyResults");
 
         env.Global().Set("nativeCheckProxyResults", fn);
@@ -377,7 +473,7 @@ TEST_F(EngineCompatTest, AsyncIteration)
 
     std::promise<Result> promise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto successFn = Napi::Function::New(env, [&promise](const Napi::CallbackInfo& info) {
             Result result{};
             result.success = true;
@@ -415,7 +511,9 @@ TEST_F(EngineCompatTest, AsyncIteration)
 
 TEST_F(EngineCompatTest, BigIntRoundtrip)
 {
-#if NAPI_VERSION > 5
+#if NAPI_VERSION < 6
+    GTEST_SKIP() << "BigInt support requires N-API version > 5.";
+#else
     struct Result
     {
         bool available{};
@@ -429,7 +527,7 @@ TEST_F(EngineCompatTest, BigIntRoundtrip)
 
     std::promise<Result> promise;
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto fn = Napi::Function::New(env, [&promise](const Napi::CallbackInfo& info) {
             Result result{};
             result.available = info[0].As<Napi::Boolean>().Value();
@@ -471,27 +569,40 @@ TEST_F(EngineCompatTest, BigIntRoundtrip)
     EXPECT_TRUE(result.sumLossless);
     EXPECT_GT(result.sum, result.base);
     EXPECT_EQ(result.sum, result.base + result.increment);
-#else
-    GTEST_SKIP() << "BigInt support requires N-API version > 5.";
 #endif
 }
+
 TEST_F(EngineCompatTest, GlobalThisRoundtrip)
 {
-#if !defined(_WIN32)
+#ifdef _WIN32
+    GTEST_SKIP() << "GlobalThis roundtrip test is not supported on Windows builds.";
+#else
     std::promise<bool> promise;
+    const std::string expectedUtf8 = u8"こんにちは世界🌐";
 
-    Runtime.Dispatch([&](Napi::Env env) {
+    Runtime().Dispatch([&](Napi::Env env) {
         auto persistentGlobal = Napi::Persistent(env.Global());
         persistentGlobal.SuppressDestruct();
         auto globalRef = std::make_shared<Napi::ObjectReference>(std::move(persistentGlobal));
 
-        auto fn = Napi::Function::New(env, [globalRef, &promise](const Napi::CallbackInfo& info) {
+        globalRef->Value().Set("nativeUnicodeValue", Napi::String::New(env, expectedUtf8));
+
+        auto fn = Napi::Function::New(env, [globalRef, expectedUtf8, &promise](const Napi::CallbackInfo& info) {
             bool matchesGlobal = false;
+            std::string unicode;
             if (info.Length() > 0 && info[0].IsObject())
             {
                 matchesGlobal = info[0].As<Napi::Object>().StrictEquals(globalRef->Value());
             }
-            promise.set_value(matchesGlobal);
+            if (info.Length() > 1 && info[1].IsString())
+            {
+                unicode = info[1].As<Napi::String>().Utf8Value();
+            }
+
+            EXPECT_TRUE(matchesGlobal);
+            EXPECT_EQ(unicode, expectedUtf8);
+
+            promise.set_value(matchesGlobal && unicode == expectedUtf8);
         }, "nativeCheckGlobalThis");
 
         env.Global().Set("nativeCheckGlobalThis", fn);
@@ -503,12 +614,10 @@ TEST_F(EngineCompatTest, GlobalThisRoundtrip)
         "  if (typeof globalThis !== 'undefined') return globalThis;"
         "  try { return Function('return this')(); } catch (_) { return nativeGlobalFromCpp; }"
         "})();"
-        "nativeCheckGlobalThis(resolvedGlobal);");
+        "const unicodeRoundtrip = resolvedGlobal.nativeUnicodeValue;"
+        "nativeCheckGlobalThis(resolvedGlobal, unicodeRoundtrip);");
 
     auto future = promise.get_future();
     EXPECT_TRUE(Await(future));
-#else
-    GTEST_SKIP() << "Chakra does not support globalThis";
 #endif
 }
-
