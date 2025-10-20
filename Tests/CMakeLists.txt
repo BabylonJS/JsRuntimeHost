@@ -1,2 +1,10 @@
-add_subdirectory(UnitTests)
+set(JSRUNTIMEHOST_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Tests/UnitTests/dist")
+set(JSRUNTIMEHOST_OUTPUT_DIR "${JSRUNTIMEHOST_OUTPUT_DIR}" CACHE INTERNAL "Output directory for bundled unit test scripts")
+file(MAKE_DIRECTORY "${JSRUNTIMEHOST_OUTPUT_DIR}")
+file(REMOVE_RECURSE "${CMAKE_CURRENT_SOURCE_DIR}/UnitTests/dist")
+
+set(ENV{JSRUNTIMEHOST_BUNDLE_OUTPUT} "${JSRUNTIMEHOST_OUTPUT_DIR}")
 npm(install --silent)
+unset(ENV{JSRUNTIMEHOST_BUNDLE_OUTPUT})
+
+add_subdirectory(UnitTests)

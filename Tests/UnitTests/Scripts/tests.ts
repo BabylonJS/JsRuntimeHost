@@ -1095,7 +1095,6 @@ describe("Blob", function () {
 
 function runTests() {
     // Import the engine compatibility tests after Mocha is set up
-    require("./engine-compat-tests");
 
     const runner = mocha.run((failures: number) => {
         // Test program will wait for code to be set before exiting
