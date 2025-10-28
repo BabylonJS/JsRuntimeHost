@@ -30,7 +30,7 @@ FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG e0eb7d4c36c2cca5bbe82b94fd141734420ba84e)
+    GIT_TAG 619d1b8013e40743c52986691a99d09e029d0dcc)
 # --------------------------------------------------
 
 FetchContent_MakeAvailable(CMakeExtensions)
