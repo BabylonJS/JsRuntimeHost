@@ -78,12 +78,31 @@ jobs:
       name: Android_V8
       jsEngine: V8
 
+  - template: jobs/android.yml
+    parameters:
+      name: Android_JSC_Sanitizers
+      jsEngine: JavaScriptCore
+      Sanitizers: true
+
+  - template: jobs/android.yml
+    parameters:
+      name: Android_V8_Sanitizers
+      jsEngine: V8
+      Sanitizers: true
+
   # macOS
   - template: jobs/macos.yml
     parameters:
       name: 'macOS_Xcode164'
       vmImage: 'macOS-latest'
       xCodeVersion: 16.4
+
+  - template: jobs/macos.yml
+    parameters:
+      name: 'macOS_Xcode164_Sanitizers'
+      vmImage: 'macOS-latest'
+      xCodeVersion: 16.4
+      Sanitizers: true
 
   # iOS
   - template: jobs/ios.yml
@@ -102,3 +121,10 @@ jobs:
 
   # Linux
   - template: jobs/linux.yml
+    parameters:
+      name: Ubuntu
+
+  - template: jobs/linux.yml
+    parameters:
+      name: Ubuntu_Sanitizers
+      Sanitizers: true

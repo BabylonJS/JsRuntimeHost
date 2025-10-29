@@ -11,6 +11,9 @@ jobs:
   pool:
     vmImage: macos-13
 
+  variables:
+    SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.Sanitizers), 'True', 'ON'), 'OFF') }}
+
   steps:
   - script: |
       echo Install Android image
@@ -33,7 +36,7 @@ jobs:
     inputs:
       gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
       workingDirectory: 'Tests/UnitTests/Android'
-      options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion)'
+      options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion) -PSANITIZERS=$(SANITIZER_FLAG)'
       tasks: 'connectedAndroidTest'
       jdkVersionOption: 1.17
     displayName: 'Run Connected Android Test'
