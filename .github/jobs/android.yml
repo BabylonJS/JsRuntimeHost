@@ -23,10 +23,10 @@ jobs:
   - script: |
       echo Install Android image
       export JAVA_HOME=$JAVA_HOME_8_X64
-      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
+      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;asan;x86_64'
       echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --licenses
       echo Create AVD
-      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
+      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;asan;x86_64'
     displayName: 'Install Android Emulator'
 
   - script: |
