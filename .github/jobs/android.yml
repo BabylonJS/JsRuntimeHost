@@ -3,6 +3,8 @@ parameters:
   type: string
 - name: jsEngine
   type: string
+- name: Sanitizers
+  type: boolean
 
 jobs:
 - job: ${{parameters.name}}

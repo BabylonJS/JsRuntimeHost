@@ -1,5 +1,6 @@
 parameters:
   name: ''
+  Sanitizers: false
 
 jobs:
 - job: ${{parameters.name}}
