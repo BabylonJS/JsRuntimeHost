@@ -13,13 +13,11 @@ namespace Babylon::Polyfills::Internal
             Napi::Function func = DefineClass(
                 env,
                 JS_BLOB_CONSTRUCTOR_NAME,
-                {
-                    InstanceAccessor("size", &Blob::GetSize, nullptr),
+                {InstanceAccessor("size", &Blob::GetSize, nullptr),
                     InstanceAccessor("type", &Blob::GetType, nullptr),
                     InstanceMethod("text", &Blob::Text),
                     InstanceMethod("arrayBuffer", &Blob::ArrayBuffer),
-                    InstanceMethod("bytes", &Blob::Bytes)
-                });
+                    InstanceMethod("bytes", &Blob::Bytes)});
 
             env.Global().Set(JS_BLOB_CONSTRUCTOR_NAME, func);
         }
@@ -28,20 +26,20 @@ namespace Babylon::Polyfills::Internal
     Napi::Value Blob::CreateInstance(
         Napi::Env env,
         std::vector<std::byte> data,
-        std::string type
-    ) {
+        std::string type)
+    {
         Initialize(env);
-        
+
         auto ctor{env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).As<Napi::Function>()};
         auto jsBlob{ctor.New({})};
-        
+
         auto blob{Blob::Unwrap(jsBlob)};
         blob->m_data = std::move(data);
         blob->m_type = std::move(type);
-        
+
         return jsBlob;
     }
-    
+
     Blob::Blob(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<Blob>(info)
     {

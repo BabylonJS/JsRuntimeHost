@@ -13,7 +13,7 @@ namespace Babylon::Polyfills::Internal
         static void Initialize(Napi::Env env);
 
         static Napi::Value CreateInstance(
-            Napi::Env env, 
+            Napi::Env env,
             std::vector<std::byte> data,
             std::string type);
 
