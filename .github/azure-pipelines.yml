@@ -105,7 +105,7 @@ jobs:
       name: 'iOS_Xcode152'
       vmImage: 'macOS-14'
       xCodeVersion: 15.2
-      simulator: 'iPhone 14'
+      simulator: 'iPhone 15'
 
   # Linux
   - template: jobs/linux.yml
