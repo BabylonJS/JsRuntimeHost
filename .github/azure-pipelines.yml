@@ -103,7 +103,7 @@ jobs:
   - template: jobs/ios.yml
     parameters:
       name: 'iOS_Xcode152'
-      vmImage: 'macOS-13'
+      vmImage: 'macOS-14'
       xCodeVersion: 15.2
       simulator: 'iPhone 14'
 
