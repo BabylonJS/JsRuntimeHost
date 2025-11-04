@@ -13,5 +13,5 @@ namespace Babylon::Polyfills::Blob
     Napi::Value BABYLON_API CreateInstance(
         Napi::Env env,
         std::vector<std::byte> data,
-        std::string type = "");
+        std::string type);
 }

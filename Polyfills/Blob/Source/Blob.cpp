@@ -33,15 +33,14 @@ namespace Babylon::Polyfills::Internal
         Initialize(env);
         
         auto ctor{env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).As<Napi::Function>()};
-        auto blobObj{ctor.New({})};
+        auto jsBlob{ctor.New({})};
         
-        auto blob{Blob::Unwrap(blobObj)};
+        auto blob{Blob::Unwrap(jsBlob)};
         blob->m_data = std::move(data);
         blob->m_type = std::move(type);
         
-        return blobObj;
+        return jsBlob;
     }
-
     
     Blob::Blob(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<Blob>(info)
