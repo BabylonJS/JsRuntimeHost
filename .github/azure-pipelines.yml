@@ -14,7 +14,7 @@ schedules:
 
 variables:
 - name: ndkVersion
-  value: 25.2.9519653
+  value: 28.2.13676358
 
 jobs:
   # WIN32
@@ -77,18 +77,6 @@ jobs:
     parameters:
       name: Android_V8
       jsEngine: V8
-
-  - template: jobs/android.yml
-    parameters:
-      name: Android_JSC_Sanitizers
-      jsEngine: JavaScriptCore
-      Sanitizers: true
-
-  - template: jobs/android.yml
-    parameters:
-      name: Android_V8_Sanitizers
-      jsEngine: V8
-      Sanitizers: true
 
   # macOS
   - template: jobs/macos.yml

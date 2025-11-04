@@ -5,28 +5,22 @@ parameters:
 - name: jsEngine
   type: string
   default: ''
-- name: Sanitizers
-  type: boolean
-  default: false
 
 jobs:
 - job: ${{parameters.name}}
   timeoutInMinutes: 30
 
   pool:
-    vmImage: macos-13
-
-  variables:
-    SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.Sanitizers), 'True', 'ON'), 'OFF') }}
+    vmImage: macos-latest
 
   steps:
   - script: |
       echo Install Android image
       export JAVA_HOME=$JAVA_HOME_8_X64
-      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;asan;x86_64'
+      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
       echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --licenses
       echo Create AVD
-      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;asan;x86_64'
+      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
     displayName: 'Install Android Emulator'
 
   - script: |
@@ -41,7 +35,7 @@ jobs:
     inputs:
       gradleWrapperFile: 'Tests/UnitTests/Android/gradlew'
       workingDirectory: 'Tests/UnitTests/Android'
-      options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion) -PSANITIZERS=$(SANITIZER_FLAG)'
+      options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion)'
       tasks: 'connectedAndroidTest'
       jdkVersionOption: 1.17
     displayName: 'Run Connected Android Test'
