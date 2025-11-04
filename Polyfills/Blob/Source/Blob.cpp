@@ -4,9 +4,10 @@
 
 namespace Babylon::Polyfills::Internal
 {
+    static constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
+
     void Blob::Initialize(Napi::Env env)
     {
-        static constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
         if (env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).IsUndefined())
         {
             Napi::Function func = DefineClass(
@@ -24,6 +25,24 @@ namespace Babylon::Polyfills::Internal
         }
     }
 
+    Napi::Value Blob::CreateInstance(
+        Napi::Env env,
+        std::vector<std::byte> data,
+        std::string type
+    ) {
+        Initialize(env);
+        
+        auto ctor{env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).As<Napi::Function>()};
+        auto blobObj{ctor.New({})};
+        
+        auto blob{Blob::Unwrap(blobObj)};
+        blob->m_data = std::move(data);
+        blob->m_type = std::move(type);
+        
+        return blobObj;
+    }
+
+    
     Blob::Blob(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<Blob>(info)
     {
@@ -132,5 +151,13 @@ namespace Babylon::Polyfills::Blob
     void BABYLON_API Initialize(Napi::Env env)
     {
         Internal::Blob::Initialize(env);
+    }
+
+    Napi::Value BABYLON_API CreateInstance(
+        Napi::Env env,
+        std::vector<std::byte> data,
+        std::string type)
+    {
+        return Internal::Blob::CreateInstance(env, std::move(data), std::move(type));
     }
 }
