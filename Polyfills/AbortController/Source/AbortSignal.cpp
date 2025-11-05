@@ -7,14 +7,14 @@ namespace Babylon::Polyfills::Internal
     {
         if (env.Global().Get(JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).IsUndefined())
         {
-            Napi::Function func = Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortSignal>::DefineClass(
+            Napi::Function func = Napi::ObjectWrap<AbortSignal>::DefineClass(
                 env,
                 JS_ABORT_SIGNAL_CONSTRUCTOR_NAME,
                 {
-                    InstanceAccessor("aborted", &Babylon::Polyfills::Internal::AbortSignal::GetAborted, &Babylon::Polyfills::Internal::AbortSignal::SetAborted),
-                    InstanceAccessor("onabort", &Babylon::Polyfills::Internal::AbortSignal::GetOnAbort, &Babylon::Polyfills::Internal::AbortSignal::SetOnAbort),
-                    InstanceMethod("addEventListener", &Babylon::Polyfills::Internal::AbortSignal::AddEventListener),
-                    InstanceMethod("removeEventListener", &Babylon::Polyfills::Internal::AbortSignal::RemoveEventListener),
+                    InstanceAccessor("aborted", &AbortSignal::GetAborted, &AbortSignal::SetAborted),
+                    InstanceAccessor("onabort", &AbortSignal::GetOnAbort, &AbortSignal::SetOnAbort),
+                    InstanceMethod("addEventListener", &AbortSignal::AddEventListener),
+                    InstanceMethod("removeEventListener", &AbortSignal::RemoveEventListener),
                 });
 
             env.Global().Set(JS_ABORT_SIGNAL_CONSTRUCTOR_NAME, func);
@@ -22,7 +22,7 @@ namespace Babylon::Polyfills::Internal
     }
 
     AbortSignal::AbortSignal(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortSignal>{info}
+        : Napi::ObjectWrap<AbortSignal>{info}
     {
     }
 
@@ -125,6 +125,6 @@ namespace Babylon::Polyfills::AbortSignal
 {
     void Initialize(Napi::Env env)
     {
-        Babylon::Polyfills::Internal::AbortSignal::Initialize(env);
+        AbortSignal::Initialize(env);
     }
 }
