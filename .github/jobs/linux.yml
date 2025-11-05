@@ -1,6 +1,6 @@
 parameters:
   name: ''
-  Sanitizers: false
+  enableSanitizers: false
 
 jobs:
 - job: ${{parameters.name}}
@@ -10,7 +10,7 @@ jobs:
     vmImage: ubuntu-latest
 
   variables:
-    SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.Sanitizers), 'True', 'ON'), 'OFF') }}
+    SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableSanitizers), 'True', 'ON'), 'OFF') }}
 
   steps:
   - script: |
@@ -18,7 +18,7 @@ jobs:
       sudo apt-get install libjavascriptcoregtk-4.1-dev libcurl4-openssl-dev ninja-build
     displayName: 'Install packages'
 
-  - script: cmake -B Build/ubuntu -GNinja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG)
+  - script: cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG)
     displayName: 'Configure CMake'
 
   - script: |

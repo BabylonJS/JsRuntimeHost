@@ -37,20 +37,6 @@ elseif(UNIX AND NOT ANDROID)
         Linux/App.cpp)
 endif()
 
-# Sanitizers
-option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
-
-if(ENABLE_SANITIZERS)
-    set(ENABLE_RTTI ON CACHE BOOL "" FORCE)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        set(SANITIZERS "address,undefined")
-        add_compile_options(-fsanitize=${SANITIZERS} -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=${SANITIZERS})
-    else()
-        message(WARNING "Sanitizers not supported on this compiler.")
-    endif()
-endif()
-
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS})
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 

@@ -90,7 +90,7 @@ jobs:
       name: 'macOS_Xcode164_Sanitizers'
       vmImage: 'macOS-latest'
       xCodeVersion: 16.4
-      Sanitizers: true
+      enableSanitizers: true
 
   # iOS
   - template: jobs/ios.yml
@@ -115,4 +115,4 @@ jobs:
   - template: jobs/linux.yml
     parameters:
       name: Ubuntu_Sanitizers
-      Sanitizers: true
+      enableSanitizers: true

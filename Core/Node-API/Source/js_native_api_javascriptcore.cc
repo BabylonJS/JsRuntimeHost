@@ -18,13 +18,13 @@ struct napi_callback_info__ {
   uint16_t argc;
 };
 
-static size_t jschar_length(const JSChar* str) {
+namespace {
+  size_t jschar_length(const JSChar* str) {
     size_t len = 0;
     while (str[len] != 0) { ++len; }
     return len;
-}
+  }
 
-namespace {
   class JSString {
    public:
     JSString(const JSString&) = delete;
