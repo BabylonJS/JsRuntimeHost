@@ -125,6 +125,6 @@ namespace Babylon::Polyfills::AbortSignal
 {
     void Initialize(Napi::Env env)
     {
-        AbortSignal::Initialize(env);
+        Internal::AbortSignal::Initialize(env);
     }
 }
