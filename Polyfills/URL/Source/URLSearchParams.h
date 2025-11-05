@@ -7,7 +7,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
-    class URLSearchParams final : public Napi::ObjectWrap<Babylon::Polyfills::Internal::URLSearchParams>
+    class URLSearchParams final : public Napi::ObjectWrap<URLSearchParams>
     {
     public:
         static void Initialize(Napi::Env env);

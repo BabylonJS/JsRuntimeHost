@@ -9,7 +9,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
-    class XMLHttpRequest final : public Napi::ObjectWrap<Babylon::Polyfills::Internal::XMLHttpRequest>
+    class XMLHttpRequest final : public Napi::ObjectWrap<XMLHttpRequest>
     {
     public:
         static void Initialize(Napi::Env env);
