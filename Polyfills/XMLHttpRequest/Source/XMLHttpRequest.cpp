@@ -96,7 +96,7 @@ namespace Babylon::Polyfills::Internal
     }
 
     XMLHttpRequest::XMLHttpRequest(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrapBabylon::Polyfills::Internal::{info}
+        : Napi::ObjectWrap<Babylon::Polyfills::Internal::XMLHttpRequest>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
     }
