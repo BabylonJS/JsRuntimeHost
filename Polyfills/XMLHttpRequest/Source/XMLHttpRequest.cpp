@@ -62,7 +62,7 @@ namespace Babylon::Polyfills::Internal
     {
         static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
 
-        Napi::Function func = DefineClass(
+        Napi::Function func = Napi::ObjectWrap<Babylon::Polyfills::Internal::XMLHttpRequest>::DefineClass(
             env,
             JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME,
             {
