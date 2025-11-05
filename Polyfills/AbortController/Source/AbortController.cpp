@@ -34,7 +34,7 @@ namespace Babylon::Polyfills::Internal
     }
 
     AbortController::AbortController(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrap<AbortController>{info}
+        : Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortController>{info}
     {
         m_signal = Napi::Persistent(info.Env().Global().Get(AbortSignal::JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).As<Napi::Function>().New({}));
     }

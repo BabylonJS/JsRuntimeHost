@@ -121,7 +121,7 @@ namespace Babylon::Polyfills::Internal
         {
             // Assume it's another Blob object
             const auto obj = blobPart.As<Napi::Object>();
-            const auto blobObj = Napi::ObjectWrap<Blob>::Unwrap(obj);
+            const auto blobObj = Napi::ObjectWrap<Babylon::Polyfills::Internal::Blob>::Unwrap(obj);
             m_data.assign(blobObj->m_data.begin(), blobObj->m_data.end());
         }
     }

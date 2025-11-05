@@ -7,7 +7,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
-    class AbortController final : public Napi::ObjectWrap<AbortController>
+    class AbortController final : public Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortController>
     {
     public:
         static void Initialize(Napi::Env env);

@@ -22,7 +22,7 @@ namespace Babylon::Polyfills::Internal
     }
 
     AbortSignal::AbortSignal(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrap<AbortSignal>{info}
+        : Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortSignal>{info}
     {
     }
 

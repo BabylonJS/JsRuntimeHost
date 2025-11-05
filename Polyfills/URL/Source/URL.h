@@ -7,7 +7,7 @@
 
 namespace Babylon::Polyfills::Internal
 {
-    class URL final : public Napi::ObjectWrap<URL>
+    class URL final : public Napi::ObjectWrap<Napi::ObjectWrap<Babylon::Polyfills::Internal::URL>
     {
     public:
         static void Initialize(Napi::Env env);
