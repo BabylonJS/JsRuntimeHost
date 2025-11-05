@@ -10,7 +10,7 @@ class AbortController;
 
 namespace Babylon::Polyfills::Internal
 {
-    class AbortSignal final : public Napi::ObjectWrap<AbortSignal>
+    class AbortSignal final : public Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortSignal>
     {
     public:
         static constexpr auto JS_ABORT_SIGNAL_CONSTRUCTOR_NAME = "AbortSignal";

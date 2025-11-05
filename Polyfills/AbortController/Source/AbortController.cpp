@@ -27,7 +27,7 @@ namespace Babylon::Polyfills::Internal
 
     void AbortController::Abort(const Napi::CallbackInfo&)
     {
-        AbortSignal* sig = AbortSignal::Unwrap(m_signal.Value());
+        AbortSignal* sig = Babylon::Polyfills::Internal::AbortSignal::Unwrap(m_signal.Value());
         
         assert(sig != nullptr);
         sig->Abort();
@@ -36,7 +36,7 @@ namespace Babylon::Polyfills::Internal
     AbortController::AbortController(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<Babylon::Polyfills::Internal::AbortController>{info}
     {
-        m_signal = Napi::Persistent(info.Env().Global().Get(AbortSignal::JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).As<Napi::Function>().New({}));
+        m_signal = Napi::Persistent(info.Env().Global().Get(Babylon::Polyfills::Internal::AbortSignal::JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).As<Napi::Function>().New({}));
     }
 }
 
@@ -44,7 +44,7 @@ namespace Babylon::Polyfills::AbortController
 {
     void BABYLON_API Initialize(Napi::Env env)
     {
-        Internal::AbortController::Initialize(env);
-        Internal::AbortSignal::Initialize(env);
+        Babylon::Polyfills::Internal::AbortController::Initialize(env);
+        Babylon::Polyfills::Internal::AbortSignal::Initialize(env);
     }
 }
