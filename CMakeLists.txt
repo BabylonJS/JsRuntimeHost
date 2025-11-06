@@ -13,8 +13,8 @@ FetchContent_Declare(arcana.cpp
     GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
     GIT_TAG c726dbe58713eda65bfb139c257093c43479b894)
 FetchContent_Declare(AndroidExtensions
-    GIT_REPOSITORY https://github.com/bghgary/AndroidExtensions.git
-    GIT_TAG        7d88a601fda9892791e7b4e994e375e049615688)
+    GIT_REPOSITORY https://github.com/matthargett/AndroidExtensions.git
+    GIT_TAG        4ffcc4ab149a02b9ee72622eee708b2753fd2093)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
@@ -72,11 +72,48 @@ option(JSRUNTIMEHOST_POLYFILL_URL "Include JsRuntimeHost Polyfill URL and URLSea
 option(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER "Include JsRuntimeHost Polyfills AbortController and AbortSignal." ON)
 option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include JsRuntimeHost Polyfill WebSocket." ON)
 option(JSRUNTIMEHOST_POLYFILL_BLOB "Include JsRuntimeHost Polyfill Blob." ON)
+option(JSR_ENABLE_ASAN "Enable AddressSanitizer support." OFF)
+
+if(JSR_ENABLE_ASAN)
+    message(STATUS "JSR_ENABLE_ASAN=ON (appending address sanitizer flags)")
+    set(JSR_ASAN_COMPILE_FLAGS "-fsanitize=address -fno-omit-frame-pointer")
+    foreach(var CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+        if(NOT "${${var}}" MATCHES "-fsanitize=address")
+            set(${var} "${${var}} ${JSR_ASAN_COMPILE_FLAGS}")
+        endif()
+        set(${var} "${${var}}" CACHE STRING "" FORCE)
+    endforeach()
+
+    set(JSR_ASAN_LINK_FLAGS "-fsanitize=address")
+    foreach(var CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+        if(NOT "${${var}}" MATCHES "-fsanitize=address")
+            set(${var} "${${var}} ${JSR_ASAN_LINK_FLAGS}")
+        endif()
+        set(${var} "${${var}}" CACHE STRING "" FORCE)
+    endforeach()
+    message(STATUS "ASan compile flags: C=${CMAKE_C_FLAGS} CXX=${CMAKE_CXX_FLAGS}")
+    message(STATUS "ASan link flags: EXE=${CMAKE_EXE_LINKER_FLAGS} SHARED=${CMAKE_SHARED_LINKER_FLAGS}")
+endif()
 
 # --------------------------------------------------
 
 FetchContent_MakeAvailable_With_Message(arcana.cpp)
 set_property(TARGET arcana PROPERTY FOLDER Dependencies)
+
+if(ANDROID)
+    FetchContent_GetProperties(AndroidExtensions)
+    if(NOT AndroidExtensions_POPULATED)
+        FetchContent_Populate(AndroidExtensions)
+        FetchContent_GetProperties(AndroidExtensions)
+        message(STATUS "Patching AndroidExtensions Globals.cpp in ${androidextensions_SOURCE_DIR}")
+        file(COPY
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/AndroidExtensions/Globals.cpp
+            DESTINATION ${androidextensions_SOURCE_DIR}/Source)
+        add_subdirectory(${androidextensions_SOURCE_DIR} ${androidextensions_BINARY_DIR})
+    else()
+        add_subdirectory(${androidextensions_SOURCE_DIR} ${androidextensions_BINARY_DIR})
+    endif()
+endif()
 
 if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     FetchContent_MakeAvailable_With_Message(UrlLib)

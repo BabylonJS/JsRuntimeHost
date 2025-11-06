@@ -664,6 +664,9 @@ struct napi_ref__ {
     CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &_objectId));
     if (_objectId == 0) {
       CHECK_NAPI(ReferenceInfo::Initialize(env, _value, [value = _value](ReferenceInfo* info) {
+        if (info->Env()->shutting_down) {
+          return;
+        }
         auto entry{info->Env()->active_ref_values.find(value)};
         // NOTE: The finalizer callback is actually on a "sentinel" JS object that is linked to the
         // actual JS object we are trying to track. This means it is possible for the tracked object
@@ -1563,14 +1566,28 @@ napi_status napi_call_function(napi_env env,
     CHECK_ARG(env, argv);
   }
 
+  JSObjectRef function_object = ToJSObject(env, func);
+
+  std::vector<JSValueRef> call_args(argc + 1);
+  call_args[0] = ToJSValue(recv);
+  for (size_t i = 0; i < argc; ++i) {
+    call_args[i + 1] = ToJSValue(argv[i]);
+  }
+
   JSValueRef exception{};
-  JSValueRef return_value{JSObjectCallAsFunction(
-    env->context,
-    ToJSObject(env, func),
-    JSValueIsUndefined(env->context, ToJSValue(recv)) ? nullptr : ToJSObject(env, recv),
-    argc,
-    ToJSValues(argv),
-    &exception)};
+  JSValueRef call_value{JSObjectGetProperty(
+      env->context, function_object, JSString("call"), &exception)};
+  CHECK_JSC(env, exception);
+
+  JSObjectRef call_object = JSValueToObject(env->context, call_value, &exception);
+  CHECK_JSC(env, exception);
+
+  JSValueRef return_value{JSObjectCallAsFunction(env->context,
+                                                 call_object,
+                                                 function_object,
+                                                 call_args.size(),
+                                                 call_args.data(),
+                                                 &exception)};
   CHECK_JSC(env, exception);
 
   if (result != nullptr) {
