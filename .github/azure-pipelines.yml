@@ -115,6 +115,8 @@ jobs:
   - template: jobs/linux.yml
     parameters:
       name: Ubuntu_clang
+      cc: clang
+      cxx: clang++
 
   - template: jobs/linux.yml
     parameters:
