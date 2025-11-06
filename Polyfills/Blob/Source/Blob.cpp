@@ -17,7 +17,7 @@ namespace Babylon::Polyfills::Internal
                     InstanceAccessor("type", &Blob::GetType, nullptr),
                     InstanceMethod("text", &Blob::Text),
                     InstanceMethod("arrayBuffer", &Blob::ArrayBuffer),
-                    InstanceMethod("bytes", &Blob::Bytes)
+                    InstanceMethod("bytes", &Blob::Bytes),
                 });
 
             env.Global().Set(JS_BLOB_CONSTRUCTOR_NAME, func);
