@@ -88,7 +88,7 @@ namespace Babylon::Polyfills::Internal
     // and the url parsing is limited, this logic should be moved to UrlLib and use platform
     // specific functions to parse the URL and get the parts
     URL::URL(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrap<Babylon::Polyfills::Internal::URL>{info}
+        : Napi::ObjectWrap<URL>{info}
     {
         if (!info.Length())
         {

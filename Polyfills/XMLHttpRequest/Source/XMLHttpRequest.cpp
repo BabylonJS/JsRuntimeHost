@@ -62,7 +62,7 @@ namespace Babylon::Polyfills::Internal
     {
         static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
 
-        Napi::Function func = Napi::ObjectWrap<Babylon::Polyfills::Internal::XMLHttpRequest>::DefineClass(
+        Napi::Function func = DefineClass(
             env,
             JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME,
             {
@@ -96,7 +96,7 @@ namespace Babylon::Polyfills::Internal
     }
 
     XMLHttpRequest::XMLHttpRequest(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrap<Babylon::Polyfills::Internal::XMLHttpRequest>{info}
+        : Napi::ObjectWrap<XMLHttpRequest>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
     {
     }

@@ -7,7 +7,7 @@ namespace Babylon::Polyfills::Internal
     {
         if (env.Global().Get(JS_ABORT_SIGNAL_CONSTRUCTOR_NAME).IsUndefined())
         {
-            Napi::Function func = Napi::ObjectWrap<AbortSignal>::DefineClass(
+            Napi::Function func = DefineClass(
                 env,
                 JS_ABORT_SIGNAL_CONSTRUCTOR_NAME,
                 {

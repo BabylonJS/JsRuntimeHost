@@ -22,7 +22,7 @@ namespace Babylon::Polyfills::Internal
     }
 
     URLSearchParams::URLSearchParams(const Napi::CallbackInfo& info)
-        : Napi::ObjectWrap<Babylon::Polyfills::Internal::URLSearchParams>{info}
+        : Napi::ObjectWrap<URLSearchParams>{info}
     {
         if (info.Length() == 0)
         {
