@@ -4494,25 +4494,22 @@ inline napi_value InstanceWrap<T>::WrappedMethod(
 ////////////////////////////////////////////////////////////////////////////////
 // ObjectWrap<T> class
 ////////////////////////////////////////////////////////////////////////////////
-
+#ifndef _MSC_VER
+__attribute__((no_sanitize("vptr")))
+#endif
 template <typename T>
-inline ObjectWrap<T>::ObjectWrap(const Napi::CallbackInfo& callbackInfo)
-  : Env(callbackInfo.Env()) {
-
+inline ObjectWrap<T>::ObjectWrap(const Napi::CallbackInfo& callbackInfo) {
   napi_env env = callbackInfo.Env();
   napi_value wrapper = callbackInfo.This();
-
+  napi_status status;
   napi_ref ref;
   T* instance = static_cast<T*>(this);
-
-  napi_status status =
-      napi_wrap(env, wrapper, instance, FinalizeCallback, nullptr, &ref);
+  status = napi_wrap(env, wrapper, instance, FinalizeCallback, nullptr, &ref);
   NAPI_THROW_IF_FAILED_VOID(env, status);
 
-  // Correct: store reference in the ObjectWrap's own field
-  this->_wrapper = Napi::ObjectReference(env, ref);
+  Reference<Object>* instanceRef = instance;
+  *instanceRef = Reference<Object>(env, ref);
 }
-
 
 template <typename T>
 inline ObjectWrap<T>::~ObjectWrap() {
