@@ -1668,9 +1668,11 @@ napi_status napi_get_value_int32(napi_env env, napi_value value, int32_t* result
   double num = JSValueToNumber(env->context, ToJSValue(value), &exception);
   CHECK_JSC(env, exception);
 
-  RETURN_STATUS_IF_FALSE(env, !std::isnan(num), napi_number_expected);
-  *result = static_cast<int32_t>(num);
-
+  if (std::isfinite(num)) {
+    *result = static_cast<int32_t>(num);
+  } else {
+    *result = 0;
+  }
   return napi_ok;
 }
 
@@ -1684,9 +1686,11 @@ napi_status napi_get_value_uint32(napi_env env, napi_value value, uint32_t* resu
   double num = JSValueToNumber(env->context, ToJSValue(value), &exception);
   CHECK_JSC(env, exception);
 
-  RETURN_STATUS_IF_FALSE(env, !std::isnan(num), napi_number_expected);
-  *result = static_cast<uint32_t>(num);
-
+  if (std::isfinite(num)) {
+    *result = static_cast<uint32_t>(num);
+  } else {
+    *result = 0;
+  }
   return napi_ok;
 }
 
