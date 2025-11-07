@@ -8,7 +8,7 @@ namespace Babylon::Polyfills::Internal
     {
         if (env.Global().Get(JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME).IsUndefined())
         {
-            Napi::Function func = Napi::ObjectWrap<URLSearchParams>::DefineClass(
+            Napi::Function func = DefineClass(
                 env,
                 JS_URL_SEARCH_PARAMS_CONSTRUCTOR_NAME,
                 {

@@ -4495,13 +4495,14 @@ inline napi_value InstanceWrap<T>::WrappedMethod(
 // ObjectWrap<T> class
 ////////////////////////////////////////////////////////////////////////////////
 
+__attribute__((no_sanitize("vptr")))
 template <typename T>
 inline ObjectWrap<T>::ObjectWrap(const Napi::CallbackInfo& callbackInfo) {
   napi_env env = callbackInfo.Env();
   napi_value wrapper = callbackInfo.This();
   napi_status status;
   napi_ref ref;
-  T* instance = this;
+  T* instance = static_cast<T*>(this);
   status = napi_wrap(env, wrapper, instance, FinalizeCallback, nullptr, &ref);
   NAPI_THROW_IF_FAILED_VOID(env, status);
 
