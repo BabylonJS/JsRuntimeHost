@@ -19,22 +19,6 @@ struct napi_callback_info__ {
 };
 
 namespace {
-  // Minimal char_traits-like helper for JSChar (unsigned short) to compute string length at compile time
-  template<typename CharT>
-  struct jschar_traits;
-
-  template<>
-  struct jschar_traits<JSChar> {
-    using char_type = JSChar;
-
-    static constexpr size_t length(const char_type* str) noexcept {
-      if (!str) return 0;
-      const char_type* s = str;
-      while (*s) ++s;
-      return s - str;
-    }
-  };
-
   class JSString {
    public:
     JSString(const JSString&) = delete;
@@ -49,7 +33,7 @@ namespace {
     }
 
     JSString(const JSChar* string, size_t length = NAPI_AUTO_LENGTH)
-      : _string{JSStringCreateWithCharacters(string, length == NAPI_AUTO_LENGTH ? jschar_traits<JSChar>::length(string) : length)} {
+      : _string{JSStringCreateWithCharacters(string, length == NAPI_AUTO_LENGTH ? std::char_traits<JSChar>::length(string) : length)} {
     }
 
     ~JSString() {
@@ -1674,15 +1658,8 @@ napi_status napi_get_value_int32(napi_env env, napi_value value, int32_t* result
   CHECK_ARG(env, result);
 
   JSValueRef exception{};
-  double number = JSValueToNumber(env->context, ToJSValue(value), &exception);
+  *result = static_cast<int32_t>(JSValueToNumber(env->context, ToJSValue(value), &exception));
   CHECK_JSC(env, exception);
-
-  if (!std::isfinite(number))
-  {
-    number = 0.0;
-  }
-
-  *result = static_cast<int32_t>(number);
 
   return napi_ok;
 }
@@ -1693,15 +1670,8 @@ napi_status napi_get_value_uint32(napi_env env, napi_value value, uint32_t* resu
   CHECK_ARG(env, result);
 
   JSValueRef exception{};
-  double number = JSValueToNumber(env->context, ToJSValue(value), &exception);
+  *result = static_cast<uint32_t>(JSValueToNumber(env->context, ToJSValue(value), &exception));
   CHECK_JSC(env, exception);
-
-  if (!std::isfinite(number) || number < 0.0)
-  {
-    number = 0.0;
-  }
-
-  *result = static_cast<uint32_t>(number);
 
   return napi_ok;
 }

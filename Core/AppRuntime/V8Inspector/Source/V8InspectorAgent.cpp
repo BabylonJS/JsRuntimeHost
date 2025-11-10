@@ -426,8 +426,8 @@ namespace Babylon
         }
         v8::Local<v8::String> string_value = v8::Local<v8::String>::Cast(value);
         int len = string_value->Length();
-        std::vector<uint16_t> buffer(len, 0);
-        string_value->Write(v8::Isolate::GetCurrent(), buffer.data(), 0, len);
+        std::basic_string<uint16_t> buffer(len, '\0');
+        string_value->Write(v8::Isolate::GetCurrent(), &buffer[0], 0, len);
         return v8_inspector::StringBuffer::create(
             v8_inspector::StringView(buffer.data(), len));
     }

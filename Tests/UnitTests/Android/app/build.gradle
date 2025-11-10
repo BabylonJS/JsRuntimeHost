@@ -121,6 +121,3 @@ tasks.configureEach { task ->
         task.dependsOn(copyScripts)
     }
 }
-
-// Note: The Android Gradle Plugin should handle NDK location automatically
-// If you encounter NDK issues, ensure you have NDK 28.2.13676358 installed via SDK Manager

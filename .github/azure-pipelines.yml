@@ -14,7 +14,7 @@ schedules:
 
 variables:
 - name: ndkVersion
-  value: 28.2.13676358
+  value: 25.2.9519653
 
 jobs:
   # WIN32

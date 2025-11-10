@@ -17,7 +17,6 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     jclass webSocketClass{env->FindClass("com/jsruntimehost/unittests/WebSocket")};
     java::websocket::WebSocketClient::InitializeJavaWebSocketClass(webSocketClass, env);
 
-    // StdoutLogger::Start() is now idempotent (fixed in matthargett/AndroidExtensions fork)
     android::StdoutLogger::Start();
 
     android::global::Initialize(javaVM, context);
@@ -27,7 +26,7 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
 
     auto testResult = RunTests();
 
-    // android::StdoutLogger::Stop();
+    android::StdoutLogger::Stop();
 
     java::websocket::WebSocketClient::DestructJavaWebSocketClass(env);
     return testResult;

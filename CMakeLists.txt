@@ -14,7 +14,7 @@ FetchContent_Declare(arcana.cpp
     GIT_TAG c726dbe58713eda65bfb139c257093c43479b894)
 FetchContent_Declare(AndroidExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/AndroidExtensions.git
-    GIT_TAG f7ed149b5360cc8a4908fece66607c5ce1e6095b
+    GIT_TAG        7d88a601fda9892791e7b4e994e375e049615688)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
