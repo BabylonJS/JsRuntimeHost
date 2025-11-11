@@ -14,7 +14,7 @@ FetchContent_Declare(arcana.cpp
     GIT_TAG c726dbe58713eda65bfb139c257093c43479b894)
 FetchContent_Declare(AndroidExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/AndroidExtensions.git
-    GIT_TAG        7d88a601fda9892791e7b4e994e375e049615688)
+    GIT_TAG        f7ed149b5360cc8a4908fece66607c5ce1e6095b)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
@@ -49,6 +49,19 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fobjc-arc")
+    if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
+        if(NOT DEFINED JSRUNTIMEHOST_NATIVE_SANITIZERS)
+            set(JSRUNTIMEHOST_NATIVE_SANITIZERS "address,undefined")
+        endif()
+        if(JSRUNTIMEHOST_NATIVE_SANITIZERS)
+            message(STATUS "macOS sanitizers enabled: ${JSRUNTIMEHOST_NATIVE_SANITIZERS}")
+            add_compile_options("-fsanitize=${JSRUNTIMEHOST_NATIVE_SANITIZERS}" "-fno-omit-frame-pointer")
+            add_link_options("-fsanitize=${JSRUNTIMEHOST_NATIVE_SANITIZERS}")
+        endif()
+    endif()
+endif()
 
 # --------------------------------------------------
 # Options
@@ -81,6 +94,21 @@ set_property(TARGET arcana PROPERTY FOLDER Dependencies)
 if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     FetchContent_MakeAvailable_With_Message(UrlLib)
     set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
+    if(APPLE)
+        FetchContent_GetProperties(UrlLib)
+        if(UrlLib_POPULATED)
+            target_compile_options(UrlLib PRIVATE -fobjc-arc)
+            set(_urllib_objc_sources
+                "${UrlLib_SOURCE_DIR}/Source/UrlRequest_Apple.mm"
+                "${UrlLib_SOURCE_DIR}/Source/WebSocket_Apple.mm"
+                "${UrlLib_SOURCE_DIR}/Source/WebSocket_Apple_ObjC.m")
+            foreach(_file IN LISTS _urllib_objc_sources)
+                if(EXISTS "${_file}")
+                    set_source_files_properties("${_file}" PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+                endif()
+            endforeach()
+        endif()
+    endif()
 endif()
 
 if(BABYLON_DEBUG_TRACE)
