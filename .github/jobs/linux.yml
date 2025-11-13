@@ -1,8 +1,8 @@
 parameters:
   name: ''
   enableSanitizers: false
-  cc: gcc
-  cxx: g++
+  CC: gcc
+  CXX: g++
 
 jobs:
 - job: ${{parameters.name}}
@@ -21,9 +21,9 @@ jobs:
     displayName: 'Install packages'
 
   - script: |
-      export CC=${{parameters.cc}}
-      export CXX=${{parameters.cxx}}
-      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D CMAKE_C_COMPILER=${{parameters.cc}} -D CMAKE_CXX_COMPILER=${{parameters.cxx}}
+      export CC=${{parameters.CC}}
+      export CXX=${{parameters.CXX}}
+      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D CMAKE_C_COMPILER=${{parameters.CC}} -D CMAKE_CXX_COMPILER=${{parameters.CXX}}
     displayName: 'Configure CMake'
 
   - script: |
