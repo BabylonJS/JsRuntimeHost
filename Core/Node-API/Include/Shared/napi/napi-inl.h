@@ -4495,6 +4495,7 @@ inline napi_value InstanceWrap<T>::WrappedMethod(
 // ObjectWrap<T> class
 ////////////////////////////////////////////////////////////////////////////////
 template <typename T>
+// [BABYLON-NATIVE-ADDITION]
 #ifndef _MSC_VER
 __attribute__((no_sanitize("vptr")))
 #endif
