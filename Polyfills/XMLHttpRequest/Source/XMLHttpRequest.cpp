@@ -258,9 +258,10 @@ namespace Babylon::Polyfills::Internal
 
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::Send [" << m_url << "]").str();
         auto sendRegion = std::make_optional<arcana::trace_region>(traceName.c_str());
-        m_request.SendAsync().then(arcana::inline_scheduler, arcana::cancellation::none(), [sendRegion{std::move(sendRegion)}]() mutable {
-                                 sendRegion.reset();
-                             })
+        m_request.SendAsync()
+            .then(arcana::inline_scheduler, arcana::cancellation::none(), [sendRegion{std::move(sendRegion)}]() mutable {
+                sendRegion.reset();
+            })
             .then(m_runtimeScheduler, arcana::cancellation::none(), [this]() {
                 SetReadyState(ReadyState::Done);
                 RaiseEvent(EventType::LoadEnd);
