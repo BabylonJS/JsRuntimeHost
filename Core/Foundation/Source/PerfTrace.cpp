@@ -1,5 +1,6 @@
 #include "PerfTrace.h"
 #include <arcana/tracing/trace_region.h>
+#include <cstdint>
 #include <unordered_map>
 
 namespace
