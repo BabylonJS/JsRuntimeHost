@@ -30,11 +30,12 @@ namespace Babylon
         }
 
         // Private implementation to hide arcana::trace_region
-        struct Handle::Impl
+        class Handle::Impl
         {
-            arcana::trace_region region;
-
-            Impl(const char* name) : region(name) {}
+        public:
+            Impl(const char* name) : m_region(name) {}
+        private:
+            arcana::trace_region m_region;
         };
 
         Handle::Handle(const char* name)
