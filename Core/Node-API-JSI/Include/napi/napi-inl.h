@@ -1570,7 +1570,7 @@ inline Error::Error(napi_env env, jsi::Object object)
 }
 
 inline Error::Error(napi_env env, jsi::Value value)
-  : ObjectReference{env, value.getObject(env->rt)} {
+  : ObjectReference{env, value.asObject(env->rt)} {
 }
 
 inline Error::Error(Error&& other)
