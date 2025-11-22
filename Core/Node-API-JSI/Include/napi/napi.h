@@ -1050,6 +1050,7 @@ namespace Napi {
   public:
     FunctionReference();
     FunctionReference(napi_env env, jsi::Function function);
+    FunctionReference(napi_env env, jsi::Value value);
 
     // A reference can be moved but cannot be copied.
     FunctionReference(Reference<Function>&& other);
@@ -1139,6 +1140,7 @@ namespace Napi {
 
     Error();
     Error(napi_env env, jsi::Object object);
+    Error(napi_env env, jsi::Value value);
 
     // An error can be moved or copied.
     Error(Error&& other);
@@ -1168,6 +1170,7 @@ namespace Napi {
 
     TypeError();
     TypeError(napi_env env, jsi::Object object);
+    TypeError(napi_env env, jsi::Value value);
   };
 
   class RangeError : public Error {
@@ -1177,6 +1180,7 @@ namespace Napi {
 
     RangeError();
     RangeError(napi_env env, jsi::Object object);
+    RangeError(napi_env env, jsi::Value value);
   };
 
   class CallbackInfo {
