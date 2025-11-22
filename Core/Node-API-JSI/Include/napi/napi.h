@@ -1050,7 +1050,6 @@ namespace Napi {
   public:
     FunctionReference();
     FunctionReference(napi_env env, jsi::Function function);
-    FunctionReference(napi_env env, jsi::Value value);
 
     // A reference can be moved but cannot be copied.
     FunctionReference(Reference<Function>&& other);
