@@ -7,8 +7,7 @@ namespace Babylon
     {
         auto globalContext = JSGlobalContextCreateInGroup(nullptr, nullptr);
 
-        // REVIEW: Ideally, we should call this, but it's not always available in all situations.
-        //JSGlobalContextSetInspectable(globalContext, m_options.EnableDebugger);
+        JSGlobalContextSetInspectable(globalContext, m_options.EnableDebugger);
 
         Napi::Env env = Napi::Attach(globalContext);
 

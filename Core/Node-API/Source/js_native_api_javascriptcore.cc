@@ -477,6 +477,10 @@ namespace {
       _finalizers.push_back(finalizer);
     }
 
+    void RemoveFinalizers() {
+      _finalizers.clear();
+    }
+
    protected:
     BaseInfoT(napi_env env, const char* className)
       : NativeInfo{TType}
@@ -1914,9 +1918,14 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   CHECK_NAPI(WrapperInfo::Unwrap(env, js_object, &info));
   RETURN_STATUS_IF_FALSE(env, info != nullptr && info->Data() != nullptr, napi_invalid_arg);
 
-  *result = info->Data();
+  if (result)
+  {
+    *result = info->Data();
+  }
+
   info->Data(nullptr);
-  
+  info->RemoveFinalizers();
+
   return napi_ok;
 }
 
