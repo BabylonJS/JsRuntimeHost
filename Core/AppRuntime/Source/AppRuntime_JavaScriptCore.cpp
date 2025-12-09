@@ -12,7 +12,7 @@ namespace Babylon
         {
             JSGlobalContextSetInspectable(globalContext, m_options.EnableDebugger);
         }
-#else
+#endif
 
         Napi::Env env = Napi::Attach(globalContext);
 
