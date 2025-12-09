@@ -691,12 +691,18 @@ namespace Babylon::Polyfills::Internal
                 .Get(JS_URL_CONSTRUCTOR_NAME)
                 .As<Napi::Function>();
 
-            std::vector<napi_value> args(info.Length());
-            for (size_t i = 0; i < info.Length(); i++)
+            if (info.Length() == 1)
             {
-                args[i] = info[i];
+                return urlConstructor.New({info[0]});
             }
-            return urlConstructor.New(args);
+            else if (info.Length() == 2)
+            {
+                return urlConstructor.New({info[0], info[1]});
+            }
+            else
+            {
+                return info.Env().Null();
+            }
         }
         catch (const Napi::Error&)
         {
