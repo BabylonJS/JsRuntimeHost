@@ -695,7 +695,7 @@ namespace Babylon::Polyfills::Internal
             {
                 return urlConstructor.New({info[0]});
             }
-            else if (info.Length() == 2)
+            else if (info.Length() >= 2)
             {
                 return urlConstructor.New({info[0], info[1]});
             }

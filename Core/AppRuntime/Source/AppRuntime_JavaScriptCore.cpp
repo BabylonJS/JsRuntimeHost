@@ -7,10 +7,14 @@ namespace Babylon
     {
         auto globalContext = JSGlobalContextCreateInGroup(nullptr, nullptr);
 
+#if __APPLE__
         if (__builtin_available(iOS 16.4, macOS 13.3, *))
         {
             JSGlobalContextSetInspectable(globalContext, m_options.EnableDebugger);
         }
+#else
+        JSGlobalContextSetInspectable(globalContext, m_options.EnableDebugger);
+#endif
 
         Napi::Env env = Napi::Attach(globalContext);
 
