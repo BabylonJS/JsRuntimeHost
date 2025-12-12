@@ -1196,10 +1196,6 @@ describe("Performance", function () {
         expect(performance).to.not.be.undefined;
     });
 
-    it("should have performance.now() function", function () {
-        expect(performance.now).to.be.a("function");
-    });
-
     it("should return a number from performance.now()", function () {
         const now = performance.now();
         expect(now).to.be.a("number");
