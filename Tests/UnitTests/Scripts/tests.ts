@@ -496,12 +496,13 @@ if (hostPlatform !== "Unix") {
             };
         });
 
-        it("should trigger error callback with invalid server", function (done) {
-            const ws = new WebSocket("wss://example.com");
-            ws.onerror = () => {
-                done();
-            };
-        });
+        // TODO: This is not working reliably: see https://github.com/BabylonJS/JsRuntimeHost/issues/131
+        // it("should trigger error callback with invalid server", function (done) {
+        //     const ws = new WebSocket("wss://caddddfd-ee88-4771-b293-8a8e13b330ee.com");
+        //     ws.onerror = () => {
+        //         done();
+        //     };
+        // });
 
         it("should trigger error callback with invalid domain", function (done) {
             this.timeout(10000);

@@ -1912,7 +1912,7 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   CHECK_ENV(env);
   CHECK_ARG(env, js_object);
 
-  // Once an object is wrapped, it stays wrapped in order to support finalizer callbacks.
+  // Review: Should we remove the wrapper if we are removing finalizers anyway?
 
   WrapperInfo* info{};
   CHECK_NAPI(WrapperInfo::Unwrap(env, js_object, &info));
