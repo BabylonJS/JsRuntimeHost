@@ -3,6 +3,9 @@
 #include <regex>
 #include <optional>
 
+// NOTE: This is a platform agnostic implementation created with a lot of help from AI :)
+//       In the future, we may want to consider using platform-specific URL parsing APIs instead.
+
 namespace
 {
     // Parsed URL components
@@ -20,7 +23,7 @@ namespace
 
     // URL format: scheme:[//[user:password@]host[:port]][/]path[?query][#fragment]
     // Regex breakdown:
-    // ^([a-zA-Z][a-zA-Z0-9+.-]*):  - protocol/scheme (group 1)
+    // ^([a-zA-Z][a-zA-Z0-9+.-]*):   - protocol/scheme (group 1)
     // (?:\/\/                       - optional authority starting with //
     //   (?:([^:@\/]*)               - username (group 2)
     //     (?::([^@\/]*))?           - password (group 3)
