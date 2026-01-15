@@ -86,7 +86,7 @@ jobs:
 
   - template: jobs/android.yml
     parameters:
-      name: Android_V8
+      name: Android_QuickJS
       jsEngine: QuickJS
 
   # macOS
