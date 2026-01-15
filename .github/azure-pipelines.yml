@@ -42,6 +42,12 @@ jobs:
       platform: x64
       jsEngine: V8
 
+  - template: jobs/win32.yml
+    parameters:
+      name: Win32_x64_QuickJS
+      platform: x64
+      jsEngine: QuickJS
+
   # UWP
   - template: jobs/uwp.yml
     parameters:
@@ -77,6 +83,11 @@ jobs:
     parameters:
       name: Android_V8
       jsEngine: V8
+
+  - template: jobs/android.yml
+    parameters:
+      name: Android_V8
+      jsEngine: QuickJS
 
   # macOS
   - template: jobs/macos.yml
@@ -114,13 +125,20 @@ jobs:
 
   - template: jobs/linux.yml
     parameters:
-      name: Ubuntu_clang
+      name: Ubuntu_clang_javascriptcore
       CC: clang
       CXX: clang++
 
   - template: jobs/linux.yml
     parameters:
-      name: Ubuntu_Sanitizers_clang
+      name: Ubuntu_Sanitizers_clang_javascriptcore
       enableSanitizers: true
+      CC: clang
+      CXX: clang++
+
+  - template: jobs/linux.yml
+    parameters:
+      name: Ubuntu_clang_quickjs
+      jsEngine: QuickJS
       CC: clang
       CXX: clang++
