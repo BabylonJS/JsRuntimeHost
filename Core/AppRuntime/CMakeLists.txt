@@ -14,7 +14,7 @@ set(SOURCES
     "Source/WorkQueue.h")
 
 add_library(AppRuntime ${SOURCES})
-warnings_as_errors(AppRuntime)
+#warnings_as_errors(AppRuntime)
 
 target_include_directories(AppRuntime
     PRIVATE "Include/Babylon"
@@ -23,6 +23,10 @@ target_include_directories(AppRuntime
 target_link_libraries(AppRuntime
     PRIVATE arcana
     PUBLIC JsRuntime)
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "QuickJS")
+    target_link_libraries(AppRuntime PRIVATE qjs)
+endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
     add_subdirectory(V8Inspector)

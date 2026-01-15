@@ -39,6 +39,11 @@ FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
     GIT_TAG 1f9d2c05f792d994b09fdfc1129b25294efbe182
     EXCLUDE_FROM_ALL)
+FetchContent_Declare(quickjs-ng
+    GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
+    GIT_TAG 97d23e51dcc835e42c4cd419fb4adee13baf0074
+    EXCLUDE_FROM_ALL)
+    
 # --------------------------------------------------
 
 FetchContent_MakeAvailable(CMakeExtensions)
@@ -55,7 +60,7 @@ project(JsRuntimeHost)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --------------------------------------------------
@@ -119,6 +124,11 @@ endif()
 
 if(BABYLON_DEBUG_TRACE)
     add_definitions(-DBABYLON_DEBUG_TRACE)
+endif()
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "QuickJS")
+    option(QJS_BUILD_LIBC "Build QuickJS with libc support." ON)
+    FetchContent_MakeAvailable_With_Message(quickjs-ng)
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)

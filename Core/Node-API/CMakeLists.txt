@@ -39,7 +39,13 @@ if(NAPI_BUILD_ABI)
         endfunction()
     endif()
 
-    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra")
+    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "QuickJS")
+        set(SOURCES ${SOURCES}
+            "Source/env_quickjs.cc"
+            "Source/js_native_api_quickjs.cc"
+            "Source/js_native_api_quickjs.h")
+        set(LINK_LIBRARIES ${LINK_LIBRARIES} PRIVATE qjs)
+    elseif(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra")
         set(SOURCES ${SOURCES}
             "Source/env_chakra.cc"
             "Source/js_native_api_chakra.cc"
@@ -151,7 +157,7 @@ if(NAPI_BUILD_ABI)
     message(STATUS "Selected ${NAPI_JAVASCRIPT_ENGINE}")
 endif()
 
-add_library(napi ${SOURCES})
+add_library(napi ${SOURCES} ${QUICKJS_SOURCES})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
