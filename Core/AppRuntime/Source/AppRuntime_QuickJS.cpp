@@ -3,6 +3,7 @@
 
 #ifdef _WIN32
 #pragma warning(push)
+// cast from int64 to int32
 #pragma warning(disable : 4244)
 #endif
 #include <quickjs.h>

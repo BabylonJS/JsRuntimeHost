@@ -58,37 +58,77 @@ class ExternalCallback {
   ExternalCallback(napi_env env, napi_callback cb, void* data)
     : _env(env), _cb(cb), _data(data), newTarget(JS_UNDEFINED) {}
 
-  static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data) {
-    ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(JS_GetOpaque(func_data[0], js_external_class_id));
-    if (!externalCallback || !externalCallback->_cb) {
-      return JS_UNDEFINED;
-    }
-    
-    napi_clear_last_error(externalCallback->_env);
-
-    // Build argv array
-    std::vector<napi_value> args;
-    args.reserve(argc);
-    for (int i = 0; i < argc; i++) {
-      args.push_back(reinterpret_cast<napi_value>(const_cast<JSValue*>(&argv[i])));
-    }
-
-    CallbackInfo cbInfo;
-    cbInfo.thisArg = reinterpret_cast<napi_value>(const_cast<JSValue*>(&this_val));
-    cbInfo.newTarget = reinterpret_cast<napi_value>(&externalCallback->newTarget);
-    cbInfo.isConstructCall = (magic == 1);
-    cbInfo.argc = argc;
-    cbInfo.argv = args.empty() ? nullptr : args.data();
-    cbInfo.data = externalCallback->_data;
-
-    napi_value result = externalCallback->_cb(externalCallback->_env, reinterpret_cast<napi_callback_info>(&cbInfo));
-    
-    if (result == nullptr) {
-      return JS_UNDEFINED;
-    }
-    
-    return JS_DupValue(ctx, *reinterpret_cast<JSValue*>(result));
+static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data) {
+  ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(JS_GetOpaque(func_data[0], js_external_class_id));
+  if (!externalCallback || !externalCallback->_cb) {
+    return JS_UNDEFINED;
   }
+  
+  napi_clear_last_error(externalCallback->_env);
+
+  // Build argv array
+  std::vector<napi_value> args;
+  args.reserve(argc);
+  for (int i = 0; i < argc; i++) {
+    args.push_back(reinterpret_cast<napi_value>(const_cast<JSValue*>(&argv[i])));
+  }
+
+  JSValue actualThis = JS_UNDEFINED;
+  bool isConstructCall = (magic == 1);
+  
+  // Handle constructor call
+  if (isConstructCall) {
+    // Get the constructor's .prototype property (NOT [[Prototype]])
+    JSValue prototypeProperty = JS_GetPropertyStr(ctx, externalCallback->newTarget, "prototype");
+    
+    if (JS_IsException(prototypeProperty)) {
+      return JS_EXCEPTION;
+    }
+    
+    // Create new instance object with correct prototype
+    actualThis = JS_NewObjectProto(ctx, prototypeProperty);
+    JS_FreeValue(ctx, prototypeProperty);
+    
+    if (JS_IsException(actualThis)) {
+      return JS_EXCEPTION;
+    }
+  } else {
+    actualThis = JS_DupValue(ctx, this_val);
+  }
+
+  CallbackInfo cbInfo;
+  cbInfo.thisArg = reinterpret_cast<napi_value>(&actualThis);
+  cbInfo.newTarget = reinterpret_cast<napi_value>(&externalCallback->newTarget);
+  cbInfo.isConstructCall = isConstructCall;
+  cbInfo.argc = argc;
+  cbInfo.argv = args.empty() ? nullptr : args.data();
+  cbInfo.data = externalCallback->_data;
+
+  napi_value callbackResult = externalCallback->_cb(externalCallback->_env, reinterpret_cast<napi_callback_info>(&cbInfo));
+  
+  JSValue returnValue;
+  
+  if (callbackResult == nullptr) {
+    returnValue = isConstructCall ? actualThis : JS_UNDEFINED;
+  } else {
+    JSValue cbResultValue = *reinterpret_cast<JSValue*>(callbackResult);
+    
+    // Constructor: return object from callback if it's an object, otherwise return 'this'
+    if (isConstructCall) {
+      if (JS_IsObject(cbResultValue)) {
+        returnValue = JS_DupValue(ctx, cbResultValue);
+        JS_FreeValue(ctx, actualThis);
+      } else {
+        returnValue = actualThis;
+      }
+    } else {
+      returnValue = JS_DupValue(ctx, cbResultValue);
+      JS_FreeValue(ctx, actualThis);
+    }
+  }
+  
+  return returnValue;
+}
 
   static void Finalize(JSRuntime *rt, JSValue val) {
     void* opaque = JS_GetOpaque(val, js_external_class_id);
@@ -802,8 +842,8 @@ napi_status napi_get_array_length(napi_env env, napi_value value, uint32_t* resu
   return napi_ok;
 }
 
-// Create function
-napi_status napi_create_function(napi_env env, const char* utf8name, size_t length, napi_callback cb, void* data, napi_value* result) {
+// Internal helper to create function with custom magic value
+static napi_status create_function_internal(napi_env env, const char* utf8name, size_t length, napi_callback cb, void* data, int magic, napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, cb);
   CHECK_ARG(env, result);
@@ -817,9 +857,9 @@ napi_status napi_create_function(napi_env env, const char* utf8name, size_t leng
   JSValue callbackData = JS_NewObjectClass(env->context, js_external_class_id);
   JS_SetOpaque(callbackData, externalCallback);
   
-  // Create function with data - use JSValueConst for the array
+  // Create function with data - magic parameter determines if it's a constructor call
   JSValueConst funcDataArray[1] = { callbackData };
-  JSValue func = JS_NewCFunctionData(env->context, ExternalCallback::Callback, 0, 0, 1, funcDataArray);
+  JSValue func = JS_NewCFunctionData(env->context, ExternalCallback::Callback, 0, magic, 1, funcDataArray);
   
   if (JS_IsException(func)) {
     delete externalCallback;
@@ -841,6 +881,16 @@ napi_status napi_create_function(napi_env env, const char* utf8name, size_t leng
   *result = FromJSValue(env->context, func);
   napi_clear_last_error(env);
   return napi_ok;
+}
+
+// Create function (regular function with magic=0)
+napi_status napi_create_function(napi_env env, const char* utf8name, size_t length, napi_callback cb, void* data, napi_value* result) {
+  return create_function_internal(env, utf8name, length, cb, data, 0, result);
+}
+
+// Create function for use as constructor (magic=1)
+napi_status napi_create_function_with_magic(napi_env env, const char* utf8name, size_t length, napi_callback cb, void* data, napi_value* result) {
+  return create_function_internal(env, utf8name, length, cb, data, 1, result);
 }
 
 // Get cb info
@@ -2249,11 +2299,16 @@ napi_status napi_define_class(napi_env env, const char* utf8name, size_t length,
   
   // Create constructor function
   napi_value ctor;
-  CHECK_NAPI(napi_create_function(env, utf8name, length, constructor, data, &ctor));
+  CHECK_NAPI(napi_create_function_with_magic(env, utf8name, length, constructor, data, &ctor));
   
-  // Get prototype
+  // Mark as constructor
+  JSValue jsCtor = ToJSValue(ctor);
+  JS_SetConstructorBit(env->context, jsCtor, true);
+
+  // Create and set prototype object manually
   napi_value prototype;
-  CHECK_NAPI(napi_get_named_property(env, ctor, "prototype", &prototype));
+  CHECK_NAPI(napi_create_object(env, &prototype));
+  CHECK_NAPI(napi_set_named_property(env, ctor, "prototype", prototype));
   
   // Set constructor property on prototype
   CHECK_NAPI(napi_set_named_property(env, prototype, "constructor", ctor));
