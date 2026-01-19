@@ -1,13 +1,18 @@
 #include "AppRuntime.h"
 #include <napi/env.h>
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable : 4244)
+#endif
 #include <quickjs.h>
-
-#include <optional>
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 namespace Babylon
 {
-    void AppRuntime::RunEnvironmentTier(const char* executablePath)
+    void AppRuntime::RunEnvironmentTier(const char* /*executablePath*/)
     {
         // Create the runtime.
         JSRuntime* runtime = JS_NewRuntime();
