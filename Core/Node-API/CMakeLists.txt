@@ -157,7 +157,7 @@ if(NAPI_BUILD_ABI)
     message(STATUS "Selected ${NAPI_JAVASCRIPT_ENGINE}")
 endif()
 
-add_library(napi ${SOURCES} ${QUICKJS_SOURCES})
+add_library(napi ${SOURCES})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
