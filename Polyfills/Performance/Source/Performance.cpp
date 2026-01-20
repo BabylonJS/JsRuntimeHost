@@ -34,6 +34,6 @@ namespace Babylon::Polyfills::Performance
             env.Global().Set(JS_INSTANCE_NAME, performance);
         }
 
-        performance.Set("now", Napi::Function::New(env, Now, "now"));
+        //performance.Set("now", Napi::Function::New(env, Now, "now"));
     }
 }

@@ -8,6 +8,7 @@ namespace Napi
     {
         napi_env env_ptr{new napi_env__};
         env_ptr->context = context;
+        env_ptr->current_context = env_ptr->context; 
 
         // Get Object.prototype.hasOwnProperty
         JSValue global = JS_GetGlobalObject(context);

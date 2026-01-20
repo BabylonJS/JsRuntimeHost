@@ -7,6 +7,7 @@
 
 struct napi_env__ {
   JSContext* context = nullptr;
+  JSContext* current_context = nullptr;
   napi_extended_error_info last_error{ nullptr, nullptr, 0, napi_ok };
   JSValue has_own_property_function = JS_UNDEFINED;
 
