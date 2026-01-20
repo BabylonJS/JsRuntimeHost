@@ -3,6 +3,18 @@
 #include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
 
+#ifdef USE_QUICKJS
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable : 4244)
+#endif
+#include <quickjs.h>
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
+#include <napi/env.h>
+#endif
+
 #include <cassert>
 #include <optional>
 #include <mutex>
@@ -85,6 +97,15 @@ namespace Babylon
         while (!m_impl->m_cancelSource.cancelled())
         {
             m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
+#ifdef USE_QUICKJS
+            // Process QuickJS microtasks (promise callbacks, etc.)
+            JSContext* pending_ctx;
+            int result;
+            while ((result = JS_ExecutePendingJob(JS_GetRuntime(Napi::GetContext(env)), &pending_ctx)) > 0)
+            {
+                // Keep draining the microtask queue
+            }
+#endif
         }
 
         // The dispatcher can be non-empty if something is dispatched after cancellation.

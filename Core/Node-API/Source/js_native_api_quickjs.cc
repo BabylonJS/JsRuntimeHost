@@ -64,6 +64,10 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     return JS_UNDEFINED;
   }
   
+  // SAVE AND SET current execution context
+  JSContext* savedCtx = externalCallback->_env->current_context;
+  externalCallback->_env->current_context = ctx;
+  
   napi_clear_last_error(externalCallback->_env);
 
   // Build argv array
@@ -78,18 +82,18 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
   
   // Handle constructor call
   if (isConstructCall) {
-    // Get the constructor's .prototype property (NOT [[Prototype]])
     JSValue prototypeProperty = JS_GetPropertyStr(ctx, externalCallback->newTarget, "prototype");
     
     if (JS_IsException(prototypeProperty)) {
+      externalCallback->_env->current_context = savedCtx; // RESTORE
       return JS_EXCEPTION;
     }
     
-    // Create new instance object with correct prototype
     actualThis = JS_NewObjectProto(ctx, prototypeProperty);
     JS_FreeValue(ctx, prototypeProperty);
     
     if (JS_IsException(actualThis)) {
+      externalCallback->_env->current_context = savedCtx; // RESTORE
       return JS_EXCEPTION;
     }
   } else {
@@ -104,8 +108,31 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
   cbInfo.argv = args.empty() ? nullptr : args.data();
   cbInfo.data = externalCallback->_data;
 
-  napi_value callbackResult = externalCallback->_cb(externalCallback->_env, reinterpret_cast<napi_callback_info>(&cbInfo));
+  napi_value callbackResult = nullptr;
+
+  // Wrap callback invocation in try-catch to handle C++ exceptions
+  try {
+    callbackResult = externalCallback->_cb(externalCallback->_env, reinterpret_cast<napi_callback_info>(&cbInfo));
+  } catch (const std::exception& e) {
+    // C++ exception was thrown - convert to JavaScript exception
+    // The exception should already be set via ThrowAsJavaScriptException()
+    // but if not, create a generic error
+    if (!JS_HasException(ctx)) {
+      JS_ThrowInternalError(ctx, "Uncaught C++ exception: %s", e.what());
+    }
+    JS_FreeValue(ctx, actualThis);
+    externalCallback->_env->current_context = savedCtx;
+    return JS_EXCEPTION;
+  }
+
+  // Check for exception in the CURRENT execution context
+  if (JS_HasException(ctx)) {
+    JS_FreeValue(ctx, actualThis);
+    externalCallback->_env->current_context = savedCtx; // RESTORE
+    return JS_EXCEPTION;
+  }
   
+  // Now handle the normal return value
   JSValue returnValue;
   
   if (callbackResult == nullptr) {
@@ -113,7 +140,6 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
   } else {
     JSValue cbResultValue = *reinterpret_cast<JSValue*>(callbackResult);
     
-    // Constructor: return object from callback if it's an object, otherwise return 'this'
     if (isConstructCall) {
       if (JS_IsObject(cbResultValue)) {
         returnValue = JS_DupValue(ctx, cbResultValue);
@@ -127,6 +153,7 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     }
   }
   
+  externalCallback->_env->current_context = savedCtx; // RESTORE
   return returnValue;
 }
 
@@ -1428,7 +1455,10 @@ napi_status napi_throw(napi_env env, napi_value error) {
   CHECK_ARG(env, error);
   
   JSValue jsError = ToJSValue(error);
-  JS_Throw(env->context, JS_DupValue(env->context, jsError));
+  
+  // Throw into the CURRENT execution context, not the stored context
+  JSContext* targetCtx = env->current_context ? env->current_context : env->context;
+  JS_Throw(targetCtx, JS_DupValue(targetCtx, jsError));
   
   return napi_set_last_error(env, napi_pending_exception);
 }
@@ -1749,6 +1779,8 @@ napi_status napi_get_and_clear_last_exception(napi_env env, napi_value* result) 
   return napi_ok;
 }
 
+bool JS_IsArrayBuffer(JSValueConst obj); // BABYLONNATIVE addition, not exposed in QuickJS headers
+
 // ArrayBuffer support
 napi_status napi_is_arraybuffer(napi_env env, napi_value value, bool* result) {
   CHECK_ENV(env);
@@ -1756,11 +1788,7 @@ napi_status napi_is_arraybuffer(napi_env env, napi_value value, bool* result) {
   CHECK_ARG(env, result);
   
   JSValue jsValue = ToJSValue(value);
-  
-  // Check if it's an ArrayBuffer by getting the buffer - returns NULL if not
-  size_t size;
-  uint8_t* data = JS_GetArrayBuffer(env->context, &size, jsValue);
-  *result = (data != nullptr);
+  *result = JS_IsArrayBuffer(jsValue);
   
   napi_clear_last_error(env);
   return napi_ok;
@@ -1848,15 +1876,7 @@ napi_status napi_is_typedarray(napi_env env, napi_value value, bool* result) {
   CHECK_ARG(env, result);
   
   JSValue jsValue = ToJSValue(value);
-  
-  // Try to get typed array buffer info - will fail if not a typed array
-  size_t byte_offset, byte_length, bytes_per_element;
-  JSValue buffer = JS_GetTypedArrayBuffer(env->context, jsValue, &byte_offset, &byte_length, &bytes_per_element);
-  
-  *result = !JS_IsException(buffer);
-  if (!JS_IsException(buffer)) {
-    JS_FreeValue(env->context, buffer);
-  }
+  *result = JS_GetTypedArrayType(jsValue) != -1;
   
   napi_clear_last_error(env);
   return napi_ok;
