@@ -4,6 +4,7 @@
 #include <napi/js_native_api_types.h>
 #include <thread>
 #include <cassert>
+#include <vector>
 
 struct napi_env__ {
   JSContext* context = nullptr;
@@ -12,6 +13,10 @@ struct napi_env__ {
   JSValue has_own_property_function = JS_UNDEFINED;
 
   const std::thread::id thread_id{std::this_thread::get_id()};
+
+  // Handle scope storage
+  std::vector<std::unique_ptr<JSValue>> handle_scope_stack;
+  size_t current_scope_start = 0;
 };
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \
