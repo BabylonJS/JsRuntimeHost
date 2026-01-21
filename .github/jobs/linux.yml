@@ -24,7 +24,7 @@ jobs:
   - script: |
       export CC=${{parameters.CC}}
       export CXX=${{parameters.CXX}}
-      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D CMAKE_C_COMPILER=${{parameters.CC}} -D CMAKE_CXX_COMPILER=${{parameters.CXX}} -D NAPI_JAVASCRIPT_ENGINE=${{parameters.jsEngine}}
+      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=Release -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D CMAKE_C_COMPILER=${{parameters.CC}} -D CMAKE_CXX_COMPILER=${{parameters.CXX}} -D NAPI_JAVASCRIPT_ENGINE=${{parameters.jsEngine}}
     displayName: 'Configure CMake'
 
   - script: |

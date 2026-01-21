@@ -29,9 +29,9 @@ jobs:
       scheme: 'UnitTests'
       sdk: 'macosx'
       useXcpretty: false
-      configuration: RelWithDebInfo
+      configuration: Release
     displayName: 'Build Xcode Project'
 
   - script: ./UnitTests
-    workingDirectory: 'Build/macOS/Tests/UnitTests/RelWithDebInfo'
+    workingDirectory: 'Build/macOS/Tests/UnitTests/Release'
     displayName: 'Run Tests'
