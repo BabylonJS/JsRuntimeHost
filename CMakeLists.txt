@@ -9,28 +9,36 @@ include(FetchContent)
 # --------------------------------------------------
 # Declarations
 # --------------------------------------------------
-FetchContent_Declare(arcana.cpp
-    GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
-    GIT_TAG c726dbe58713eda65bfb139c257093c43479b894)
 FetchContent_Declare(AndroidExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/AndroidExtensions.git
-    GIT_TAG        f7ed149b5360cc8a4908fece66607c5ce1e6095b)
+    GIT_TAG        f7ed149b5360cc8a4908fece66607c5ce1e6095b
+    EXCLUDE_FROM_ALL)
+FetchContent_Declare(arcana.cpp
+    GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
+    GIT_TAG c02527c32d51b6b3ffeda36f8cf140d2e1c60bb9
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
-    GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c)
+    GIT_TAG f693a3eb7fe72a5f19b975289afc4f437d373d9c
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(CMakeExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/CMakeExtensions.git
-    GIT_TAG ea28b7689530bfdc4905806f27ecf7e8ed4b5419)
+    GIT_TAG ea28b7689530bfdc4905806f27ecf7e8ed4b5419
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(googletest
-    URL "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz")
+    URL "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz"
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
-    GIT_TAG 4.4.1)
+    GIT_TAG 4.4.1
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(llhttp
-    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz")
+    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v8.1.0.tar.gz"
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG 1f9d2c05f792d994b09fdfc1129b25294efbe182)
+    GIT_TAG 1f9d2c05f792d994b09fdfc1129b25294efbe182
+    EXCLUDE_FROM_ALL)
 # --------------------------------------------------
 
 FetchContent_MakeAvailable(CMakeExtensions)
@@ -78,6 +86,32 @@ option(JSRUNTIMEHOST_POLYFILL_URL "Include JsRuntimeHost Polyfill URL and URLSea
 option(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER "Include JsRuntimeHost Polyfills AbortController and AbortSignal." ON)
 option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include JsRuntimeHost Polyfill WebSocket." ON)
 option(JSRUNTIMEHOST_POLYFILL_BLOB "Include JsRuntimeHost Polyfill Blob." ON)
+option(JSRUNTIMEHOST_POLYFILL_PERFORMANCE "Include JsRuntimeHost Polyfill Performance." ON)
+
+# Sanitizers
+option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
+
+if(ENABLE_SANITIZERS)
+    set(ENABLE_RTTI ON CACHE BOOL "" FORCE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        set(SANITIZERS "address,undefined")
+        # Check for Clang since vptr and fdsan are Clang-specific
+        if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            list(APPEND SANITIZERS "vptr")
+            # FDSan only works on Android builds with Clang
+            if (ANDROID)
+                list(APPEND SANITIZERS "fdsan")
+            endif()
+        endif()
+
+        string(JOIN "," SANITIZER_FLAGS ${SANITIZERS})
+
+        add_compile_options(-fsanitize=${SANITIZER_FLAGS} -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=${SANITIZER_FLAGS})
+    else()
+        message(WARNING "Sanitizers not supported on this compiler.")
+    endif()
+endif()
 
 # --------------------------------------------------
 

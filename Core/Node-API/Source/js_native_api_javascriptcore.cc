@@ -19,6 +19,12 @@ struct napi_callback_info__ {
 };
 
 namespace {
+  size_t jschar_length(const JSChar* str) {
+    size_t len = 0;
+    while (str[len] != 0) { ++len; }
+    return len;
+  }
+
   class JSString {
    public:
     JSString(const JSString&) = delete;
@@ -33,7 +39,7 @@ namespace {
     }
 
     JSString(const JSChar* string, size_t length = NAPI_AUTO_LENGTH)
-      : _string{JSStringCreateWithCharacters(string, length == NAPI_AUTO_LENGTH ? std::char_traits<JSChar>::length(string) : length)} {
+      : _string{JSStringCreateWithCharacters(string, length == NAPI_AUTO_LENGTH ? jschar_length(string) : length)} {
     }
 
     ~JSString() {
@@ -469,6 +475,10 @@ namespace {
     using FinalizerT = std::function<void(T*)>;
     void AddFinalizer(FinalizerT finalizer) {
       _finalizers.push_back(finalizer);
+    }
+
+    void RemoveFinalizers() {
+      _finalizers.clear();
     }
 
    protected:
@@ -1658,9 +1668,15 @@ napi_status napi_get_value_int32(napi_env env, napi_value value, int32_t* result
   CHECK_ARG(env, result);
 
   JSValueRef exception{};
-  *result = static_cast<int32_t>(JSValueToNumber(env->context, ToJSValue(value), &exception));
+
+  double num = JSValueToNumber(env->context, ToJSValue(value), &exception);
   CHECK_JSC(env, exception);
 
+  if (std::isfinite(num)) {
+    *result = static_cast<int32_t>(num);
+  } else {
+    *result = 0;
+  }
   return napi_ok;
 }
 
@@ -1670,9 +1686,15 @@ napi_status napi_get_value_uint32(napi_env env, napi_value value, uint32_t* resu
   CHECK_ARG(env, result);
 
   JSValueRef exception{};
-  *result = static_cast<uint32_t>(JSValueToNumber(env->context, ToJSValue(value), &exception));
+
+  double num = JSValueToNumber(env->context, ToJSValue(value), &exception);
   CHECK_JSC(env, exception);
 
+  if (std::isfinite(num)) {
+    *result = static_cast<uint32_t>(num);
+  } else {
+    *result = 0;
+  }
   return napi_ok;
 }
 
@@ -1890,15 +1912,20 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   CHECK_ENV(env);
   CHECK_ARG(env, js_object);
 
-  // Once an object is wrapped, it stays wrapped in order to support finalizer callbacks.
+  // REVIEW: Should we remove the wrapper if we are removing finalizers anyway?
 
   WrapperInfo* info{};
   CHECK_NAPI(WrapperInfo::Unwrap(env, js_object, &info));
   RETURN_STATUS_IF_FALSE(env, info != nullptr && info->Data() != nullptr, napi_invalid_arg);
 
-  *result = info->Data();
+  if (result)
+  {
+    *result = info->Data();
+  }
+
   info->Data(nullptr);
-  
+  info->RemoveFinalizers();
+
   return napi_ok;
 }
 
