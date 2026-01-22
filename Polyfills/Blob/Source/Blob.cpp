@@ -78,10 +78,7 @@ namespace Babylon::Polyfills::Internal
     Napi::Value Blob::ArrayBuffer(const Napi::CallbackInfo&)
     {
         const auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_data.size());
-        if (m_data.data())
-        {
-            std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
-        }
+        std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
 
         const auto deferred = Napi::Promise::Deferred::New(Env());
         deferred.Resolve(arrayBuffer);
@@ -91,10 +88,7 @@ namespace Babylon::Polyfills::Internal
     Napi::Value Blob::Bytes(const Napi::CallbackInfo&)
     {
         const auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_data.size());
-        if (m_data.data())
-        {
-            std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
-        }
+        std::memcpy(arrayBuffer.Data(), m_data.data(), m_data.size());
         const auto uint8Array = Napi::Uint8Array::New(Env(), m_data.size(), arrayBuffer, 0);
 
         const auto deferred = Napi::Promise::Deferred::New(Env());
