@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "v8-android-jit-nointl-nosnapshot": "11.1000.4"
+    "@babylonjs/v8-android-jit-nointl-nosnapshot": "file:C:/Users/ryantrem/Downloads/dist-jit-nointl-nosnapshot/dist/dist/packages/v8-android-jit-nointl-nosnapshot/babylonjs-v8-android-jit-nointl-nosnapshot-11.110.1.tgz"
   }
 }
