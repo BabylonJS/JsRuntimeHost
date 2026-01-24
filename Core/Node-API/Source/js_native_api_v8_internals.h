@@ -24,9 +24,6 @@
 #ifndef V8_31BIT_SMIS_ON_64BIT_ARCH
 #define V8_31BIT_SMIS_ON_64BIT_ARCH 1
 #endif
-#ifndef V8_ENABLE_SANDBOX
-#define V8_ENABLE_SANDBOX 1
-#endif
 #endif
 
 #include <v8.h>
