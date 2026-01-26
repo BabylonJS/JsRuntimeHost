@@ -88,11 +88,11 @@ jobs:
       # Dump logcat output which contains our detailed error messages
       find ./app/build/outputs/androidTest-results -name "*.txt" -print0 | while IFS= read -r -d '' file; do
         echo "=== Logcat Output from: $file ==="
-        cat "$file" | grep -E "(FAILED|TEST FAILURES|Error:|Stack:|JsRuntimeHost)" || cat "$file"
+        cat "$file" | grep -5 -E "(FAILED|TEST FAILURES|Error:|Stack:|JsRuntimeHost)" || cat "$file"
       done
     workingDirectory: 'Tests/UnitTests/Android'
     condition: succeededOrFailed()
-    displayName: 'Dump test failure details and logcat'
+    displayName: 'Dump logcat from Test Results'
 
   - task: PublishBuildArtifacts@1
     inputs:
