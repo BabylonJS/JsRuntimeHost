@@ -199,7 +199,8 @@ namespace Babylon
 // v8-android package and v8 nuget do not share the same V8 version. A change in V8_inspector API forces us to add this
 // ifndef check. This will be fixed in a future nuget package update.
 #ifndef ANDROID
-                , v8_inspector::V8Inspector::kFullyTrusted
+                                                ,
+                v8_inspector::V8Inspector::kFullyTrusted
 #endif
             );
         }
@@ -260,7 +261,7 @@ namespace Babylon
         {
             auto duration = std::chrono::system_clock::now().time_since_epoch();
             return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(duration)
-                                           .count());
+                    .count());
         }
 
         void quitMessageLoopOnPause() override
@@ -331,8 +332,8 @@ namespace Babylon
                 config_object->Set(context, in_call_key, v8::True(isolate)).FromJust());
             CHECK(
                 !inspector_method.As<v8::Function>()
-                     ->Call(context, info.Holder(), static_cast<int>(call_args.size()), call_args.data())
-                     .IsEmpty());
+                    ->Call(context, info.Holder(), static_cast<int>(call_args.size()), call_args.data())
+                    .IsEmpty());
         }
 
         v8::TryCatch try_catch(info.GetIsolate());
@@ -345,19 +346,19 @@ namespace Babylon
 
     void InspectorWrapConsoleCall(const v8::FunctionCallbackInfo<v8::Value>& args)
     {
-
         v8::Local<v8::Array> array =
             v8::Array::New(v8::Isolate::GetCurrent(), args.Length());
         CHECK(array->Set(v8::Isolate::GetCurrent()->GetCurrentContext(), 0, args[0])
-                  .FromJust());
+                .FromJust());
         CHECK(array->Set(v8::Isolate::GetCurrent()->GetCurrentContext(), 1, args[1])
-                  .FromJust());
+                .FromJust());
         CHECK(array->Set(v8::Isolate::GetCurrent()->GetCurrentContext(), 2, args[2])
-                  .FromJust());
+                .FromJust());
         args.GetReturnValue().Set(v8::Function::New(
             v8::Isolate::GetCurrent()->GetCurrentContext(),
             InspectorConsoleCall,
-            array).ToLocalChecked());
+            array)
+                .ToLocalChecked());
     }
 
     void AgentImpl::Start(const unsigned short port, const std::string& appName)
@@ -366,8 +367,9 @@ namespace Babylon
         script_name_ = appName;
 
         // be sure server_ is not still in use here or its allocation will be replace in the thread func
-        // this can happen if reusing the same AgentImpl object, stopping and restarting before the InspectorSocketServer is properly pulled down 
-        if (server_) {
+        // this can happen if reusing the same AgentImpl object, stopping and restarting before the InspectorSocketServer is properly pulled down
+        if (server_)
+        {
             throw std::runtime_error("can't start again the server as previous InspectorSocketServer is still active.");
         }
 
@@ -426,8 +428,8 @@ namespace Babylon
         }
         v8::Local<v8::String> string_value = v8::Local<v8::String>::Cast(value);
         int len = string_value->Length();
-        std::basic_string<uint16_t> buffer(len, '\0');
-        string_value->Write(v8::Isolate::GetCurrent(), &buffer[0], 0, len);
+        std::vector<uint16_t> buffer(len);
+        string_value->Write(v8::Isolate::GetCurrent(), buffer.data(), 0, len);
         return v8_inspector::StringBuffer::create(
             v8_inspector::StringView(buffer.data(), len));
     }
@@ -536,7 +538,8 @@ namespace Babylon
 #endif
                 }
             }
-        } while (!tasks.empty());
+        }
+        while (!tasks.empty());
         dispatching_messages_ = false;
     }
 
