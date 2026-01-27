@@ -10,7 +10,7 @@ polyfills that consumers can include if required.
 
 ## **Building - All Development Platforms**
 
-**Required Tools:** [git](https://git-scm.com/), [CMake](https://cmake.org/), [node.js](https://nodejs.org/en/)
+**Required Tools:** [git](https://git-scm.com/), [CMake 3.29 or newer](https://cmake.org/), [node.js 20.x or newer](https://nodejs.org/en/)
 
 The first step for all development environments and targets is to clone this repository. 
 
@@ -32,9 +32,9 @@ npm install
 _Follow the steps from [All Development Platforms](#all-development-platforms) before proceeding._
 
 **Required Tools:**
-[Android Studio](https://developer.android.com/studio), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
+[Android Studio](https://developer.android.com/studio) with Android NDK 28.2.13676358 and API level 35 SDK platforms installed, [Node.js 20.x or newer](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
 
-The minimal requirement target is Android 5.0.
+The minimal requirement target is Android 10.0, which has [~95%](https://gs.statcounter.com/android-version-market-share/mobile-tablet/worldwide) active device coverage globally. Android 10 support covers Meta Quest 1 (and newer), HTC Vive Focus 2 (and newer), and Pico 3 (and newer).
 
 Only building with Android Studio is supported. CMake is not used directly. Instead, Gradle
 is used for building and CMake is automatically invocated for building the native part.

@@ -14,20 +14,58 @@ jobs:
     vmImage: macos-14
 
   steps:
+  - task: JavaToolInstaller@0
+    displayName: 'Set up JDK 17'
+    inputs:
+      versionSpec: '17'
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+
   - script: |
-      echo Install Android image
-      export JAVA_HOME=$JAVA_HOME_8_X64
-      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
-      echo 'y' | $ANDROID_HOME/tools/bin/sdkmanager --licenses
-      echo Create AVD
-      $ANDROID_HOME/tools/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
+      echo "Install NDK and Android SDK"
+      # Use Java 17 which is compatible with modern Android tooling
+      export JAVA_HOME=$JAVA_HOME_17_X64
+      export PATH=$JAVA_HOME/bin:$PATH
+
+      echo "Java version:"
+      java -version
+
+      # Use cmdline-tools instead of deprecated tools/bin path
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;$(ndkVersion)"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "build-tools;35.0.0"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "system-images;android-35;google_apis;x86_64"
+      echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+      echo "Create AVD with Pixel 2 profile and optimized memory"
+      echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_2_API_35 -d pixel_2 -k "system-images;android-35;google_apis;x86_64"
+      # Optimize AVD for CI - reduce memory and disk size
+      echo "hw.ramSize=1024" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
+      echo "disk.dataPartition.size=2G" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
+      echo "hw.gpu.enabled=yes" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
+      echo "hw.gpu.mode=swiftshader_indirect" >> ~/.android/avd/Pixel_2_API_35.avd/config.ini
     displayName: 'Install Android Emulator'
 
   - script: |
-      echo Start emulator
-      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window -no-audio -no-boot-anim 2>&1 &
+      export JAVA_HOME=$JAVA_HOME_17_X64
+      export PATH=$JAVA_HOME/bin:$PATH
+
+      echo Start emulator with optimized settings
+      nohup $ANDROID_HOME/emulator/emulator -avd Pixel_2_API_35 -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -no-snapshot-save -memory 1024 -partition-size 2048 2>&1 &
       echo Wait for emulator
-      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo '.'; sleep 1; done'
+      $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo "Waiting for boot..."; sleep 2; done'
+
+      # Additional wait for package manager to be ready
+      echo "Waiting for package manager..."
+      $ANDROID_HOME/platform-tools/adb shell 'while [[ -z $(pm list packages 2>/dev/null) ]]; do sleep 2; done'
+
+      # Disable animations for test stability
+      $ANDROID_HOME/platform-tools/adb shell settings put global window_animation_scale 0
+      $ANDROID_HOME/platform-tools/adb shell settings put global transition_animation_scale 0
+      $ANDROID_HOME/platform-tools/adb shell settings put global animator_duration_scale 0
+
+      # Increase ADB timeout
+      export ADB_INSTALL_TIMEOUT=120
+
       $ANDROID_HOME/platform-tools/adb devices
     displayName: 'Start Android Emulator'
 
@@ -37,13 +75,20 @@ jobs:
       workingDirectory: 'Tests/UnitTests/Android'
       options: '-PabiFilters=x86_64 -PjsEngine=${{parameters.jsEngine}} -PndkVersion=$(ndkVersion)'
       tasks: 'connectedAndroidTest'
-      jdkVersionOption: 1.17
+      jdkVersionOption: '1.17'
     displayName: 'Run Connected Android Test'
+    retryCountOnTaskFailure: 2
 
   - script: |
+      # Dump test failure details when tests fail
+      if [ -f ./app/build/outputs/androidTest-results/connected/TEST-*.xml ]; then
+        echo "=== Test Results Summary ==="
+        grep -h "testcase\|failure" ./app/build/outputs/androidTest-results/connected/TEST-*.xml || true
+      fi
+      # Dump logcat output which contains our detailed error messages
       find ./app/build/outputs/androidTest-results -name "*.txt" -print0 | while IFS= read -r -d '' file; do
-        echo "cat \"$file\""
-        cat "$file"
+        echo "=== Logcat Output from: $file ==="
+        cat "$file" | grep -5 -E "(FAILED|TEST FAILURES|Error:|Stack:|JsRuntimeHost)" || cat "$file"
       done
     workingDirectory: 'Tests/UnitTests/Android'
     condition: succeededOrFailed()

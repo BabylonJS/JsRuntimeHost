@@ -4,13 +4,15 @@ const webpack = require('webpack');
 module.exports = {
   target: 'web',
   mode: 'development', // or 'production'
-  devtool: false,
+  devtool: 'inline-source-map', // Enable source maps for better error reporting
   entry: {
     tests: './UnitTests/Scripts/tests.ts',
   },
   output: {
     filename: '[name].js',
-    path: path.resolve(__dirname, 'UnitTests/dist'),
+    path: process.env.JSRUNTIMEHOST_BUNDLE_OUTPUT
+      ? path.resolve(process.env.JSRUNTIMEHOST_BUNDLE_OUTPUT)
+      : path.resolve(__dirname, 'UnitTests/dist'),
   },
   plugins: [
     new webpack.ProvidePlugin({
