@@ -33,6 +33,10 @@ namespace Babylon::Polyfills::Performance
             performance = Napi::Object::New(env);
             env.Global().Set(JS_INSTANCE_NAME, performance);
         }
+        else
+        {
+            return; // already defined (might be QuickJS built-in)
+        }
 
         performance.Set("now", Napi::Function::New(env, Now, "now"));
     }
