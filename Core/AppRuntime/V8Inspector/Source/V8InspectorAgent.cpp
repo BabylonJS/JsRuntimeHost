@@ -7,6 +7,9 @@
 
 #include <v8-inspector.h>
 #include <v8-platform.h>
+#if __has_include(<v8-version.h>)
+#include <v8-version.h>
+#endif
 
 #include <string.h>
 #include <chrono>
@@ -194,15 +197,14 @@ namespace Babylon
 
         void ConnectFrontend()
         {
+#if defined(V8_MAJOR_VERSION) && (V8_MAJOR_VERSION >= 11)
             session_ = inspector_->connect(
-                1, new ChannelImpl(agent_), v8_inspector::StringView()
-// v8-android package and v8 nuget do not share the same V8 version. A change in V8_inspector API forces us to add this
-// ifndef check. This will be fixed in a future nuget package update.
-#ifndef ANDROID
-                                                ,
-                v8_inspector::V8Inspector::kFullyTrusted
+                1, new ChannelImpl(agent_), v8_inspector::StringView(),
+                v8_inspector::V8Inspector::kFullyTrusted);
+#else
+            session_ = inspector_->connect(
+                1, new ChannelImpl(agent_), v8_inspector::StringView());
 #endif
-            );
         }
 
         void DisconnectFrontend()

@@ -393,7 +393,9 @@ TEST_F(EngineCompatTest, LargeTypedArrayRoundtrip)
             {
                 auto array = info[0].As<Napi::Uint8Array>();
                 length = array.ElementLength();
-                if (length != 10u * 1024u * 1024u || array[0] != 255 || array[length - 1] != 128)
+                const size_t expectedLength = 10u * 1024u * 1024u;
+                const auto* data = array.Data();
+                if (length != expectedLength || data == nullptr || data[0] != 255 || data[length - 1] != 128)
                 {
                     ADD_FAILURE() << "Large typed array contents were not preserved.";
                 }
