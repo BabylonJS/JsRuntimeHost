@@ -108,7 +108,12 @@ TEST_F(EngineCompatTest, LargeStringRoundtrip)
         env.Global().Set("nativeCheckLargeString", fn);
     });
 
-    Eval("const s = 'x'.repeat(1_000_000); nativeCheckLargeString(s);");
+    Eval("const count = (() => {"
+         "  try { return eval('1_000_000'); }"
+         "  catch (e) { return 1000000; }"
+         "})();"
+         "const s = 'x'.repeat(count);"
+         "nativeCheckLargeString(s);");
 
     auto future = lengthPromise.get_future();
     EXPECT_EQ(Await(future), 1'000'000u);
