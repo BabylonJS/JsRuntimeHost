@@ -671,3 +671,67 @@ TEST_F(EngineCompatTest, GlobalThisRoundtrip)
     EXPECT_TRUE(Await(future));
 #endif
 }
+
+TEST(AppRuntime, ReportsPendingExceptionFromDispatch)
+{
+    std::promise<std::string> errorPromise;
+    std::atomic<bool> handled{false};
+
+    Babylon::AppRuntime::Options options{};
+    options.UnhandledExceptionHandler = [&errorPromise, &handled](const Napi::Error& error) {
+        if (handled.exchange(true))
+        {
+            return;
+        }
+
+        errorPromise.set_value(Napi::GetErrorString(error));
+    };
+
+    Babylon::AppRuntime runtime{options};
+    auto errorFuture = errorPromise.get_future();
+
+    runtime.Dispatch([](Napi::Env env) {
+        Napi::Error::New(env, "pending exception test").ThrowAsJavaScriptException();
+    });
+
+    const auto status = errorFuture.wait_for(std::chrono::milliseconds{5000});
+    ASSERT_EQ(status, std::future_status::ready) << "Expected pending exception to be surfaced.";
+    const auto errorText = errorFuture.get();
+    EXPECT_NE(errorText.find("pending exception test"), std::string::npos);
+
+    std::promise<bool> pendingPromise;
+    auto pendingFuture = pendingPromise.get_future();
+    runtime.Dispatch([&pendingPromise](Napi::Env env) {
+        pendingPromise.set_value(env.IsExceptionPending());
+    });
+
+    const auto pendingStatus = pendingFuture.wait_for(std::chrono::milliseconds{5000});
+    ASSERT_EQ(pendingStatus, std::future_status::ready);
+    EXPECT_FALSE(pendingFuture.get());
+}
+
+TEST(AppRuntime, ReportsEvalSyntaxErrorFromScriptLoader)
+{
+    std::promise<std::string> errorPromise;
+    std::atomic<bool> handled{false};
+
+    Babylon::AppRuntime::Options options{};
+    options.UnhandledExceptionHandler = [&errorPromise, &handled](const Napi::Error& error) {
+        if (handled.exchange(true))
+        {
+            return;
+        }
+
+        errorPromise.set_value(Napi::GetErrorString(error));
+    };
+
+    Babylon::AppRuntime runtime{options};
+    Babylon::ScriptLoader loader{runtime};
+
+    loader.Eval("var = 1;", "intentional-eval-syntax-error");
+
+    auto errorFuture = errorPromise.get_future();
+    const auto status = errorFuture.wait_for(std::chrono::milliseconds{5000});
+    ASSERT_EQ(status, std::future_status::ready) << "Expected eval syntax error to be reported.";
+    EXPECT_FALSE(errorFuture.get().empty());
+}

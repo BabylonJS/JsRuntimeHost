@@ -44,6 +44,11 @@ namespace Babylon
                 try
                 {
                     func(env);
+                    if (env.IsExceptionPending())
+                    {
+                        auto error = env.GetAndClearPendingException();
+                        m_options.UnhandledExceptionHandler(error);
+                    }
                 }
                 catch (const Napi::Error& error)
                 {
