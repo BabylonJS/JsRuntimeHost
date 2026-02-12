@@ -37,7 +37,7 @@ FetchContent_Declare(llhttp
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG 5ddc7fe03b4ce79ba55108528e108024d11cfd4c
+    GIT_TAG d53beb958b1cccafd5411260ace6d32b68b56a83
     EXCLUDE_FROM_ALL)
 # --------------------------------------------------
 
