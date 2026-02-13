@@ -21,7 +21,7 @@ jobs:
     inputs:
       solution: 'Build/Win32/JsRuntimeHost.sln'
       maximumCpuCount: true
-      configuration: 'RelWithDebInfo'
+      configuration: 'Release'
     displayName: 'Build Solution'
 
   - script: |
@@ -32,12 +32,12 @@ jobs:
     displayName: 'Enable Crash Dumps'
 
   - script: UnitTests.exe
-    workingDirectory: 'Build/Win32/Tests/UnitTests/RelWithDebInfo'
+    workingDirectory: 'Build/Win32/Tests/UnitTests/Release'
     displayName: 'Run Tests'
 
   - task: CopyFiles@2
     inputs:
-      sourceFolder: 'Build/Win32/Tests/UnitTests/RelWithDebInfo'
+      sourceFolder: 'Build/Win32/Tests/UnitTests/Release'
       contents: UnitTests.*
       targetFolder: '$(Build.ArtifactStagingDirectory)/Dumps'
       cleanTargetFolder: false
