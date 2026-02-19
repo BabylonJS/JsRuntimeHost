@@ -49,5 +49,7 @@ namespace Babylon::Polyfills::Internal
         JsRuntimeScheduler m_runtimeScheduler;
         ReadyState m_readyState{ReadyState::Unsent};
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
+        std::vector<std::byte> m_blobResponseBuffer{};
+        bool m_isBlobUrl{false};
     };
 }

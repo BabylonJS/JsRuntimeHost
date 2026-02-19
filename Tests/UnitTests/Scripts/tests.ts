@@ -938,6 +938,33 @@ describe("URL", function () {
         expect(url.protocol).to.equal("app:");
         expect(url.pathname).to.equal("/Scripts/test.js");
     });
+
+    it("should return a blob: URL from createObjectURL", function () {
+        const blob = new Blob(["hello"]);
+        const url = URL.createObjectURL(blob);
+        expect(url).to.be.a("string");
+        expect(url.startsWith("blob:")).to.equal(true);
+    });
+
+    it("should download blob URL content via XHR as arraybuffer with matching bytes", async function () {
+        const bytes = new Uint8Array([10, 20, 30, 40, 50]);
+        const blob = new Blob([bytes]);
+        const url = URL.createObjectURL(blob);
+
+        const xhr = await new Promise<XMLHttpRequest>((resolve) => {
+            const request = new XMLHttpRequest();
+            request.open("GET", url);
+            request.responseType = "arraybuffer";
+            request.addEventListener("loadend", () => resolve(request));
+            request.send();
+        });
+
+        expect(xhr.readyState).to.equal(4);
+        const response = new Uint8Array(xhr.response as ArrayBuffer);
+        expect(Array.from(response)).to.deep.equal(Array.from(bytes));
+
+        URL.revokeObjectURL(url);
+    });
 });
 
 // URLSearchParams
