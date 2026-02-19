@@ -3,6 +3,7 @@
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <arcana/tracing/trace_region.h>
 #include <sstream>
+#include <cstring>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -110,6 +111,16 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponse(const Napi::CallbackInfo&)
     {
+        if (m_isBlobUrl)
+        {
+            auto arrayBuffer = Napi::ArrayBuffer::New(Env(), m_blobResponseBuffer.size());
+            if (!m_blobResponseBuffer.empty())
+            {
+                std::memcpy(arrayBuffer.Data(), m_blobResponseBuffer.data(), m_blobResponseBuffer.size());
+            }
+            return arrayBuffer;
+        }
+
         if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
         {
             return Napi::Value::From(Env(), m_request.ResponseString().data());
@@ -145,6 +156,10 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
+        if (m_isBlobUrl)
+        {
+            return Napi::Value::From(Env(), static_cast<int>(UrlLib::UrlStatusCode::Ok));
+        }
         return Napi::Value::From(Env(), arcana::underlying_cast(m_request.StatusCode()));
     }
 
@@ -219,18 +234,22 @@ namespace Babylon::Polyfills::Internal
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
     {
         m_url = info[1].As<Napi::String>();
+        m_isBlobUrl = m_url.rfind("blob:", 0) == 0;
 
-        try
+        if (!m_isBlobUrl)
         {
-            m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
-        }
-        catch (const std::exception& e)
-        {
-            throw Napi::Error::New(info.Env(), std::string{"Error opening URL: "} + e.what());
-        }
-        catch (...)
-        {
-            throw Napi::Error::New(info.Env(), "Unknown error opening URL");
+            try
+            {
+                m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
+            }
+            catch (const std::exception& e)
+            {
+                throw Napi::Error::New(info.Env(), std::string{"Error opening URL: "} + e.what());
+            }
+            catch (...)
+            {
+                throw Napi::Error::New(info.Env(), "Unknown error opening URL");
+            }
         }
 
         SetReadyState(ReadyState::Opened);
@@ -241,6 +260,36 @@ namespace Babylon::Polyfills::Internal
         if (m_readyState != ReadyState::Opened)
         {
             throw Napi::Error::New(info.Env(), "XMLHttpRequest must be opened before it can be sent");
+        }
+
+        if (m_isBlobUrl)
+        {
+            auto env = info.Env();
+            auto registryVal = env.Global().Get("__blob_registry__");
+            if (registryVal.IsObject())
+            {
+                auto blobVal = registryVal.As<Napi::Object>().Get(m_url);
+                if (blobVal.IsObject())
+                {
+                    auto blobObj = blobVal.As<Napi::Object>();
+                    // blob.arrayBuffer() returns an already-resolved Promise; chain .then() to
+                    // retrieve the ArrayBuffer asynchronously (microtask) without a C++ Blob dependency.
+                    auto promise = blobObj.Get("arrayBuffer").As<Napi::Function>().Call(blobObj, {}).As<Napi::Object>();
+                    auto callback = Napi::Function::New(env, [this](const Napi::CallbackInfo& cbInfo) {
+                        auto arrayBuffer = cbInfo[0].As<Napi::ArrayBuffer>();
+                        m_blobResponseBuffer.resize(arrayBuffer.ByteLength());
+                        if (arrayBuffer.ByteLength() > 0)
+                        {
+                            std::memcpy(m_blobResponseBuffer.data(), arrayBuffer.Data(), arrayBuffer.ByteLength());
+                        }
+                        SetReadyState(ReadyState::Done);
+                        RaiseEvent(EventType::LoadEnd);
+                        m_eventHandlerRefs.clear();
+                    });
+                    promise.Get("then").As<Napi::Function>().Call(promise, {callback});
+                }
+            }
+            return;
         }
 
         if (info.Length() > 0)

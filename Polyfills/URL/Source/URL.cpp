@@ -2,6 +2,8 @@
 #include <sstream>
 #include <regex>
 #include <optional>
+#include <random>
+#include <iomanip>
 
 // NOTE: This is a platform agnostic implementation created with a lot of help from AI :)
 //       In the future, we may want to consider using platform-specific URL parsing APIs instead.
@@ -313,6 +315,22 @@ namespace
 
         return result;
     }
+
+    std::string GenerateUUID()
+    {
+        static std::mt19937 engine{std::random_device{}()};
+        static std::uniform_int_distribution<uint32_t> dist;
+
+        std::ostringstream ss;
+        ss << std::hex << std::setfill('0');
+        ss << std::setw(8) << dist(engine) << '-';
+        ss << std::setw(4) << (dist(engine) & 0xFFFF) << '-';
+        ss << std::setw(4) << ((dist(engine) & 0x0FFF) | 0x4000) << '-';
+        ss << std::setw(4) << ((dist(engine) & 0x3FFF) | 0x8000) << '-';
+        ss << std::setw(8) << dist(engine);
+        ss << std::setw(4) << (dist(engine) & 0xFFFF);
+        return ss.str();
+    }
 }
 
 namespace Babylon::Polyfills::Internal
@@ -346,6 +364,8 @@ namespace Babylon::Polyfills::Internal
                     // Static methods
                     StaticMethod("canParse", &URL::CanParse),
                     StaticMethod("parse", &URL::Parse),
+                    StaticMethod("createObjectURL", &URL::CreateObjectURL),
+                    StaticMethod("revokeObjectURL", &URL::RevokeObjectURL),
                 });
 
             env.Global().Set(JS_URL_CONSTRUCTOR_NAME, func);
@@ -711,6 +731,56 @@ namespace Babylon::Polyfills::Internal
         {
             return info.Env().Null();
         }
+    }
+
+    static constexpr auto JS_BLOB_REGISTRY_NAME = "__blob_registry__";
+
+    Napi::Value URL::CreateObjectURL(const Napi::CallbackInfo& info)
+    {
+        auto env = info.Env();
+
+        if (info.Length() == 0 || !info[0].IsObject())
+        {
+            throw Napi::TypeError::New(env, "URL.createObjectURL requires a Blob argument");
+        }
+
+        std::string blobUrl = "blob:null/" + GenerateUUID();
+
+        // Get or create the blob registry on the global object
+        auto global = env.Global();
+        Napi::Object registry;
+        auto registryVal = global.Get(JS_BLOB_REGISTRY_NAME);
+        if (registryVal.IsUndefined() || !registryVal.IsObject())
+        {
+            registry = Napi::Object::New(env);
+            global.Set(JS_BLOB_REGISTRY_NAME, registry);
+        }
+        else
+        {
+            registry = registryVal.As<Napi::Object>();
+        }
+
+        // Store the blob JS object directly in the registry
+        registry.Set(blobUrl, info[0]);
+
+        return Napi::String::New(env, blobUrl);
+    }
+
+    Napi::Value URL::RevokeObjectURL(const Napi::CallbackInfo& info)
+    {
+        auto env = info.Env();
+
+        if (info.Length() > 0 && info[0].IsString())
+        {
+            auto registryVal = env.Global().Get(JS_BLOB_REGISTRY_NAME);
+            if (!registryVal.IsUndefined() && registryVal.IsObject())
+            {
+                std::string blobUrl = info[0].As<Napi::String>();
+                registryVal.As<Napi::Object>().Delete(blobUrl);
+            }
+        }
+
+        return env.Undefined();
     }
 }
 
