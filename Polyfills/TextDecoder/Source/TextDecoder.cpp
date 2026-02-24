@@ -14,9 +14,9 @@ namespace
         {
             Napi::HandleScope scope{env};
 
-            if (env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).IsUndefined())
+            static constexpr auto JS_TEXTDECODER_CONSTRUCTOR_NAME = "TextDecoder";
+            if (env.Global().Get(JS_TEXTDECODER_CONSTRUCTOR_NAME).IsUndefined())
             {
-                static constexpr auto JS_TEXTDECODER_CONSTRUCTOR_NAME = "TextDecoder";
                 Napi::Function func = DefineClass(
                     env,
                     JS_TEXTDECODER_CONSTRUCTOR_NAME,
