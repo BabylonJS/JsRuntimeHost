@@ -7,8 +7,6 @@
 
 namespace
 {
-    static constexpr auto JS_TEXTDECODER_CONSTRUCTOR_NAME = "TextDecoder";
-
     class TextDecoder final : public Napi::ObjectWrap<TextDecoder>
     {
     public:
@@ -16,14 +14,18 @@ namespace
         {
             Napi::HandleScope scope{env};
 
-            Napi::Function func = DefineClass(
-                env,
-                JS_TEXTDECODER_CONSTRUCTOR_NAME,
-                {
-                    InstanceMethod("decode", &TextDecoder::Decode),
-                });
+            if (env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).IsUndefined())
+            {
+                static constexpr auto JS_TEXTDECODER_CONSTRUCTOR_NAME = "TextDecoder";
+                Napi::Function func = DefineClass(
+                    env,
+                    JS_TEXTDECODER_CONSTRUCTOR_NAME,
+                    {
+                        InstanceMethod("decode", &TextDecoder::Decode),
+                    });
 
-            env.Global().Set(JS_TEXTDECODER_CONSTRUCTOR_NAME, func);
+                env.Global().Set(JS_TEXTDECODER_CONSTRUCTOR_NAME, func);
+            }
         }
 
         explicit TextDecoder(const Napi::CallbackInfo& info)
