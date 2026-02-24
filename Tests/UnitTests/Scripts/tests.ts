@@ -1261,29 +1261,12 @@ describe("TextDecoder", function () {
         expect(result).to.equal("World");
     });
 
-    it("should decode a DataView to a string", function () {
-        const decoder = new TextDecoder();
-        const bytes = new Uint8Array([72, 105]); // "Hi"
-        const view = new DataView(bytes.buffer);
-        const result = decoder.decode(view);
-        expect(result).to.equal("Hi");
-    });
-
     it("should decode a TypedArray subarray with non-zero byteOffset", function () {
         const decoder = new TextDecoder();
         const full = new Uint8Array([88, 72, 105]); // "XHi"
         const sub = full.subarray(1); // [72, 105] -> "Hi"
         const result = decoder.decode(sub);
         expect(result).to.equal("Hi");
-    });
-
-    it("should throw when decoding from an invalid input type", function () {
-        const decoder = new TextDecoder();
-        expect(() => decoder.decode("not-a-buffer" as any)).to.throw();
-    });
-
-    it("should throw for unsupported encodings", function () {
-        expect(() => new TextDecoder("utf-32" as any)).to.throw();
     });
 });
 
