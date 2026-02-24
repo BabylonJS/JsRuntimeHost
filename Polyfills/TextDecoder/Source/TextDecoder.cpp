@@ -55,13 +55,20 @@ namespace
                 auto byteOffset = typedArray.ByteOffset();
                 auto byteLength = typedArray.ByteLength();
                 data.resize(byteLength);
-                std::memcpy(data.data(), static_cast<uint8_t*>(arrayBuffer.Data()) + byteOffset, byteLength);
+                if (byteLength > 0)
+                {
+                    std::memcpy(data.data(), static_cast<uint8_t*>(arrayBuffer.Data()) + byteOffset, byteLength);
+                }
             }
             else if (info[0].IsArrayBuffer())
             {
                 auto arrayBuffer = info[0].As<Napi::ArrayBuffer>();
-                data.resize(arrayBuffer.ByteLength());
-                std::memcpy(data.data(), arrayBuffer.Data(), arrayBuffer.ByteLength());
+                auto byteLength = arrayBuffer.ByteLength();
+                data.resize(byteLength);
+                if (byteLength > 0)
+                {
+                    std::memcpy(data.data(), arrayBuffer.Data(), byteLength);
+                }
             }
 
             std::string result(data.begin(), data.end());
