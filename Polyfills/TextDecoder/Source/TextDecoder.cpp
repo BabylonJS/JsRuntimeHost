@@ -3,7 +3,6 @@
 #include <napi/napi.h>
 #include <cstring>
 #include <string>
-#include <vector>
 
 namespace
 {
@@ -30,23 +29,27 @@ namespace
 
         explicit TextDecoder(const Napi::CallbackInfo& info)
             : Napi::ObjectWrap<TextDecoder>{info}
-            , m_encoding{"utf-8"}
         {
             if (info.Length() > 0 && info[0].IsString())
             {
-                m_encoding = info[0].As<Napi::String>().Utf8Value();
+                auto encoding = info[0].As<Napi::String>().Utf8Value();
+                if (encoding != "utf-8" && encoding != "UTF-8")
+                {
+                    Napi::Error::New(info.Env(), "TextDecoder: unsupported encoding '" + encoding + "', only 'utf-8' is supported")
+                        .ThrowAsJavaScriptException();
+                }
             }
         }
 
     private:
         Napi::Value Decode(const Napi::CallbackInfo& info)
         {
-            if (info.Length() < 1)
+            if (info.Length() < 1 || info[0].IsUndefined())
             {
                 return Napi::String::New(info.Env(), "");
             }
 
-            std::vector<uint8_t> data;
+            std::string data;
 
             if (info[0].IsTypedArray())
             {
@@ -70,12 +73,15 @@ namespace
                     std::memcpy(data.data(), arrayBuffer.Data(), byteLength);
                 }
             }
+            else
+            {
+                Napi::TypeError::New(info.Env(), "TextDecoder.decode: input must be a BufferSource (ArrayBuffer or TypedArray)")
+                    .ThrowAsJavaScriptException();
+                return info.Env().Undefined();
+            }
 
-            std::string result(data.begin(), data.end());
-            return Napi::String::New(info.Env(), result);
+            return Napi::String::New(info.Env(), data);
         }
-
-        std::string m_encoding;
     };
 }
 
