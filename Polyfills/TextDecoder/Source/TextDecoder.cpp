@@ -74,7 +74,7 @@ namespace
             }
             else
             {
-                throw Napi::Error::New(Env(), "TextDecoder.decode: input must be a BufferSource (ArrayBuffer or TypedArray)");
+                throw Napi::TypeError::New(Env(), "TextDecoder.decode: input must be a BufferSource (ArrayBuffer or TypedArray)");
             }
 
             return Napi::String::New(info.Env(), data);
