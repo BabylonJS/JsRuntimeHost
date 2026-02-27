@@ -106,9 +106,9 @@ namespace {
         return JSStringCreateWithUTF8CString(string);
       }
 
-      // Create a null-terminated copy so JSStringCreateWithUTF8CString can be used directly
-      std::string str(string, length);
-      return JSStringCreateWithUTF8CString(str.c_str());
+      std::u16string u16str{std::wstring_convert<
+        std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(string, string + length)};
+      return JSStringCreateWithCharacters(reinterpret_cast<JSChar*>(u16str.data()), u16str.size());
     }
 
     JSString(JSStringRef string)
