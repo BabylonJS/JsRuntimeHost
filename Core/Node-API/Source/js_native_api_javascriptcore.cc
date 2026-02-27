@@ -7,8 +7,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <locale>
-#include <codecvt>
 
 struct napi_callback_info__ {
   napi_value newTarget;
@@ -108,9 +106,11 @@ namespace {
         return JSStringCreateWithUTF8CString(string);
       }
 
-      std::u16string u16str{std::wstring_convert<
-        std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(string, string + length)};
-      return JSStringCreateWithCharacters(reinterpret_cast<JSChar*>(u16str.data()), u16str.size());
+      // Create a null-terminated copy so JSStringCreateWithUTF8CString can be
+      // used directly, avoiding the deprecated and error-prone
+      // std::wstring_convert / std::codecvt_utf8_utf16 path.
+      std::string str(string, length);
+      return JSStringCreateWithUTF8CString(str.c_str());
     }
 
     JSString(JSStringRef string)
