@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <locale>
+#include <codecvt>
 
 struct napi_callback_info__ {
   napi_value newTarget;
