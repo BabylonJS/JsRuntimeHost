@@ -1261,6 +1261,14 @@ describe("TextDecoder", function () {
         expect(result).to.equal("World");
     });
 
+    it("should decode a Uint8Array containing a null byte", function () {
+        const decoder = new TextDecoder();
+        const encoded = new Uint8Array([72, 0, 105]); // "H\0i"
+        const result = decoder.decode(encoded);
+        expect(result).to.equal("H\0i");
+        expect(result.length).to.equal(3);
+    });
+
     it("should decode a TypedArray subarray with non-zero byteOffset", function () {
         const decoder = new TextDecoder();
         const full = new Uint8Array([88, 72, 105]); // "XHi"
