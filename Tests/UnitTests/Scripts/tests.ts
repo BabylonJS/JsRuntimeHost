@@ -199,7 +199,7 @@ describe("XMLHTTPRequest", function () {
 
     it("should load a PLY file and parse vertex count from header using TextDecoder", async function () {
         this.timeout(30000);
-        const xhr = await createRequest("GET", "https://assets.babylonjs.com/splats/Halo_Believe.ply", undefined, "arraybuffer");
+        const xhr = await createRequest("GET", "app:///Assets/Halo_Believe.ply", undefined, "arraybuffer");
         expect(xhr.status).to.equal(200);
 
         const ubuf = new Uint8Array(xhr.response);
@@ -209,7 +209,7 @@ describe("XMLHTTPRequest", function () {
         expect(headerEndIndex).to.be.greaterThan(0);
 
         const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)![1]);
-        expect(vertexCount).to.equal(345217);
+        expect(vertexCount).to.equal(18713);
     });
 });
 
