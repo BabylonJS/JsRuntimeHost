@@ -7,6 +7,7 @@ Mocha.reporter('spec');
 
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
+declare const sanitizersEnabled: boolean;
 
 
 describe("AbortController", function () {
@@ -1234,11 +1235,11 @@ describe("Performance", function () {
     it("should measure elapsed time accurately", function (done) {
         const start = performance.now();
         const delay = 50;
+        const tolerance = sanitizersEnabled ? 500 : 100;
         setTimeout(() => {
             const elapsed = performance.now() - start;
-            // Allow generous tolerance for CI and sanitizer builds where timers are much slower
             expect(elapsed).to.be.at.least(delay - 5);
-            expect(elapsed).to.be.lessThan(delay + 500);
+            expect(elapsed).to.be.lessThan(delay + tolerance);
             done();
         }, delay);
     });
