@@ -1236,9 +1236,9 @@ describe("Performance", function () {
         const delay = 50;
         setTimeout(() => {
             const elapsed = performance.now() - start;
-            // Allow some tolerance (elapsed should be at least the delay, but could be slightly more)
+            // Allow generous tolerance for CI and sanitizer builds where timers are much slower
             expect(elapsed).to.be.at.least(delay - 5);
-            expect(elapsed).to.be.lessThan(delay + 100); // generous upper bound
+            expect(elapsed).to.be.lessThan(delay + 500);
             done();
         }, delay);
     });
