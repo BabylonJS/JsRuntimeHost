@@ -28,6 +28,11 @@ FetchContent_Declare(CMakeExtensions
 FetchContent_Declare(googletest
     URL "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz"
     EXCLUDE_FROM_ALL)
+FetchContent_Declare(hermes
+    GIT_REPOSITORY https://github.com/CedricGuillemet/hermes.git
+    GIT_TAG disableGTest
+    EXCLUDE_FROM_ALL
+    SYSTEM)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
     GIT_TAG 4.4.1
@@ -135,6 +140,25 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
     set(BUILD_STATIC_LIBS ON CACHE INTERNAL "")
     FetchContent_MakeAvailable_With_Message(llhttp)
     set_property(TARGET llhttp_static PROPERTY FOLDER Dependencies)
+endif()
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    set(HERMES_ENABLE_TOOLS ON CACHE BOOL "" FORCE)
+    set(HERMES_ENABLE_TEST_SUITE OFF CACHE BOOL "" FORCE)
+    set(HERMES_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
+    set(HERMESVM_ALLOW_CONCURRENT_GC ON CACHE BOOL "" FORCE)
+    set(HERMES_IS_ANDROID OFF CACHE BOOL "" FORCE)
+    set(HERMES_ENABLE_CORE_EXTENSIONS OFF CACHE BOOL "" FORCE)
+    set(HERMES_ENABLE_DEBUGGER OFF CACHE BOOL "" FORCE)
+
+    # Populate Hermes source without adding it yet.
+    FetchContent_GetProperties(hermes)
+    if(NOT hermes_POPULATED)
+        FetchContent_Populate(hermes)
+    endif()
+
+    add_subdirectory("${hermes_SOURCE_DIR}" "${hermes_BINARY_DIR}" SYSTEM)
+    message(STATUS "Fetching hermes - done")
 endif()
 
 if(JSRUNTIMEHOST_TESTS)

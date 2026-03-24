@@ -87,6 +87,7 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_v8.h"
             "Source/js_native_api_v8_internals.h")
 
+
         if(ANDROID)
             set(V8_PACKAGE_BASE_NAME "v8-android-jit-nointl-nosnapshot")
             set(V8_PACKAGE_NAME "@babylonjs/${V8_PACKAGE_BASE_NAME}")
@@ -145,6 +146,20 @@ if(NAPI_BUILD_ABI)
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
         endif()
+    elseif(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+        set(SOURCES ${SOURCES}
+            "Source/env_hermes.cc"
+            "Source/js_native_api_hermes.cc"
+            "Source/js_native_api_hermes.h")
+
+        set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
+            PUBLIC "${hermes_SOURCE_DIR}/API"
+            PUBLIC "${hermes_SOURCE_DIR}/API/jsi"
+            PUBLIC "${hermes_SOURCE_DIR}/public")
+
+        set(LINK_LIBRARIES ${LINK_LIBRARIES}
+            PUBLIC hermesvm_a
+            PUBLIC jsi)
     else()
         message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
     endif()
@@ -156,6 +171,14 @@ add_library(napi ${SOURCES})
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    # Suppress warnings from Hermes headers for downstream targets
+    target_include_directories(napi SYSTEM PUBLIC
+        "${hermes_SOURCE_DIR}/API"
+        "${hermes_SOURCE_DIR}/API/jsi"
+        "${hermes_SOURCE_DIR}/public")
+endif()
 
 set_property(TARGET napi PROPERTY FOLDER Dependencies)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
