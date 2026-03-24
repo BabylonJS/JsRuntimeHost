@@ -124,3 +124,16 @@ jobs:
       enableSanitizers: true
       CC: clang
       CXX: clang++
+
+  # Hermes
+  - template: jobs/win32_hermes.yml
+    parameters:
+      name: Win32_x64_Hermes
+
+  - template: jobs/macos_hermes.yml
+    parameters:
+      name: macOS_Hermes
+
+  - template: jobs/linux_hermes.yml
+    parameters:
+      name: Ubuntu_Hermes

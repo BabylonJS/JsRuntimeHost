@@ -1,0 +1,29 @@
+parameters:
+- name: name
+  type: string
+
+jobs:
+- job: ${{parameters.name}}
+  timeoutInMinutes: 30
+
+  pool:
+    vmImage: ubuntu-latest
+
+  steps:
+  - script: |
+      sudo apt-get update
+      sudo apt-get install libcurl4-openssl-dev ninja-build libicu-dev
+    displayName: 'Install packages'
+
+  - script: |
+      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D NAPI_JAVASCRIPT_ENGINE=Hermes
+    displayName: 'Configure CMake'
+
+  - script: |
+      cd Build/ubuntu
+      ninja
+    displayName: 'Build Solution'
+
+  - script: ./UnitTests
+    workingDirectory: 'Build/ubuntu/Tests/UnitTests'
+    displayName: 'Run Tests'
