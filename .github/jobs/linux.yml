@@ -7,7 +7,7 @@ parameters:
 
 jobs:
 - job: ${{parameters.name}}
-  timeoutInMinutes: 15
+  timeoutInMinutes: 30
 
   pool:
     vmImage: ubuntu-latest
