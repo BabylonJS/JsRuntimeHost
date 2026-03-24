@@ -74,6 +74,8 @@ add_custom_command(TARGET UnitTests POST_BUILD
 
 if(APPLE)
     enable_objc_arc(UnitTests)
+    # Link Apple frameworks explicitly (needed for non-Xcode generators like Ninja)
+    target_link_libraries(UnitTests PRIVATE "-framework Foundation")
 endif()
 
 if(IOS)
