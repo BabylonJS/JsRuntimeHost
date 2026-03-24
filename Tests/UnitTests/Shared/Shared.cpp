@@ -127,6 +127,7 @@ TEST(Console, Log)
 
 int RunTests()
 {
-    testing::InitGoogleTest();
+    int argc = 0;
+    testing::InitGoogleTest(&argc, static_cast<char**>(nullptr));
     return RUN_ALL_TESTS();
 }

@@ -158,8 +158,7 @@ if(NAPI_BUILD_ABI)
             PUBLIC "${hermes_SOURCE_DIR}/public")
 
         set(LINK_LIBRARIES ${LINK_LIBRARIES}
-            PUBLIC hermesvm_a
-            PUBLIC jsi)
+            PUBLIC hermesvm)
     else()
         message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
     endif()
