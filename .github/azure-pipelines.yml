@@ -126,14 +126,21 @@ jobs:
       CXX: clang++
 
   # Hermes
-  - template: jobs/win32_hermes.yml
+  - template: jobs/win32.yml
     parameters:
       name: Win32_x64_Hermes
+      platform: x64
+      jsEngine: Hermes
 
-  - template: jobs/macos_hermes.yml
+  - template: jobs/macos.yml
     parameters:
       name: macOS_Hermes
+      vmImage: 'macOS-latest'
+      xCodeVersion: 16.4
+      jsEngine: Hermes
+      generator: 'Ninja'
 
-  - template: jobs/linux_hermes.yml
+  - template: jobs/linux.yml
     parameters:
       name: Ubuntu_Hermes
+      jsEngine: Hermes

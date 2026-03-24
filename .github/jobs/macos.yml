@@ -3,6 +3,8 @@ parameters:
   vmImage: ''
   xCodeVersion: ''
   enableSanitizers: false
+  jsEngine: 'JavaScriptCore'
+  generator: 'Xcode'
 
 jobs:
 - job: ${{parameters.name}}
@@ -20,18 +22,27 @@ jobs:
     displayName: 'Select Xcode ${{parameters.xCodeVersion}}'
 
   - script: |
-      cmake -B Build/macOS -G Xcode -D ENABLE_SANITIZERS=$(SANITIZER_FLAG)
+      cmake -B Build/macOS -G "${{parameters.generator}}" -D NAPI_JAVASCRIPT_ENGINE=${{parameters.jsEngine}} -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D CMAKE_BUILD_TYPE=RelWithDebInfo
     displayName: 'Configure CMake'
 
-  - task: Xcode@5
-    inputs:
-      xcWorkspacePath: 'Build/macOS/JsRuntimeHost.xcodeproj'
-      scheme: 'UnitTests'
-      sdk: 'macosx'
-      useXcpretty: false
-      configuration: RelWithDebInfo
-    displayName: 'Build Xcode Project'
+  - ${{ if eq(parameters.generator, 'Xcode') }}:
+    - task: Xcode@5
+      inputs:
+        xcWorkspacePath: 'Build/macOS/JsRuntimeHost.xcodeproj'
+        scheme: 'UnitTests'
+        sdk: 'macosx'
+        useXcpretty: false
+        configuration: RelWithDebInfo
+      displayName: 'Build Xcode Project'
 
-  - script: ./UnitTests
-    workingDirectory: 'Build/macOS/Tests/UnitTests/RelWithDebInfo'
-    displayName: 'Run Tests'
+    - script: ./UnitTests
+      workingDirectory: 'Build/macOS/Tests/UnitTests/RelWithDebInfo'
+      displayName: 'Run Tests'
+
+  - ${{ if ne(parameters.generator, 'Xcode') }}:
+    - script: cmake --build Build/macOS --target UnitTests --config RelWithDebInfo -j
+      displayName: 'Build'
+
+    - script: ./UnitTests
+      workingDirectory: 'Build/macOS/Tests/UnitTests'
+      displayName: 'Run Tests'
