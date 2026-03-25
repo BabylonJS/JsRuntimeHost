@@ -1,8 +1,8 @@
 set(SOURCES
-    "include/napi/env.h"
-    "include/napi/napi.h"
-    "include/napi/napi-inl.h"
-    "source/env.cc")
+    "Include/napi/env.h"
+    "Include/napi/napi.h"
+    "Include/napi/napi-inl.h"
+    "Source/env.cc")
 
 add_library(napi ${SOURCES})
 
@@ -57,7 +57,7 @@ if(NOT TARGET jsi)
 endif()
 
 target_include_directories(napi
-    PUBLIC "include")
+    PUBLIC "Include")
 
 target_link_libraries(napi
     PUBLIC jsi)
