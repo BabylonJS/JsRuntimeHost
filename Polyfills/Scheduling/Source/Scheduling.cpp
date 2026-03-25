@@ -6,6 +6,8 @@ namespace
     constexpr auto JS_CLEAR_TIMEOUT_NAME = "clearTimeout";
     constexpr auto JS_SET_INTERVAL_NAME = "setInterval";
     constexpr auto JS_CLEAR_INTERVAL_NAME = "clearInterval";
+    constexpr auto JS_SET_IMMEDIATE_NAME = "setImmediate";
+    constexpr auto JS_CLEAR_IMMEDIATE_NAME = "clearImmediate";
 
     Napi::Value SetTimeout(const Napi::CallbackInfo& info, Babylon::Polyfills::Internal::TimeoutDispatcher& timeoutDispatcher, bool repeat)
     {
@@ -69,6 +71,27 @@ namespace Babylon::Polyfills::Scheduling
                         ClearTimeout(info, *timeoutDispatcher);
                     },
                     JS_CLEAR_INTERVAL_NAME));
+        }
+
+        if (global.Get(JS_SET_IMMEDIATE_NAME).IsUndefined())
+        {
+            global.Set(JS_SET_IMMEDIATE_NAME,
+                Napi::Function::New(
+                    env, [timeoutDispatcher](const Napi::CallbackInfo& info) {
+                        auto function =
+                            info[0].IsFunction()
+                                ? std::make_shared<Napi::FunctionReference>(Napi::Persistent(info[0].As<Napi::Function>()))
+                                : std::shared_ptr<Napi::FunctionReference>{};
+                        return Napi::Value::From(info.Env(), timeoutDispatcher->Dispatch(function, std::chrono::milliseconds{0}, false));
+                    },
+                    JS_SET_IMMEDIATE_NAME));
+
+            global.Set(JS_CLEAR_IMMEDIATE_NAME,
+                Napi::Function::New(
+                    env, [timeoutDispatcher](const Napi::CallbackInfo& info) {
+                        ClearTimeout(info, *timeoutDispatcher);
+                    },
+                    JS_CLEAR_IMMEDIATE_NAME));
         }
     }
 }
