@@ -30,7 +30,7 @@ FetchContent_Declare(googletest
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(hermes
     GIT_REPOSITORY https://github.com/facebook/hermes.git
-    GIT_TAG main
+    GIT_TAG 5b953e5d6be1fb4ed51a0aa2de56537e555a3820
     EXCLUDE_FROM_ALL
     SYSTEM)
 FetchContent_Declare(ios-cmake
@@ -170,36 +170,7 @@ if(JSRUNTIMEHOST_TESTS)
         set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
     endif()
 
-    if(NOT TARGET gtest)
-        # No gtest target exists yet — fetch standard googletest.
-        FetchContent_MakeAvailable_With_Message(googletest)
-    else()
-        # A gtest target already exists (e.g. from Hermes LLVH).
-        # Ensure the include directories and compile definitions are exposed
-        # so downstream targets (UnitTests) can find <gtest/gtest.h>.
-        get_target_property(_gtest_incs gtest INTERFACE_INCLUDE_DIRECTORIES)
-        if(NOT _gtest_incs)
-            target_include_directories(gtest PUBLIC
-                "${hermes_SOURCE_DIR}/external/llvh/utils/unittest/googletest/include"
-                "${hermes_SOURCE_DIR}/external/llvh/utils/unittest/googlemock/include")
-            # LLVH headers are needed by Hermes's custom gtest-printers
-            target_include_directories(gtest SYSTEM PUBLIC
-                "${hermes_SOURCE_DIR}/external/llvh/include"
-                "${hermes_SOURCE_DIR}/external/llvh/gen/include"
-                "${CMAKE_BINARY_DIR}/_deps/hermes-build/external/llvh/include")
-        endif()
-        target_compile_definitions(gtest PUBLIC
-            GTEST_LANG_CXX11=1
-            GTEST_HAS_TR1_TUPLE=0
-            GTEST_HAS_RTTI=0)
-    endif()
-
-    if(NOT TARGET gmock)
-        add_library(gmock INTERFACE)
-    endif()
-    if(NOT TARGET gmock_main)
-        add_library(gmock_main INTERFACE)
-    endif()
+    FetchContent_MakeAvailable_With_Message(googletest)
 
     set_property(TARGET gmock PROPERTY FOLDER Dependencies/GoogleTest)
     set_property(TARGET gmock_main PROPERTY FOLDER Dependencies/GoogleTest)
