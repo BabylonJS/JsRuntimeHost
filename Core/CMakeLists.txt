@@ -1,4 +1,4 @@
-if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI" OR NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     add_subdirectory(Node-API-JSI)
 else()
     add_subdirectory(Node-API)

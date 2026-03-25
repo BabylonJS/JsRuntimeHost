@@ -39,5 +39,9 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INS
     set_property(TARGET v8inspector PROPERTY FOLDER Dependencies)
 endif()
 
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    target_link_libraries(AppRuntime PRIVATE hermesvm_a)
+endif()
+
 set_property(TARGET AppRuntime PROPERTY FOLDER Core)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
