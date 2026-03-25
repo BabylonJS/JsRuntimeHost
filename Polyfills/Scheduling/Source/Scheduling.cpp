@@ -73,11 +73,11 @@ namespace Babylon::Polyfills::Scheduling
                     JS_CLEAR_INTERVAL_NAME));
         }
 
-        if (global.Get(JS_SET_IMMEDIATE_NAME).IsUndefined())
+        if (global.Get(JS_SET_IMMEDIATE_NAME).IsUndefined() && global.Get(JS_CLEAR_IMMEDIATE_NAME).IsUndefined())
         {
             global.Set(JS_SET_IMMEDIATE_NAME,
                 Napi::Function::New(
-                    env, [timeoutDispatcher](const Napi::CallbackInfo& info) {
+                    env, [timeoutDispatcher](const Napi::CallbackInfo& info) -> Napi::Value {
                         auto function =
                             info[0].IsFunction()
                                 ? std::make_shared<Napi::FunctionReference>(Napi::Persistent(info[0].As<Napi::Function>()))
