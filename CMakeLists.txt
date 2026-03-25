@@ -31,8 +31,7 @@ FetchContent_Declare(googletest
 FetchContent_Declare(hermes
     GIT_REPOSITORY https://github.com/facebook/hermes.git
     GIT_TAG 5b953e5d6be1fb4ed51a0aa2de56537e555a3820
-    EXCLUDE_FROM_ALL
-    SYSTEM)
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
     GIT_TAG 4.4.1
