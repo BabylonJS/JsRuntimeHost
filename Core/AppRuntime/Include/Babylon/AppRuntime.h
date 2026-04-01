@@ -6,14 +6,17 @@
 
 #include <napi/utilities.h>
 
+#include <arcana/threading/dispatcher.h>
+
 #include <memory>
 #include <functional>
 #include <exception>
+#include <optional>
+#include <mutex>
+#include <thread>
 
 namespace Babylon
 {
-    class WorkQueue;
-
     class AppRuntime final
     {
     public:
@@ -43,6 +46,23 @@ namespace Babylon
         static void BABYLON_API DefaultUnhandledExceptionHandler(const Napi::Error& error);
 
     private:
+        template<typename CallableT>
+        void Append(CallableT callable)
+        {
+            if constexpr (std::is_copy_constructible<CallableT>::value)
+            {
+                m_dispatcher.queue([this, callable = std::move(callable)]() {
+                    callable(m_env.value());
+                });
+            }
+            else
+            {
+                m_dispatcher.queue([this, callablePtr = std::make_shared<CallableT>(std::move(callable))]() {
+                    (*callablePtr)(m_env.value());
+                });
+            }
+        }
+
         // These three methods are the mechanism by which platform- and JavaScript-specific
         // code can be "injected" into the execution of the JavaScript thread. These three
         // functions are implemented in separate files, thus allowing implementations to be
@@ -61,7 +81,11 @@ namespace Babylon
         // extra logic around the invocation of a dispatched callback.
         void Execute(Dispatchable<void()> callback);
 
-        std::unique_ptr<WorkQueue> m_workQueue;
         Options m_options;
+        std::optional<Napi::Env> m_env{};
+        std::optional<std::scoped_lock<std::mutex>> m_suspensionLock{};
+        arcana::cancellation_source m_cancelSource{};
+        arcana::manual_dispatcher<128> m_dispatcher{};
+        std::thread m_thread;
     };
 }
