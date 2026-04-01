@@ -87,5 +87,13 @@ namespace Babylon
         arcana::cancellation_source m_cancelSource{};
         arcana::manual_dispatcher<128> m_dispatcher{};
         std::thread m_thread;
+
+#ifdef ARCANA_TESTING_HOOKS
+    public:
+        void SetBeforeWaitCallback(std::function<void()> callback)
+        {
+            m_dispatcher.set_before_wait_callback(std::move(callback));
+        }
+#endif
     };
 }

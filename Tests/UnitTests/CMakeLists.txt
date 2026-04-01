@@ -44,7 +44,8 @@ elseif(UNIX AND NOT ANDROID)
 endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
-target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
+target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}" ARCANA_TESTING_HOOKS)
+target_compile_definitions(AppRuntime PRIVATE ARCANA_TESTING_HOOKS)
 
 target_link_libraries(UnitTests
     PRIVATE AppRuntime

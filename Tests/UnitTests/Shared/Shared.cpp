@@ -11,8 +11,11 @@
 #include <Babylon/Polyfills/Blob.h>
 #include <Babylon/Polyfills/TextDecoder.h>
 #include <gtest/gtest.h>
+#include <chrono>
 #include <future>
 #include <iostream>
+#include <memory>
+#include <thread>
 
 namespace
 {
@@ -117,6 +120,54 @@ TEST(Console, Log)
     });
 
     done.get_future().get();
+}
+
+TEST(AppRuntime, DestroyDoesNotDeadlock)
+{
+    // Regression test for a race condition in the AppRuntime destructor.
+    // The old code cancelled from the main thread, which could race with
+    // blocking_tick's condition_variable::wait, causing a deadlock on join().
+    //
+    // This test uses an arcana testing hook to guarantee the worker thread is
+    // inside condition_variable::wait before destroying the runtime, making
+    // the race deterministic.
+    for (int i = 0; i < 10; i++)
+    {
+        auto runtime = std::make_unique<Babylon::AppRuntime>();
+
+        // Use the before-wait hook to know exactly when the worker thread
+        // is about to enter condition_variable::wait.
+        std::promise<void> workerWaiting;
+        bool signaled = false;
+        runtime->SetBeforeWaitCallback([&]() {
+            if (!signaled)
+            {
+                signaled = true;
+                workerWaiting.set_value();
+            }
+        });
+
+        // Dispatch a no-op to ensure the runtime is initialized and the
+        // worker thread enters the blocking_tick loop.
+        std::promise<void> initialized;
+        runtime->Dispatch([&initialized](Napi::Env) {
+            initialized.set_value();
+        });
+        initialized.get_future().wait();
+
+        // Wait until the worker thread is inside blocking_tick's wait.
+        workerWaiting.get_future().wait();
+
+        // Destroy the runtime on a separate thread with a timeout.
+        // If the destructor deadlocks, the timeout will fire.
+        auto destroyFuture = std::async(std::launch::async, [&runtime]() {
+            runtime.reset();
+        });
+
+        auto status = destroyFuture.wait_for(std::chrono::seconds(5));
+        ASSERT_NE(status, std::future_status::timeout)
+            << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds (iteration " << i << ")";
+    }
 }
 
 int RunTests()
