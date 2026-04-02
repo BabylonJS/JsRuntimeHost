@@ -1,5 +1,4 @@
 #include "AppRuntime.h"
-#include "WorkQueue.h"
 #include <cassert>
 
 namespace Babylon
@@ -10,8 +9,8 @@ namespace Babylon
     }
 
     AppRuntime::AppRuntime(Options options)
-        : m_workQueue{std::make_unique<WorkQueue>([this] { RunPlatformTier(); })}
-        , m_options{std::move(options)}
+        : m_options{std::move(options)}
+        , m_thread{[this] { RunPlatformTier(); }}
     {
         Dispatch([this](Napi::Env env) {
             JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); });
@@ -20,26 +19,53 @@ namespace Babylon
 
     AppRuntime::~AppRuntime()
     {
+        if (m_suspensionLock.has_value())
+        {
+            m_suspensionLock.reset();
+        }
+
+        // Dispatch cancellation as a work item so the worker thread processes it
+        // naturally via blocking_tick, avoiding the race condition where an external
+        // cancel signal can be missed by the condition variable wait.
+        Append([this](Napi::Env) {
+            m_cancelSource.cancel();
+        });
+
+        m_thread.join();
     }
 
     void AppRuntime::Run(Napi::Env env)
     {
-        m_workQueue->Run(env);
+        m_env = std::make_optional(env);
+
+        m_dispatcher.set_affinity(std::this_thread::get_id());
+
+        while (!m_cancelSource.cancelled())
+        {
+            m_dispatcher.blocking_tick(m_cancelSource);
+        }
+
+        // The dispatcher can be non-empty if something is dispatched after cancellation.
+        m_dispatcher.clear();
     }
 
     void AppRuntime::Suspend()
     {
-        m_workQueue->Suspend();
+        auto suspensionMutex = std::make_shared<std::mutex>();
+        m_suspensionLock.emplace(*suspensionMutex);
+        Append([suspensionMutex{std::move(suspensionMutex)}](Napi::Env) {
+            std::scoped_lock lock{*suspensionMutex};
+        });
     }
 
     void AppRuntime::Resume()
     {
-        m_workQueue->Resume();
+        m_suspensionLock.reset();
     }
 
     void AppRuntime::Dispatch(Dispatchable<void(Napi::Env)> func)
     {
-        m_workQueue->Append([this, func{std::move(func)}](Napi::Env env) mutable {
+        Append([this, func{std::move(func)}](Napi::Env env) mutable {
             Execute([this, env, func{std::move(func)}]() mutable {
                 try
                 {
