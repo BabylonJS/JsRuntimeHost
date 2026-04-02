@@ -24,12 +24,8 @@ namespace Babylon
             m_suspensionLock.reset();
         }
 
-        // Dispatch cancellation as a work item so the worker thread processes it
-        // naturally via blocking_tick, avoiding the race condition where an external
-        // cancel signal can be missed by the condition variable wait.
-        Append([this](Napi::Env) {
-            m_cancelSource.cancel();
-        });
+        m_cancelSource.cancel();
+        m_dispatcher.cancelled();
 
         m_thread.join();
     }

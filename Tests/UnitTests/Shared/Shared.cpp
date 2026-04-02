@@ -124,49 +124,57 @@ TEST(Console, Log)
 
 TEST(AppRuntime, DestroyDoesNotDeadlock)
 {
-    // Regression test for a race condition in the AppRuntime destructor.
-    // The old code cancelled from the main thread, which could race with
-    // blocking_tick's condition_variable::wait, causing a deadlock on join().
+    // Deterministic test for the race condition in the AppRuntime destructor.
     //
-    // This test uses an arcana testing hook to guarantee the worker thread is
-    // inside condition_variable::wait before destroying the runtime, making
-    // the race deterministic.
-    for (int i = 0; i < 10; i++)
+    // A per-instance hook sleeps WHILE HOLDING the queue mutex, right before
+    // condition_variable::wait(). We synchronize so the worker is definitely
+    // in the hook before triggering destruction.
+    //
+    // Old (broken) code: cancel() + notify_all() fire without the mutex,
+    //   so the notification is lost while the worker sleeps → deadlock.
+    // Fixed code: Append(cancel) calls push() which NEEDS the mutex,
+    //   so it blocks until the worker enters wait() → notification delivered.
+    for (int i = 0; i < 3; i++)
     {
+        // Shared state for hook synchronization
+        std::atomic<bool> hookEnabled{false};
+        std::atomic<bool> hookSignaled{false};
+        std::promise<void> workerInHook;
+
         auto runtime = std::make_unique<Babylon::AppRuntime>();
 
-        // Use the before-wait hook to know exactly when the worker thread
-        // is about to enter condition_variable::wait.
-        std::promise<void> workerWaiting;
-        bool signaled = false;
+        // Set the callback once, before any dispatches. The callback checks
+        // hookEnabled so we control when it actually sleeps.
         runtime->SetBeforeWaitCallback([&]() {
-            if (!signaled)
-            {
-                signaled = true;
-                workerWaiting.set_value();
-            }
+            if (hookEnabled.load() && !hookSignaled.exchange(true))
+                workerInHook.set_value();
+            if (hookEnabled.load())
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
         });
 
-        // Dispatch a no-op to ensure the runtime is initialized and the
-        // worker thread enters the blocking_tick loop.
-        std::promise<void> initialized;
-        runtime->Dispatch([&initialized](Napi::Env) {
-            initialized.set_value();
+        // Dispatch work and wait for completion
+        std::promise<void> ready;
+        runtime->Dispatch([&ready](Napi::Env) {
+            ready.set_value();
         });
-        initialized.get_future().wait();
+        ready.get_future().wait();
 
-        // Wait until the worker thread is inside blocking_tick's wait.
-        workerWaiting.get_future().wait();
+        // Enable the hook and dispatch a no-op to wake the worker,
+        // ensuring it cycles through the hook on its way back to idle
+        hookEnabled.store(true);
+        runtime->Dispatch([](Napi::Env) {});
 
-        // Destroy the runtime on a separate thread with a timeout.
-        // If the destructor deadlocks, the timeout will fire.
+        // Wait for the worker to be in the hook (holding mutex, sleeping)
+        workerInHook.get_future().wait();
+
+        // NOW destroy
         auto destroyFuture = std::async(std::launch::async, [&runtime]() {
             runtime.reset();
         });
 
         auto status = destroyFuture.wait_for(std::chrono::seconds(5));
         ASSERT_NE(status, std::future_status::timeout)
-            << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds (iteration " << i << ")";
+            << "Deadlock detected on iteration " << i;
     }
 }
 
