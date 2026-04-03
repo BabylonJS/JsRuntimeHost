@@ -15,7 +15,7 @@ FetchContent_Declare(AndroidExtensions
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(arcana.cpp
     GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
-    GIT_TAG d5dd03cd66e7ecd0e4b94e35e4fdd7d86aef5b5f
+    GIT_TAG d5dd03cc6dd138fc17c277f61abbe2bc388444af
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
