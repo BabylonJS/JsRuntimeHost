@@ -156,13 +156,11 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
     });
 
-    // Use shared_ptr so we can move it to a detachable destroy thread
-    auto runtime = std::make_shared<std::unique_ptr<Babylon::AppRuntime>>(
-        std::make_unique<Babylon::AppRuntime>());
+    auto runtime = std::make_unique<Babylon::AppRuntime>();
 
     // Dispatch work and wait for completion
     std::promise<void> ready;
-    (*runtime)->Dispatch([&ready](Napi::Env) {
+    runtime->Dispatch([&ready](Napi::Env) {
         ready.set_value();
     });
     ready.get_future().wait();
@@ -170,38 +168,35 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     // Enable the hook and dispatch a no-op to wake the worker,
     // ensuring it cycles through the hook on its way back to idle
     hookEnabled.store(true);
-    (*runtime)->Dispatch([](Napi::Env) {});
+    runtime->Dispatch([](Napi::Env) {});
 
     // Wait for the worker to be in the hook (holding mutex, sleeping)
     auto hookStatus = workerInHook.get_future().wait_for(std::chrono::seconds(5));
-
-    // Always clean up, even if the hook didn't fire
-    auto cleanup = [&]() {
-        // Destroy on a detachable thread so we don't hang if the destructor deadlocks
-        std::promise<void> destroyDone;
-        auto destroyFuture = destroyDone.get_future();
-        std::thread destroyThread([runtime, &destroyDone]() {
-            runtime->reset();
-            destroyDone.set_value();
-        });
-
-        auto status = destroyFuture.wait_for(std::chrono::seconds(5));
-        if (status == std::future_status::timeout)
-            destroyThread.detach();
-        else
-            destroyThread.join();
-
-        arcana::set_before_wait_callback([]() {});
-        return status;
-    };
-
     if (hookStatus == std::future_status::timeout)
     {
-        cleanup();
+        // Hook didn't fire — no deadlock risk, clean up normally
+        arcana::set_before_wait_callback([]() {});
         FAIL() << "Worker thread did not enter before-wait hook";
     }
 
-    auto status = cleanup();
+    // Worker is in the hook (holding mutex, sleeping). Destroy on a
+    // detachable thread so the test doesn't hang if the destructor deadlocks.
+    auto runtimePtr = std::make_shared<std::unique_ptr<Babylon::AppRuntime>>(std::move(runtime));
+    std::promise<void> destroyDone;
+    auto destroyFuture = destroyDone.get_future();
+    std::thread destroyThread([runtimePtr, &destroyDone]() {
+        runtimePtr->reset();
+        destroyDone.set_value();
+    });
+
+    auto status = destroyFuture.wait_for(std::chrono::seconds(5));
+    if (status == std::future_status::timeout)
+        destroyThread.detach();
+    else
+        destroyThread.join();
+
+    arcana::set_before_wait_callback([]() {});
+
     ASSERT_NE(status, std::future_status::timeout)
         << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
 }
