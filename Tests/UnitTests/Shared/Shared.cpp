@@ -11,9 +11,7 @@
 #include <Babylon/Polyfills/Blob.h>
 #include <Babylon/Polyfills/TextDecoder.h>
 #include <gtest/gtest.h>
-#ifdef ARCANA_TESTING_HOOKS
 #include <arcana/threading/blocking_concurrent_queue.h>
-#endif
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -131,7 +129,6 @@ TEST(Console, Log)
     done.get_future().get();
 }
 
-#ifdef ARCANA_TESTING_HOOKS
 TEST(AppRuntime, DestroyDoesNotDeadlock)
 {
     // Deterministic test for the race condition in the AppRuntime destructor.
@@ -204,7 +201,6 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     ASSERT_NE(status, std::future_status::timeout)
         << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
 }
-#endif
 
 int RunTests()
 {
