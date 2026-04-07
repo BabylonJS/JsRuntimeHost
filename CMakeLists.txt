@@ -85,6 +85,11 @@ option(JSRUNTIMEHOST_POLYFILL_TEXTDECODER "Include JsRuntimeHost Polyfill TextDe
 
 # Sanitizers
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
+option(ENABLE_THREAD_SANITIZER "Enable ThreadSanitizer" OFF)
+
+if(ENABLE_SANITIZERS AND ENABLE_THREAD_SANITIZER)
+    message(FATAL_ERROR "ENABLE_SANITIZERS and ENABLE_THREAD_SANITIZER cannot be used together.")
+endif()
 
 if(ENABLE_SANITIZERS)
     set(ENABLE_RTTI ON CACHE BOOL "" FORCE)
@@ -108,6 +113,15 @@ if(ENABLE_SANITIZERS)
         add_link_options(-fsanitize=${SANITIZER_FLAGS})
     else()
         message(WARNING "Sanitizers not supported on this compiler.")
+    endif()
+endif()
+
+if(ENABLE_THREAD_SANITIZER)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=thread)
+    else()
+        message(WARNING "ThreadSanitizer not supported on this compiler.")
     endif()
 endif()
 

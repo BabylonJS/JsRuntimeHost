@@ -124,3 +124,10 @@ jobs:
       enableSanitizers: true
       CC: clang
       CXX: clang++
+
+  - template: jobs/linux.yml
+    parameters:
+      name: Ubuntu_ThreadSanitizer_clang
+      enableThreadSanitizer: true
+      CC: clang
+      CXX: clang++
