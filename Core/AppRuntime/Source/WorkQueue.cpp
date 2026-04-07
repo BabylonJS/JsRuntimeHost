@@ -14,12 +14,12 @@ namespace Babylon
             Resume();
         }
 
-        // Dispatch cancellation as a work item so the worker thread processes
-        // it naturally via blocking_tick, avoiding the race condition where an
-        // external cancel+notify can be missed by condition_variable::wait.
-        Append([this](Napi::Env) {
-            m_cancelSource.cancel();
-        });
+        // Cancel immediately so pending work is dropped promptly, then append
+        // a no-op work item to wake the worker thread from blocking_tick. The
+        // no-op goes through push() which acquires the queue mutex, avoiding
+        // the race where a bare notify_all() can be missed by wait().
+        m_cancelSource.cancel();
+        Append([](Napi::Env) {});
 
         m_thread.join();
     }
