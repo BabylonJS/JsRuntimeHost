@@ -151,9 +151,13 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     // when it actually sleeps.
     arcana::set_before_wait_callback([&]() {
         if (hookEnabled.load() && !hookSignaled.exchange(true))
+        {
             workerInHook.set_value();
+        }
         if (hookEnabled.load())
+        {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
     });
 
     auto runtime = std::make_unique<Babylon::AppRuntime>();
@@ -191,9 +195,13 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     auto status = destroyFuture.wait_for(std::chrono::seconds(5));
     if (status == std::future_status::timeout)
+    {
         destroyThread.detach();
+    }
     else
+    {
         destroyThread.join();
+    }
 
     arcana::set_before_wait_callback([]() {});
 
