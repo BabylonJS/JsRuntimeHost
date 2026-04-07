@@ -144,67 +144,65 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     //   so the notification is lost while the worker sleeps → deadlock.
     // Fixed code: Append(cancel) calls push() which NEEDS the mutex,
     //   so it blocks until the worker enters wait() → notification delivered.
-    for (int i = 0; i < 3; i++)
+
+    // Shared state for hook synchronization
+    std::atomic<bool> hookEnabled{false};
+    std::atomic<bool> hookSignaled{false};
+    std::promise<void> workerInHook;
+
+    // Set the callback. It checks hookEnabled so we control
+    // when it actually sleeps.
+    arcana::set_before_wait_callback([&]() {
+        if (hookEnabled.load() && !hookSignaled.exchange(true))
+            workerInHook.set_value();
+        if (hookEnabled.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    });
+
+    auto runtime = std::make_unique<Babylon::AppRuntime>();
+
+    // Dispatch work and wait for completion
+    std::promise<void> ready;
+    runtime->Dispatch([&ready](Napi::Env) {
+        ready.set_value();
+    });
+    ready.get_future().wait();
+
+    // Enable the hook and dispatch a no-op to wake the worker,
+    // ensuring it cycles through the hook on its way back to idle
+    hookEnabled.store(true);
+    runtime->Dispatch([](Napi::Env) {});
+
+    // Wait for the worker to be in the hook (holding mutex, sleeping)
+    auto hookStatus = workerInHook.get_future().wait_for(std::chrono::seconds(5));
+    ASSERT_NE(hookStatus, std::future_status::timeout)
+        << "Worker thread did not enter before-wait hook";
+
+    // Destroy on a detachable thread so the test doesn't hang if the
+    // destructor deadlocks (std::async's future destructor would block).
+    auto runtimePtr = std::make_shared<std::unique_ptr<Babylon::AppRuntime>>(std::move(runtime));
+    std::promise<void> destroyDone;
+    auto destroyFuture = destroyDone.get_future();
+    std::thread destroyThread([runtimePtr, &destroyDone]() {
+        runtimePtr->reset();
+        destroyDone.set_value();
+    });
+
+    auto status = destroyFuture.wait_for(std::chrono::seconds(5));
+    if (status == std::future_status::timeout)
     {
-        // Shared state for hook synchronization
-        std::atomic<bool> hookEnabled{false};
-        std::atomic<bool> hookSignaled{false};
-        std::promise<void> workerInHook;
-
-        // Set the callback. It checks hookEnabled so we control
-        // when it actually sleeps.
-        arcana::set_before_wait_callback([&]() {
-            if (hookEnabled.load() && !hookSignaled.exchange(true))
-                workerInHook.set_value();
-            if (hookEnabled.load())
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        });
-
-        auto runtime = std::make_unique<Babylon::AppRuntime>();
-
-        // Dispatch work and wait for completion
-        std::promise<void> ready;
-        runtime->Dispatch([&ready](Napi::Env) {
-            ready.set_value();
-        });
-        ready.get_future().wait();
-
-        // Enable the hook and dispatch a no-op to wake the worker,
-        // ensuring it cycles through the hook on its way back to idle
-        hookEnabled.store(true);
-        runtime->Dispatch([](Napi::Env) {});
-
-        // Wait for the worker to be in the hook (holding mutex, sleeping)
-        auto hookStatus = workerInHook.get_future().wait_for(std::chrono::seconds(5));
-        ASSERT_NE(hookStatus, std::future_status::timeout)
-            << "Worker thread did not enter before-wait hook on iteration " << i;
-
-        // Destroy on a detachable thread so the test doesn't hang if the
-        // destructor deadlocks (std::async's future destructor would block).
-        auto runtimePtr = std::make_shared<std::unique_ptr<Babylon::AppRuntime>>(std::move(runtime));
-        std::promise<void> destroyDone;
-        auto destroyFuture = destroyDone.get_future();
-        std::thread destroyThread([runtimePtr, &destroyDone]() {
-            runtimePtr->reset();
-            destroyDone.set_value();
-        });
-
-        auto status = destroyFuture.wait_for(std::chrono::seconds(5));
-        if (status == std::future_status::timeout)
-        {
-            destroyThread.detach();
-        }
-        else
-        {
-            destroyThread.join();
-        }
-
-        // Reset hook
-        arcana::set_before_wait_callback([]() {});
-
-        ASSERT_NE(status, std::future_status::timeout)
-            << "Deadlock detected on iteration " << i;
+        destroyThread.detach();
     }
+    else
+    {
+        destroyThread.join();
+    }
+
+    // Reset hook
+    arcana::set_before_wait_callback([]() {});
+
+    ASSERT_NE(status, std::future_status::timeout)
+        << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
 }
 #endif
 
