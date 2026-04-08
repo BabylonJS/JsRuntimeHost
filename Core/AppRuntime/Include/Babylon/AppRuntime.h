@@ -6,6 +6,7 @@
 
 #include <napi/utilities.h>
 
+#include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
 
 #include <memory>
