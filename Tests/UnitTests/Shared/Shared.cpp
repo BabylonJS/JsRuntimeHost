@@ -138,9 +138,45 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     // in the hook before triggering destruction.
     //
     // Old (broken) code: cancel() + notify_all() fire without the mutex,
-    //   so the notification is lost while the worker sleeps → deadlock.
+    //   so the notification is lost while the worker sleeps -> deadlock.
     // Fixed code: cancel() + Append(no-op), where push() NEEDS the mutex,
-    //   so it blocks until the worker enters wait() → notification delivered.
+    //   so it blocks until the worker enters wait() -> notification delivered.
+    //
+    // Test flow:
+    //
+    //   Test Thread                    Worker Thread
+    //   -----------                    -------------
+    //   1. Install hook (disabled)
+    //   2. Create AppRuntime           Worker starts, enters blocking_tick
+    //   3. Dispatch(ready), wait       Worker runs ready callback
+    //      ready.wait() <------------- ready.set_value()
+    //                                  Worker returns to blocking_tick
+    //                                  Hook fires but disabled -> no-op
+    //                                  Worker enters wait(lock)
+    //   4. Enable hook
+    //      Dispatch(no-op)             Worker wakes, runs no-op,
+    //                                  returns to blocking_tick
+    //                                  Hook fires, enabled:
+    //                                    signal workerInHook
+    //                                    sleep 200ms (holding mutex!)
+    //   5. workerInHook.wait()
+    //      Worker is sleeping in hook
+    //   6. Destroy on separate thread
+    //        ~WorkQueue():
+    //          cancel()
+    //          Append(no-op):
+    //            push() blocks ------> (worker holds mutex)
+    //                                  200ms sleep ends
+    //                                  wait(lock) releases mutex
+    //            push() acquires mutex
+    //            pushes, notifies ---> wakes up!
+    //            join() waits          drains no-op, cancelled -> exit
+    //            join() returns <----- thread exits
+    //   7. destroy completes -> PASS
+    //
+    //   With old code, notify_all() fires WITHOUT the mutex during
+    //   step 6, gets lost during the 200ms sleep, worker enters
+    //   wait() with no signal -> join() hangs -> FAIL (timeout)
 
     // Shared state for hook synchronization
     std::atomic<bool> hookEnabled{false};
