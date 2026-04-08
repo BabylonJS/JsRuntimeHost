@@ -408,6 +408,14 @@ if (hostPlatform !== "Unix") {
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket("wss://ws.postman-echo.com/raw");
             const testMessage = "testMessage";
+            let finished = false;
+            const finish = (err?: Error) => {
+                if (!finished) {
+                    finished = true;
+                    done(err);
+                }
+            };
+
             ws.onopen = () => {
                 try {
                     expect(ws).to.have.property("readyState", 1);
@@ -415,7 +423,7 @@ if (hostPlatform !== "Unix") {
                     ws.send(testMessage);
                 }
                 catch (e) {
-                    done(e);
+                    finish(e as Error);
                 }
             };
 
@@ -425,28 +433,35 @@ if (hostPlatform !== "Unix") {
                     ws.close();
                 }
                 catch (e) {
-                    done(e);
+                    finish(e as Error);
                 }
             };
 
             ws.onclose = () => {
                 try {
                     expect(ws).to.have.property("readyState", 3);
-                    done();
+                    finish();
                 }
                 catch (e) {
-                    done(e);
+                    finish(e as Error);
                 }
             };
 
             ws.onerror = (ev) => {
-                done(new Error("WebSocket failed"));
+                finish(new Error("WebSocket failed"));
             };
         });
 
         it("should connect correctly with multiple websocket connections", function (done) {
             const testMessage1 = "testMessage1";
             const testMessage2 = "testMessage2";
+            let finished = false;
+            const finish = (err?: Error) => {
+                if (!finished) {
+                    finished = true;
+                    done(err);
+                }
+            };
 
             const ws1 = new WebSocket("wss://ws.postman-echo.com/raw");
             ws1.onopen = () => {
@@ -458,7 +473,7 @@ if (hostPlatform !== "Unix") {
                         ws2.send(testMessage2);
                     }
                     catch (e) {
-                        done(e);
+                        finish(e as Error);
                     }
                 };
 
@@ -468,7 +483,7 @@ if (hostPlatform !== "Unix") {
                         ws2.close();
                     }
                     catch (e) {
-                        done(e);
+                        finish(e as Error);
                     }
                 };
 
@@ -478,12 +493,12 @@ if (hostPlatform !== "Unix") {
                         ws1.send(testMessage1);
                     }
                     catch (e) {
-                        done(e);
+                        finish(e as Error);
                     }
                 };
 
                 ws2.onerror = (ev) => {
-                    done(new Error("Websocket failed"));
+                    finish(new Error("Websocket failed"));
                 };
             }
 
@@ -493,22 +508,22 @@ if (hostPlatform !== "Unix") {
                     ws1.close();
                 }
                 catch (e) {
-                    done(e);
+                    finish(e as Error);
                 }
             }
 
             ws1.onclose = () => {
                 try {
                     expect(ws1).to.have.property("readyState", 3);
-                    done();
+                    finish();
                 }
                 catch (e) {
-                    done(e);
+                    finish(e as Error);
                 }
             }
 
             ws1.onerror = (ev) => {
-                done(new Error("Websocket failed"));
+                finish(new Error("Websocket failed"));
             };
         });
 
