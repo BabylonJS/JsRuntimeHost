@@ -92,6 +92,13 @@ jobs:
       xCodeVersion: 16.4
       enableSanitizers: true
 
+  - template: jobs/macos.yml
+    parameters:
+      name: 'macOS_Xcode164_ThreadSanitizer'
+      vmImage: 'macOS-latest'
+      xCodeVersion: 16.4
+      enableThreadSanitizer: true
+
   # iOS
   - template: jobs/ios.yml
     parameters:

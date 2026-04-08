@@ -3,6 +3,7 @@ parameters:
   vmImage: ''
   xCodeVersion: ''
   enableSanitizers: false
+  enableThreadSanitizer: false
 
 jobs:
 - job: ${{parameters.name}}
@@ -13,6 +14,7 @@ jobs:
 
   variables:
     SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableSanitizers), 'True', 'ON'), 'OFF') }}
+    THREAD_SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableThreadSanitizer), 'True', 'ON'), 'OFF') }}
 
   steps:
   - script: |
@@ -20,7 +22,7 @@ jobs:
     displayName: 'Select Xcode ${{parameters.xCodeVersion}}'
 
   - script: |
-      cmake -B Build/macOS -G Xcode -D ENABLE_SANITIZERS=$(SANITIZER_FLAG)
+      cmake -B Build/macOS -G Xcode -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D ENABLE_THREAD_SANITIZER=$(THREAD_SANITIZER_FLAG)
     displayName: 'Configure CMake'
 
   - task: Xcode@5
