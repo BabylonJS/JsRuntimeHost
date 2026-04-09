@@ -191,6 +191,11 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
                 hookSignaled = true;
                 workerInHook.set_value();
             }
+            // This sleep is not truly deterministic — it creates a timing window
+            // during which the destructor's push() will contend for the mutex.
+            // The sleep holds the mutex, so push() blocks until it ends and the
+            // worker enters wait(). This is sufficient for testing but relies on
+            // the destructor firing within this window.
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         });
         runtime->Dispatch([](Napi::Env) {});
