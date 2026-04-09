@@ -498,7 +498,7 @@ if (hostPlatform !== "Unix") {
                 };
 
                 ws2.onerror = (ev) => {
-                    finish(new Error("Websocket failed"));
+                    finish(new Error("WebSocket failed"));
                 };
             }
 
@@ -523,7 +523,7 @@ if (hostPlatform !== "Unix") {
             }
 
             ws1.onerror = (ev) => {
-                finish(new Error("Websocket failed"));
+                finish(new Error("WebSocket failed"));
             };
         });
 
