@@ -190,7 +190,9 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     auto runtime = std::make_unique<Babylon::AppRuntime>();
 
-    // Dispatch work and wait for completion
+    // Wait for the runtime to fully initialize. The constructor dispatches
+    // CreateForJavaScript which must complete before we enable the hook,
+    // otherwise the hook would sleep during initialization.
     std::promise<void> ready;
     runtime->Dispatch([&ready](Napi::Env) {
         ready.set_value();
