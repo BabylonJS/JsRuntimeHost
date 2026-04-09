@@ -131,16 +131,10 @@ TEST(Console, Log)
 
 TEST(AppRuntime, DestroyDoesNotDeadlock)
 {
-    // Deterministic test for the race condition in the AppRuntime destructor.
-    //
-    // A global hook sleeps WHILE HOLDING the queue mutex, right before
-    // condition_variable::wait(). We synchronize so the worker is definitely
-    // in the hook before triggering destruction.
-    //
-    // Old (broken) code: cancel() + notify_all() fire without the mutex,
-    //   so the notification is lost while the worker sleeps -> deadlock.
-    // Fixed code: cancel() + Append(no-op), where push() NEEDS the mutex,
-    //   so it blocks until the worker enters wait() -> notification delivered.
+    // Regression test verifying AppRuntime destruction doesn't deadlock.
+    // Uses a global arcana hook to sleep while holding the queue mutex
+    // before wait(), ensuring the worker is in the vulnerable window
+    // when the destructor fires. See #147 for details on the bug and fix.
     //
     // Test flow:
     //
@@ -162,7 +156,7 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     //   5. workerInHook.wait()
     //      Worker is sleeping in hook
     //   6. Destroy on separate thread
-    //        ~WorkQueue():
+    //        ~AppRuntime():
     //          cancel()
     //          Append(no-op):
     //            push() blocks ------> (worker holds mutex)
@@ -173,10 +167,6 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     //            join() waits          drains no-op, cancelled -> exit
     //            join() returns <----- thread exits
     //   7. destroy completes -> PASS
-    //
-    //   With old code, notify_all() fires WITHOUT the mutex during
-    //   step 6, gets lost during the 200ms sleep, worker enters
-    //   wait() with no signal -> join() hangs -> FAIL (timeout)
 
     // Shared state for hook synchronization
     std::atomic<bool> hookEnabled{false};
