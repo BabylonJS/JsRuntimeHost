@@ -170,18 +170,20 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     // Shared state for hook synchronization
     std::atomic<bool> hookEnabled{false};
-    std::atomic<bool> hookSignaled{false};
+    bool hookSignaled{false};
     std::promise<void> workerInHook;
 
     // Set the callback. It checks hookEnabled so we control
-    // when it actually sleeps.
+    // when it actually sleeps. hookSignaled is only accessed by
+    // the worker thread so it doesn't need to be atomic.
     arcana::set_before_wait_callback([&]() {
-        if (hookEnabled.load() && !hookSignaled.exchange(true))
-        {
-            workerInHook.set_value();
-        }
         if (hookEnabled.load())
         {
+            if (!hookSignaled)
+            {
+                hookSignaled = true;
+                workerInHook.set_value();
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
     });
@@ -202,20 +204,22 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     // Wait for the worker to be in the hook (holding mutex, sleeping)
     auto hookStatus = workerInHook.get_future().wait_for(std::chrono::seconds(5));
+
+    // Reset the hook before any destruction so it won't fire with
+    // stale references if the detached thread outlives this scope.
+    arcana::set_before_wait_callback([]() {});
+
     if (hookStatus == std::future_status::timeout)
     {
-        // Hook didn't fire — no deadlock risk, clean up normally
-        arcana::set_before_wait_callback([]() {});
         FAIL() << "Worker thread did not enter before-wait hook";
     }
 
     // Worker is in the hook (holding mutex, sleeping). Destroy on a
     // detachable thread so the test doesn't hang if the destructor deadlocks.
-    auto runtimePtr = std::make_shared<std::unique_ptr<Babylon::AppRuntime>>(std::move(runtime));
     std::promise<void> destroyDone;
     auto destroyFuture = destroyDone.get_future();
-    std::thread destroyThread([runtimePtr, &destroyDone]() {
-        runtimePtr->reset();
+    std::thread destroyThread([runtime = std::move(runtime), &destroyDone]() mutable {
+        runtime.reset();
         destroyDone.set_value();
     });
 
@@ -228,8 +232,6 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     {
         destroyThread.join();
     }
-
-    arcana::set_before_wait_callback([]() {});
 
     ASSERT_NE(status, std::future_status::timeout)
         << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
