@@ -136,6 +136,10 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     // before wait(), ensuring the worker is in the vulnerable window
     // when the destructor fires. See #147 for details on the bug and fix.
     //
+    // The entire test runs on a separate thread so the gtest thread can
+    // act as a watchdog. If destruction deadlocks, the watchdog detects
+    // the timeout and fails the test without hanging the process.
+    //
     // Test flow:
     //
     //   Test Thread                    Worker Thread
@@ -155,8 +159,7 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     //                                    sleep 200ms (holding mutex!)
     //   5. workerInHook.wait()
     //      Worker is sleeping in hook
-    //   6. Destroy on separate thread
-    //        ~AppRuntime():
+    //   6. ~AppRuntime() at scope exit
     //          cancel()
     //          Append(no-op):
     //            push() blocks ------> (worker holds mutex)
@@ -188,55 +191,48 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
         }
     });
 
-    auto runtime = std::make_unique<Babylon::AppRuntime>();
+    // Run the full lifecycle on a separate thread so the gtest thread
+    // can act as a watchdog with a timeout.
+    std::promise<void> testDone;
+    std::thread testThread([&]() {
+        auto runtime = std::make_unique<Babylon::AppRuntime>();
 
-    // Wait for the runtime to fully initialize. The constructor dispatches
-    // CreateForJavaScript which must complete before we enable the hook,
-    // otherwise the hook would sleep during initialization.
-    std::promise<void> ready;
-    runtime->Dispatch([&ready](Napi::Env) {
-        ready.set_value();
+        // Wait for the runtime to fully initialize. The constructor dispatches
+        // CreateForJavaScript which must complete before we enable the hook,
+        // otherwise the hook would sleep during initialization.
+        std::promise<void> ready;
+        runtime->Dispatch([&ready](Napi::Env) {
+            ready.set_value();
+        });
+        ready.get_future().wait();
+
+        // Enable the hook and dispatch a no-op to wake the worker,
+        // ensuring it cycles through the hook on its way back to idle
+        hookEnabled.store(true);
+        runtime->Dispatch([](Napi::Env) {});
+
+        // Wait for the worker to be in the hook (holding mutex, sleeping)
+        workerInHook.get_future().wait();
+
+        // Destroy naturally at scope exit — if the fix works, the destructor
+        // completes. If broken, it deadlocks and the watchdog catches it.
+        runtime.reset();
+        testDone.set_value();
     });
-    ready.get_future().wait();
 
-    // Enable the hook and dispatch a no-op to wake the worker,
-    // ensuring it cycles through the hook on its way back to idle
-    hookEnabled.store(true);
-    runtime->Dispatch([](Napi::Env) {});
+    auto status = testDone.get_future().wait_for(std::chrono::seconds(5));
 
-    // Wait for the worker to be in the hook (holding mutex, sleeping)
-    auto hookStatus = workerInHook.get_future().wait_for(std::chrono::seconds(5));
-
-    // Reset the hook before any destruction so it won't fire with
-    // stale references if the detached thread outlives this scope.
     arcana::set_before_wait_callback([]() {});
 
-    if (hookStatus == std::future_status::timeout)
-    {
-        FAIL() << "Worker thread did not enter before-wait hook";
-    }
-
-    // Worker is in the hook (holding mutex, sleeping). Destroy on a
-    // detachable thread so the test doesn't hang if the destructor deadlocks.
-    std::promise<void> destroyDone;
-    auto destroyFuture = destroyDone.get_future();
-    std::thread destroyThread([runtime = std::move(runtime), &destroyDone]() mutable {
-        runtime.reset();
-        destroyDone.set_value();
-    });
-
-    auto status = destroyFuture.wait_for(std::chrono::seconds(5));
     if (status == std::future_status::timeout)
     {
-        destroyThread.detach();
+        testThread.detach();
+        FAIL() << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
     }
     else
     {
-        destroyThread.join();
+        testThread.join();
     }
-
-    ASSERT_NE(status, std::future_status::timeout)
-        << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
 }
 
 int RunTests()
