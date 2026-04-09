@@ -14,17 +14,8 @@ namespace Babylon
             Resume();
         }
 
-        // Cancel immediately so pending work is dropped promptly, then append
-        // a no-op work item to wake the worker thread from blocking_tick. The
-        // no-op goes through push() which acquires the queue mutex, avoiding
-        // the race where a bare notify_all() can be missed by wait().
-        //
-        // NOTE: This preserves the existing shutdown behavior where pending
-        // callbacks are dropped on cancellation. A more complete solution
-        // would add cooperative shutdown (e.g. NotifyDisposing/Rundown) so
-        // consumers can finish cleanup work before the runtime is destroyed.
         m_cancelSource.cancel();
-        Append([](Napi::Env) {});
+        m_dispatcher.cancelled();
 
         m_thread.join();
     }
