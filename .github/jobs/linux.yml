@@ -1,6 +1,7 @@
 parameters:
   name: ''
   enableSanitizers: false
+  enableThreadSanitizer: false
   CC: gcc
   CXX: g++
 
@@ -13,6 +14,7 @@ jobs:
 
   variables:
     SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableSanitizers), 'True', 'ON'), 'OFF') }}
+    THREAD_SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableThreadSanitizer), 'True', 'ON'), 'OFF') }}
 
   steps:
   - script: |
@@ -23,7 +25,7 @@ jobs:
   - script: |
       export CC=${{parameters.CC}}
       export CXX=${{parameters.CXX}}
-      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D CMAKE_C_COMPILER=${{parameters.CC}} -D CMAKE_CXX_COMPILER=${{parameters.CXX}}
+      cmake -B Build/ubuntu -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo -D ENABLE_SANITIZERS=$(SANITIZER_FLAG) -D ENABLE_THREAD_SANITIZER=$(THREAD_SANITIZER_FLAG) -D CMAKE_C_COMPILER=${{parameters.CC}} -D CMAKE_CXX_COMPILER=${{parameters.CXX}}
     displayName: 'Configure CMake'
 
   - script: |
