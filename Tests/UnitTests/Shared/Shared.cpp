@@ -159,19 +159,13 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     //            join() returns <----- thread exits
     //   5. destroy completes -> PASS
 
-    // Shared state on the heap so a detached thread (on timeout)
-    // doesn't access destroyed stack variables.
-    struct State
-    {
-        bool hookSignaled{false};
-        std::promise<void> workerInHook;
-        std::promise<void> testDone;
-    };
-    auto state = std::make_shared<State>();
+    bool hookSignaled{false};
+    std::promise<void> workerInHook;
+    std::promise<void> testDone;
 
     // Run the full lifecycle on a separate thread so the gtest thread
     // can detect a deadlock via timeout.
-    std::thread testThread([state]() {
+    std::thread testThread([&]() {
         auto runtime = std::make_unique<Babylon::AppRuntime>();
 
         // Wait for the runtime to fully initialize. The constructor dispatches
@@ -185,13 +179,13 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
         // Install the hook and dispatch a no-op to wake the worker,
         // ensuring it cycles through the hook on its way back to idle.
-        arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([state]() {
-            if (state->hookSignaled)
+        arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([&]() {
+            if (hookSignaled)
             {
                 return;
             }
-            state->hookSignaled = true;
-            state->workerInHook.set_value();
+            hookSignaled = true;
+            workerInHook.set_value();
             // This sleep creates a timing window during which the destructor's
             // push() will contend for the mutex. The sleep holds the mutex, so
             // push() blocks until it ends and the worker enters wait().
@@ -200,15 +194,15 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
         runtime->Dispatch([](Napi::Env) {});
 
         // Wait for the worker to be in the hook (holding mutex, sleeping)
-        state->workerInHook.get_future().wait();
+        workerInHook.get_future().wait();
 
         // Destroy — if the fix works, the destructor completes.
         // If broken, it deadlocks and the timeout detects it.
         runtime.reset();
-        state->testDone.set_value();
+        testDone.set_value();
     });
 
-    auto status = state->testDone.get_future().wait_for(std::chrono::seconds(5));
+    auto status = testDone.get_future().wait_for(std::chrono::seconds(5));
 
     arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([]() {});
 
