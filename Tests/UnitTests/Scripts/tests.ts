@@ -408,13 +408,7 @@ if (hostPlatform !== "Unix") {
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket("wss://ws.postman-echo.com/raw");
             const testMessage = "testMessage";
-            let finished = false;
-            const finish = (err?: Error) => {
-                if (!finished) {
-                    finished = true;
-                    done(err);
-                }
-            };
+            let error: Error | undefined;
 
             ws.onopen = () => {
                 try {
@@ -423,7 +417,7 @@ if (hostPlatform !== "Unix") {
                     ws.send(testMessage);
                 }
                 catch (e) {
-                    finish(e as Error);
+                    error = e as Error;
                 }
             };
 
@@ -433,35 +427,35 @@ if (hostPlatform !== "Unix") {
                     ws.close();
                 }
                 catch (e) {
-                    finish(e as Error);
+                    error = e as Error;
                 }
             };
 
+            // onclose is always the terminal event.
+            // Collect errors from earlier phases and report them here.
             ws.onclose = () => {
+                if (error) {
+                    done(error);
+                    return;
+                }
                 try {
                     expect(ws).to.have.property("readyState", 3);
-                    finish();
+                    done();
                 }
                 catch (e) {
-                    finish(e as Error);
+                    done(e);
                 }
             };
 
-            ws.onerror = (ev) => {
-                finish(new Error("WebSocket failed"));
+            ws.onerror = () => {
+                error = new Error("WebSocket failed");
             };
         });
 
         it("should connect correctly with multiple websocket connections", function (done) {
             const testMessage1 = "testMessage1";
             const testMessage2 = "testMessage2";
-            let finished = false;
-            const finish = (err?: Error) => {
-                if (!finished) {
-                    finished = true;
-                    done(err);
-                }
-            };
+            let error: Error | undefined;
 
             const ws1 = new WebSocket("wss://ws.postman-echo.com/raw");
             ws1.onopen = () => {
@@ -473,7 +467,7 @@ if (hostPlatform !== "Unix") {
                         ws2.send(testMessage2);
                     }
                     catch (e) {
-                        finish(e as Error);
+                        error = e as Error;
                     }
                 };
 
@@ -483,7 +477,7 @@ if (hostPlatform !== "Unix") {
                         ws2.close();
                     }
                     catch (e) {
-                        finish(e as Error);
+                        error = e as Error;
                     }
                 };
 
@@ -493,12 +487,12 @@ if (hostPlatform !== "Unix") {
                         ws1.send(testMessage1);
                     }
                     catch (e) {
-                        finish(e as Error);
+                        error = e as Error;
                     }
                 };
 
-                ws2.onerror = (ev) => {
-                    finish(new Error("WebSocket failed"));
+                ws2.onerror = () => {
+                    error = new Error("WebSocket failed");
                 };
             }
 
@@ -508,22 +502,26 @@ if (hostPlatform !== "Unix") {
                     ws1.close();
                 }
                 catch (e) {
-                    finish(e as Error);
+                    error = e as Error;
                 }
             }
 
             ws1.onclose = () => {
+                if (error) {
+                    done(error);
+                    return;
+                }
                 try {
                     expect(ws1).to.have.property("readyState", 3);
-                    finish();
+                    done();
                 }
                 catch (e) {
-                    finish(e as Error);
+                    done(e);
                 }
             }
 
-            ws1.onerror = (ev) => {
-                finish(new Error("WebSocket failed"));
+            ws1.onerror = () => {
+                error = new Error("WebSocket failed");
             };
         });
 
@@ -538,8 +536,18 @@ if (hostPlatform !== "Unix") {
         it("should trigger error callback with invalid domain", function (done) {
             this.timeout(10000);
             const ws = new WebSocket("wss://example");
+            let errorFired = false;
             ws.onerror = () => {
-                done();
+                errorFired = true;
+            };
+            ws.onclose = () => {
+                try {
+                    expect(errorFired).to.be.true;
+                    done();
+                }
+                catch (e) {
+                    done(e);
+                }
             };
         });
     })
