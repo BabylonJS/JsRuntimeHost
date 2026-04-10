@@ -208,12 +208,8 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     if (status == std::future_status::timeout)
     {
-        // The process is in an unrecoverable state (deadlocked thread).
-        // Terminate immediately — continuing would cause undefined behavior
-        // from the detached thread accessing process-wide state.
         testThread.detach();
-        std::cerr << "FAIL: Deadlock detected: AppRuntime destructor did not complete within 5 seconds" << std::endl;
-        std::quick_exit(1);
+        FAIL() << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
     }
 
     testThread.join();
