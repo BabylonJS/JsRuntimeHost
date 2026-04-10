@@ -185,7 +185,7 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
         // Install the hook and dispatch a no-op to wake the worker,
         // ensuring it cycles through the hook on its way back to idle.
-        arcana::set_before_wait_callback([&]() {
+        arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([&]() {
             if (!hookSignaled)
             {
                 hookSignaled = true;
@@ -211,7 +211,7 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     auto status = testDone.get_future().wait_for(std::chrono::seconds(5));
 
-    arcana::set_before_wait_callback([]() {});
+    arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([]() {});
 
     if (status == std::future_status::timeout)
     {
