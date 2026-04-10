@@ -186,11 +186,12 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
         // Install the hook and dispatch a no-op to wake the worker,
         // ensuring it cycles through the hook on its way back to idle.
         arcana::set_before_wait_callback([&]() {
-            if (!hookSignaled)
+            if (hookSignaled)
             {
-                hookSignaled = true;
-                workerInHook.set_value();
+                return;
             }
+            hookSignaled = true;
+            workerInHook.set_value();
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         });
         runtime->Dispatch([](Napi::Env) {});
