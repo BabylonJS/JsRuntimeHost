@@ -186,16 +186,15 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
         // Install the hook and dispatch a no-op to wake the worker,
         // ensuring it cycles through the hook on its way back to idle.
         arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([state]() {
-            if (!state->hookSignaled)
+            if (state->hookSignaled)
             {
-                state->hookSignaled = true;
-                state->workerInHook.set_value();
+                return;
             }
-            // This sleep is not truly deterministic — it creates a timing window
-            // during which the destructor's push() will contend for the mutex.
-            // The sleep holds the mutex, so push() blocks until it ends and the
-            // worker enters wait(). This is sufficient for testing but relies on
-            // the destructor firing within this window.
+            state->hookSignaled = true;
+            state->workerInHook.set_value();
+            // This sleep creates a timing window during which the destructor's
+            // push() will contend for the mutex. The sleep holds the mutex, so
+            // push() blocks until it ends and the worker enters wait().
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         });
         runtime->Dispatch([](Napi::Env) {});
