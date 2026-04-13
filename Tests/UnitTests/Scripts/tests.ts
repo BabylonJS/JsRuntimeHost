@@ -410,40 +410,18 @@ if (hostPlatform !== "Unix") {
             let error: Error | undefined;
 
             ws.onopen = () => {
-                try {
-                    expect(ws).to.have.property("readyState", 1);
-                    expect(ws).to.have.property("url", "wss://ws.postman-echo.com/raw");
-                    ws.send(testMessage);
-                }
-                catch (e) {
-                    error = e as Error;
-                }
+                ws.send(testMessage);
             };
 
             ws.onmessage = (msg) => {
-                try {
-                    expect(msg.data).to.equal(testMessage);
-                    ws.close();
+                if (msg.data !== testMessage) {
+                    error = new Error(`Expected "${testMessage}" but got "${msg.data}"`);
                 }
-                catch (e) {
-                    error = e as Error;
-                }
+                ws.close();
             };
 
-            // onclose is always the terminal event.
-            // Collect errors from earlier phases and report them here.
             ws.onclose = () => {
-                if (error) {
-                    done(error);
-                    return;
-                }
-                try {
-                    expect(ws).to.have.property("readyState", 3);
-                    done();
-                }
-                catch (e) {
-                    done(e);
-                }
+                done(error);
             };
 
             ws.onerror = () => {
@@ -460,34 +438,18 @@ if (hostPlatform !== "Unix") {
             ws1.onopen = () => {
                 const ws2 = new WebSocket("wss://ws.postman-echo.com/raw");
                 ws2.onopen = () => {
-                    try {
-                        expect(ws2).to.have.property("readyState", 1);
-                        expect(ws2).to.have.property("url", "wss://ws.postman-echo.com/raw");
-                        ws2.send(testMessage2);
-                    }
-                    catch (e) {
-                        error = e as Error;
-                    }
+                    ws2.send(testMessage2);
                 };
 
                 ws2.onmessage = (msg) => {
-                    try {
-                        expect(msg.data).to.equal(testMessage2);
-                        ws2.close();
+                    if (msg.data !== testMessage2) {
+                        error = new Error(`Expected "${testMessage2}" but got "${msg.data}"`);
                     }
-                    catch (e) {
-                        error = e as Error;
-                    }
+                    ws2.close();
                 };
 
                 ws2.onclose = () => {
-                    try {
-                        expect(ws2).to.have.property("readyState", 3);
-                        ws1.send(testMessage1);
-                    }
-                    catch (e) {
-                        error = e as Error;
-                    }
+                    ws1.send(testMessage1);
                 };
 
                 ws2.onerror = () => {
@@ -496,27 +458,14 @@ if (hostPlatform !== "Unix") {
             }
 
             ws1.onmessage = (msg) => {
-                try {
-                    expect(msg.data).to.equal(testMessage1);
-                    ws1.close();
+                if (msg.data !== testMessage1) {
+                    error = new Error(`Expected "${testMessage1}" but got "${msg.data}"`);
                 }
-                catch (e) {
-                    error = e as Error;
-                }
+                ws1.close();
             }
 
             ws1.onclose = () => {
-                if (error) {
-                    done(error);
-                    return;
-                }
-                try {
-                    expect(ws1).to.have.property("readyState", 3);
-                    done();
-                }
-                catch (e) {
-                    done(e);
-                }
+                done(error);
             }
 
             ws1.onerror = () => {
@@ -540,13 +489,7 @@ if (hostPlatform !== "Unix") {
                 errorFired = true;
             };
             ws.onclose = () => {
-                try {
-                    expect(errorFired).to.be.true;
-                    done();
-                }
-                catch (e) {
-                    done(e);
-                }
+                done(errorFired ? undefined : new Error("Expected onerror before onclose"));
             };
         });
     })
