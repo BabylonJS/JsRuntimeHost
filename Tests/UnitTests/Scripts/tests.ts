@@ -1,4 +1,4 @@
-﻿import * as Mocha from "mocha";
+import * as Mocha from "mocha";
 import { expect } from "chai";
 
 Mocha.setup('bdd');
@@ -407,20 +407,39 @@ if (hostPlatform !== "Unix") {
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket("wss://ws.postman-echo.com/raw");
             const testMessage = "testMessage";
-            let error: Error | undefined;
+            let error: unknown;
 
             ws.onopen = () => {
-                ws.send(testMessage);
+                try {
+                    expect(ws).to.have.property("readyState", 1);
+                    expect(ws).to.have.property("url", "wss://ws.postman-echo.com/raw");
+                    ws.send(testMessage);
+                }
+                catch (e) {
+                    error = e;
+                    ws.close();
+                }
             };
 
             ws.onmessage = (msg) => {
-                if (msg.data !== testMessage) {
-                    error = new Error(`Expected "${testMessage}" but got "${msg.data}"`);
+                try {
+                    expect(msg.data).to.equal(testMessage);
+                }
+                catch (e) {
+                    error = e;
                 }
                 ws.close();
             };
 
             ws.onclose = () => {
+                if (!error) {
+                    try {
+                        expect(ws).to.have.property("readyState", 3);
+                    }
+                    catch (e) {
+                        error = e;
+                    }
+                }
                 done(error);
             };
 
@@ -432,24 +451,47 @@ if (hostPlatform !== "Unix") {
         it("should connect correctly with multiple websocket connections", function (done) {
             const testMessage1 = "testMessage1";
             const testMessage2 = "testMessage2";
-            let error: Error | undefined;
+            let error: unknown;
 
             const ws1 = new WebSocket("wss://ws.postman-echo.com/raw");
             ws1.onopen = () => {
                 const ws2 = new WebSocket("wss://ws.postman-echo.com/raw");
                 ws2.onopen = () => {
-                    ws2.send(testMessage2);
+                    try {
+                        expect(ws2).to.have.property("readyState", 1);
+                        expect(ws2).to.have.property("url", "wss://ws.postman-echo.com/raw");
+                        ws2.send(testMessage2);
+                    }
+                    catch (e) {
+                        error = e;
+                        ws2.close();
+                    }
                 };
 
                 ws2.onmessage = (msg) => {
-                    if (msg.data !== testMessage2) {
-                        error = new Error(`Expected "${testMessage2}" but got "${msg.data}"`);
+                    try {
+                        expect(msg.data).to.equal(testMessage2);
+                    }
+                    catch (e) {
+                        error = e;
                     }
                     ws2.close();
                 };
 
                 ws2.onclose = () => {
-                    ws1.send(testMessage1);
+                    if (!error) {
+                        try {
+                            expect(ws2).to.have.property("readyState", 3);
+                            ws1.send(testMessage1);
+                        }
+                        catch (e) {
+                            error = e;
+                            ws1.close();
+                        }
+                    }
+                    else {
+                        ws1.close();
+                    }
                 };
 
                 ws2.onerror = () => {
@@ -458,13 +500,24 @@ if (hostPlatform !== "Unix") {
             }
 
             ws1.onmessage = (msg) => {
-                if (msg.data !== testMessage1) {
-                    error = new Error(`Expected "${testMessage1}" but got "${msg.data}"`);
+                try {
+                    expect(msg.data).to.equal(testMessage1);
+                }
+                catch (e) {
+                    error = e;
                 }
                 ws1.close();
             }
 
             ws1.onclose = () => {
+                if (!error) {
+                    try {
+                        expect(ws1).to.have.property("readyState", 3);
+                    }
+                    catch (e) {
+                        error = e;
+                    }
+                }
                 done(error);
             }
 
@@ -489,7 +542,13 @@ if (hostPlatform !== "Unix") {
                 errorFired = true;
             };
             ws.onclose = () => {
-                done(errorFired ? undefined : new Error("Expected onerror before onclose"));
+                try {
+                    expect(errorFired).to.be.true;
+                    done();
+                }
+                catch (e) {
+                    done(e);
+                }
             };
         });
     })
