@@ -19,7 +19,7 @@ target_include_directories(AppRuntime
     INTERFACE "Include")
 
 target_link_libraries(AppRuntime
-    PRIVATE arcana
+    PUBLIC arcana
     PUBLIC JsRuntime)
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
