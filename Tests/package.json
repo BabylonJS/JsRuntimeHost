@@ -12,7 +12,9 @@
     "mocha": "11.1.0"
   },
   "overrides": {
-    "serialize-javascript": ">=7.0.5"
+    "mocha": {
+      "serialize-javascript": "^7.0.5"
+    }
   },
   "devDependencies": {
     "@babel/cli": "7.27.0",
