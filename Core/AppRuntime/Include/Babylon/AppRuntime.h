@@ -32,6 +32,11 @@ namespace Babylon
         AppRuntime(Options options);
         ~AppRuntime();
 
+        AppRuntime(const AppRuntime&) = delete;
+        AppRuntime& operator=(const AppRuntime&) = delete;
+        AppRuntime(AppRuntime&&) = delete;
+        AppRuntime& operator=(AppRuntime&&) = delete;
+
         void Suspend();
         void Resume();
 
