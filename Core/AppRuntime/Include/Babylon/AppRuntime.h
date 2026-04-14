@@ -32,8 +32,11 @@ namespace Babylon
         AppRuntime(Options options);
         ~AppRuntime();
 
+        // Copy semantics
         AppRuntime(const AppRuntime&) = delete;
         AppRuntime& operator=(const AppRuntime&) = delete;
+
+        // Move semantics
         AppRuntime(AppRuntime&&) = delete;
         AppRuntime& operator=(AppRuntime&&) = delete;
 
