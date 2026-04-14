@@ -11,6 +11,9 @@
     "chai": "5.2.0",
     "mocha": "11.1.0"
   },
+  "overrides": {
+    "serialize-javascript": ">=7.0.5"
+  },
   "devDependencies": {
     "@babel/cli": "7.27.0",
     "@babel/core": "^7.28.0",
