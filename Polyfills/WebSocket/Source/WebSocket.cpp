@@ -65,9 +65,17 @@ namespace Babylon::Polyfills::Internal
 
     void WebSocket::Send(const Napi::CallbackInfo& info)
     {
+        // Per the WHATWG WebSocket spec, send() throws InvalidStateError only
+        // when readyState is CONNECTING. When CLOSING or CLOSED, the data is
+        // silently discarded (the spec still bumps bufferedAmount, which this
+        // polyfill does not track).
+        if (m_readyState == ReadyState::Connecting)
+        {
+            throw Napi::Error::New(info.Env(), "WebSocket is still in CONNECTING state.");
+        }
         if (m_readyState != ReadyState::Open)
         {
-            throw Napi::Error::New(info.Env(), "Websocket readyState is not open.");
+            return;
         }
         std::string message = info[0].As<Napi::String>();
         m_webSocket.Send(message);
