@@ -1,0 +1,61 @@
+name: Build Android
+
+on:
+  workflow_call:
+    inputs:
+      js-engine:
+        required: true
+        type: string
+
+env:
+  NDK_VERSION: '28.2.13676358'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android Emulator
+        run: |
+          echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
+          echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
+
+      - name: Start Android Emulator
+        run: |
+          nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window -no-audio -no-boot-anim 2>&1 &
+          $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo "."; sleep 1; done'
+          $ANDROID_HOME/platform-tools/adb devices
+
+      - name: Run Connected Android Test
+        working-directory: Tests/UnitTests/Android
+        run: |
+          chmod +x gradlew
+          ./gradlew connectedAndroidTest \
+            -PabiFilters=x86_64 \
+            -PjsEngine=${{ inputs.js-engine }} \
+            -PndkVersion=${{ env.NDK_VERSION }}
+
+      - name: Dump Test Results
+        if: always()
+        working-directory: Tests/UnitTests/Android
+        run: |
+          find ./app/build/outputs/androidTest-results -name "*.txt" -print0 | while IFS= read -r -d '' file; do
+            echo "cat \"$file\""
+            cat "$file"
+          done
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidTestResults_${{ inputs.js-engine }}
+          path: Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected
+          if-no-files-found: ignore
