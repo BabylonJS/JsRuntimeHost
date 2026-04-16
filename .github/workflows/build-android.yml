@@ -41,10 +41,47 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n TestDevice -d pixel -k '${{ steps.arch.outputs.system-image }}'
 
       - name: Start Android Emulator
+        timeout-minutes: 5
         run: |
-          nohup $ANDROID_HOME/emulator/emulator -avd TestDevice -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -no-snapshot 2>&1 &
-          $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo "."; sleep 1; done'
+          nohup $ANDROID_HOME/emulator/emulator -avd TestDevice \
+            -no-window -no-audio -no-boot-anim -no-snapshot \
+            -gpu swiftshader_indirect \
+            > ${{ runner.temp }}/emulator.log 2>&1 &
+          EMULATOR_PID=$!
+          echo "Emulator PID: $EMULATOR_PID"
+
+          # Wait for a device to appear
+          echo "Waiting for emulator device..."
+          $ANDROID_HOME/platform-tools/adb wait-for-device
+
+          # Poll for boot completion
+          echo "Waiting for boot to complete..."
+          SECONDS=0
+          while [ -z "$($ANDROID_HOME/platform-tools/adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" ]; do
+            if ! kill -0 $EMULATOR_PID 2>/dev/null; then
+              echo "::error::Emulator process crashed"
+              cat ${{ runner.temp }}/emulator.log
+              exit 1
+            fi
+            if [ $SECONDS -ge 240 ]; then
+              echo "::error::Emulator boot timed out after ${SECONDS}s"
+              cat ${{ runner.temp }}/emulator.log
+              exit 1
+            fi
+            sleep 5
+            echo "  ${SECONDS}s elapsed..."
+          done
+
+          echo "Emulator booted in ${SECONDS}s"
           $ANDROID_HOME/platform-tools/adb devices
+
+      - name: Upload Emulator Log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmulatorLog_${{ inputs['js-engine'] }}
+          path: ${{ runner.temp }}/emulator.log
+          if-no-files-found: ignore
 
       - name: Run Connected Android Test
         working-directory: Tests/UnitTests/Android
