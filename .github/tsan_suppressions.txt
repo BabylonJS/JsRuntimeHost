@@ -4,7 +4,8 @@
 # TSan on macOS (JavaScriptCore via Xcode) passes clean — these suppressions are
 # only needed for the Ubuntu JSC build (libjavascriptcoregtk).
 
-# JavaScriptCore / WTF internal races in libjavascriptcoregtk
-race:WTF::
-race:JSC::
-race:bmalloc::
+# JavaScriptCore internal races in libjavascriptcoregtk.
+# Races manifest in allocator interceptors (free/malloc/memcpy) called from JSC's
+# JIT worker threads — function-name suppressions don't match because the top
+# frame is a libc function, so we suppress by calling library.
+called_from_lib:libjavascriptcoregtk
