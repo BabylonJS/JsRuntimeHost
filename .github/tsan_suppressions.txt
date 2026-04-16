@@ -1,0 +1,10 @@
+# ThreadSanitizer suppressions for JsRuntimeHost
+#
+# These suppress data races internal to third-party libraries that we cannot fix.
+# TSan on macOS (JavaScriptCore via Xcode) passes clean — these suppressions are
+# only needed for the Ubuntu JSC build (libjavascriptcoregtk).
+
+# JavaScriptCore / WTF internal races in libjavascriptcoregtk
+race:WTF::
+race:JSC::
+race:bmalloc::

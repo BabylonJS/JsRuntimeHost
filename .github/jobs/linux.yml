@@ -36,3 +36,6 @@ jobs:
   - script: ./UnitTests
     workingDirectory: 'Build/ubuntu/Tests/UnitTests'
     displayName: 'Run Tests'
+    ${{ if eq(parameters.enableThreadSanitizer, true) }}:
+      env:
+        TSAN_OPTIONS: suppressions=$(Build.SourcesDirectory)/.github/tsan_suppressions.txt

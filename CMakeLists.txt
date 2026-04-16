@@ -14,8 +14,8 @@ FetchContent_Declare(AndroidExtensions
     GIT_TAG 2e85a8d43b89246c460112c9e5546ad54b6e87b4
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(arcana.cpp
-    GIT_REPOSITORY https://github.com/bghgary/arcana.cpp.git
-    GIT_TAG 941914b7504a51beb99a9d28c030467d321be1ea
+    GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
+    GIT_TAG 0b9f9b6d761909fbca9d3ab1f2d8ff1c3d25ed3d
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(asio
     GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
@@ -37,7 +37,7 @@ FetchContent_Declare(llhttp
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/bghgary/UrlLib.git
-    GIT_TAG 6868a91ec5a854909b497573e5ec75385fdde012
+    GIT_TAG 2e19ebe1a1ba2bb9ccf57d37bffa2251065128d3
     EXCLUDE_FROM_ALL)
 # --------------------------------------------------
 
