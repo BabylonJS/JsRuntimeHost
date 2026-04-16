@@ -37,7 +37,7 @@ FetchContent_Declare(llhttp
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/bghgary/UrlLib.git
-    GIT_TAG 2e19ebe1a1ba2bb9ccf57d37bffa2251065128d3
+    GIT_TAG 45808ef00bc168ffb2567618d74233c7c5c20c06
     EXCLUDE_FROM_ALL)
 # --------------------------------------------------
 
