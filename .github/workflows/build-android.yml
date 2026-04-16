@@ -12,10 +12,7 @@ env:
 
 jobs:
   build:
-    # macos-13 (Intel) is used because macos-14 (Apple Silicon) runners
-    # do not expose Hypervisor Framework to the Android emulator, causing
-    # "HVF error: HV_UNSUPPORTED" crashes. Revisit when GitHub fixes this.
-    runs-on: macos-13
+    runs-on: macos-14
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -31,69 +28,23 @@ jobs:
           ARCH=$(uname -m)
           if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
             echo "abi=arm64-v8a" >> $GITHUB_OUTPUT
-            echo "system-image=system-images;android-33;google_apis;arm64-v8a" >> $GITHUB_OUTPUT
           else
             echo "abi=x86_64" >> $GITHUB_OUTPUT
-            echo "system-image=system-images;android-33;google_apis;x86_64" >> $GITHUB_OUTPUT
           fi
 
-      - name: Install Android Emulator
-        run: |
-          echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install '${{ steps.arch.outputs.system-image }}'
-          echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n TestDevice -d pixel -k '${{ steps.arch.outputs.system-image }}'
-
-      - name: Start Android Emulator
-        timeout-minutes: 5
-        run: |
-          nohup $ANDROID_HOME/emulator/emulator -avd TestDevice \
-            -no-window -no-audio -no-boot-anim -no-snapshot \
-            -gpu swiftshader_indirect \
-            > ${{ runner.temp }}/emulator.log 2>&1 &
-          EMULATOR_PID=$!
-          echo "Emulator PID: $EMULATOR_PID"
-
-          # Wait for a device to appear
-          echo "Waiting for emulator device..."
-          $ANDROID_HOME/platform-tools/adb wait-for-device
-
-          # Poll for boot completion
-          echo "Waiting for boot to complete..."
-          SECONDS=0
-          while [ -z "$($ANDROID_HOME/platform-tools/adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" ]; do
-            if ! kill -0 $EMULATOR_PID 2>/dev/null; then
-              echo "::error::Emulator process crashed"
-              cat ${{ runner.temp }}/emulator.log
-              exit 1
-            fi
-            if [ $SECONDS -ge 240 ]; then
-              echo "::error::Emulator boot timed out after ${SECONDS}s"
-              cat ${{ runner.temp }}/emulator.log
-              exit 1
-            fi
-            sleep 5
-            echo "  ${SECONDS}s elapsed..."
-          done
-
-          echo "Emulator booted in ${SECONDS}s"
-          $ANDROID_HOME/platform-tools/adb devices
-
-      - name: Upload Emulator Log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: EmulatorLog_${{ inputs['js-engine'] }}
-          path: ${{ runner.temp }}/emulator.log
-          if-no-files-found: ignore
-
       - name: Run Connected Android Test
-        working-directory: Tests/UnitTests/Android
-        run: |
-          chmod +x gradlew
-          ./gradlew connectedAndroidTest \
-            -PabiFilters=${{ steps.arch.outputs.abi }} \
-            -PjsEngine=${{ inputs['js-engine'] }} \
-            -PndkVersion=${{ env.NDK_VERSION }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: ${{ steps.arch.outputs.abi }}
+          script: |
+            cd Tests/UnitTests/Android
+            chmod +x gradlew
+            ./gradlew connectedAndroidTest \
+              -PabiFilters=${{ steps.arch.outputs.abi }} \
+              -PjsEngine=${{ inputs['js-engine'] }} \
+              -PndkVersion=${{ env.NDK_VERSION }}
 
       - name: Dump Test Results
         if: always()
