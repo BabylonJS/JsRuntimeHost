@@ -7,7 +7,7 @@ parameters:
 
 jobs:
 - job: ${{parameters.name}}
-  timeoutInMinutes: 15
+  timeoutInMinutes: ${{ if eq(parameters.enableThreadSanitizer, true) }}30${{ else }}15${{ endif }}
 
   pool:
     vmImage: ubuntu-latest
