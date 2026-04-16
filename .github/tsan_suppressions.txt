@@ -5,7 +5,13 @@
 # only needed for the Ubuntu JSC build (libjavascriptcoregtk).
 
 # JavaScriptCore internal races in libjavascriptcoregtk.
-# Races manifest in allocator interceptors (free/malloc/memcpy) called from JSC's
-# JIT worker threads — function-name suppressions don't match because the top
-# frame is a libc function, so we suppress by calling library.
+# Races manifest in TSan interceptors (free/malloc/memcpy/close) called from
+# JSC's JIT worker threads. function-name suppressions are needed because the
+# top frame is a libc interceptor attributed to UnitTests, not libjavascriptcoregtk.
 called_from_lib:libjavascriptcoregtk
+race:free
+race:close
+race:memcpy
+
+# JSC signal handler that doesn't save/restore errno
+signal:libjavascriptcoregtk
