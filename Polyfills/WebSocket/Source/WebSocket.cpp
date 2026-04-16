@@ -51,11 +51,13 @@ namespace Babylon::Polyfills::Internal
         m_cancellationSource->cancel();
     }
 
-    void WebSocket::Close(const Napi::CallbackInfo& info)
+    void WebSocket::Close(const Napi::CallbackInfo&)
     {
+        // Per the WHATWG WebSocket spec, calling close() on a socket that is
+        // already CLOSING or CLOSED is a no-op.
         if (m_readyState == ReadyState::Closed || m_readyState == ReadyState::Closing)
         {
-            throw Napi::Error::New(info.Env(), "Close has already been called.");
+            return;
         }
         m_readyState = ReadyState::Closing;
         m_webSocket.Close();
