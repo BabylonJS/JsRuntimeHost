@@ -12,7 +12,10 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-13 (Intel) is used because macos-14 (Apple Silicon) runners
+    # do not expose Hypervisor Framework to the Android emulator, causing
+    # "HVF error: HV_UNSUPPORTED" crashes. Revisit when GitHub fixes this.
+    runs-on: macos-13
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
