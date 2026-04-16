@@ -22,15 +22,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Detect host architecture
+        id: arch
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+            echo "abi=arm64-v8a" >> $GITHUB_OUTPUT
+            echo "system-image=system-images;android-33;google_apis;arm64-v8a" >> $GITHUB_OUTPUT
+          else
+            echo "abi=x86_64" >> $GITHUB_OUTPUT
+            echo "system-image=system-images;android-33;google_apis;x86_64" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install Android Emulator
         run: |
-          echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install 'system-images;android-27;default;x86_64'
+          echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install '${{ steps.arch.outputs.system-image }}'
           echo 'y' | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_API_27 -d pixel -k 'system-images;android-27;default;x86_64'
+          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n TestDevice -d pixel -k '${{ steps.arch.outputs.system-image }}'
 
       - name: Start Android Emulator
         run: |
-          nohup $ANDROID_HOME/emulator/emulator -avd Pixel_API_27 -gpu host -no-window -no-audio -no-boot-anim 2>&1 &
+          nohup $ANDROID_HOME/emulator/emulator -avd TestDevice -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -no-snapshot 2>&1 &
           $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do echo "."; sleep 1; done'
           $ANDROID_HOME/platform-tools/adb devices
 
@@ -39,8 +51,8 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew connectedAndroidTest \
-            -PabiFilters=x86_64 \
-            -PjsEngine=${{ inputs.js-engine }} \
+            -PabiFilters=${{ steps.arch.outputs.abi }} \
+            -PjsEngine=${{ inputs['js-engine'] }} \
             -PndkVersion=${{ env.NDK_VERSION }}
 
       - name: Dump Test Results
@@ -56,6 +68,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AndroidTestResults_${{ inputs.js-engine }}
+          name: AndroidTestResults_${{ inputs['js-engine'] }}
           path: Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected
           if-no-files-found: ignore
