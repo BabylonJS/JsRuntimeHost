@@ -58,15 +58,16 @@ jobs:
       js-engine: V8
 
   # ── Android ───────────────────────────────────────────────────
-  Android_JSC:
-    uses: ./.github/workflows/build-android.yml
-    with:
-      js-engine: JavaScriptCore
+  # TODO: Re-enable when Android emulator works reliably on GitHub Actions runners.
+  # Android_JSC:
+  #   uses: ./.github/workflows/build-android.yml
+  #   with:
+  #     js-engine: JavaScriptCore
 
-  Android_V8:
-    uses: ./.github/workflows/build-android.yml
-    with:
-      js-engine: V8
+  # Android_V8:
+  #   uses: ./.github/workflows/build-android.yml
+  #   with:
+  #     js-engine: V8
 
   # ── macOS ─────────────────────────────────────────────────────
   macOS_Xcode164:
