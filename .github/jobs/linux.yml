@@ -7,14 +7,14 @@ parameters:
 
 jobs:
 - job: ${{parameters.name}}
-  timeoutInMinutes: ${{ if eq(parameters.enableThreadSanitizer, true) }}30${{ else }}15${{ endif }}
+  timeoutInMinutes: ${{if eq(parameters.enableThreadSanitizer, true)}}30${{else}}15${{endif}}
 
   pool:
     vmImage: ubuntu-latest
 
   variables:
-    SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableSanitizers), 'True', 'ON'), 'OFF') }}
-    THREAD_SANITIZER_FLAG: ${{ coalesce(replace(format('{0}', parameters.enableThreadSanitizer), 'True', 'ON'), 'OFF') }}
+    SANITIZER_FLAG: ${{coalesce(replace(format('{0}', parameters.enableSanitizers), 'True', 'ON'), 'OFF')}}
+    THREAD_SANITIZER_FLAG: ${{coalesce(replace(format('{0}', parameters.enableThreadSanitizer), 'True', 'ON'), 'OFF')}}
 
   steps:
   - script: |
@@ -36,6 +36,6 @@ jobs:
   - script: ./UnitTests
     workingDirectory: 'Build/ubuntu/Tests/UnitTests'
     displayName: 'Run Tests'
-    ${{ if eq(parameters.enableThreadSanitizer, true) }}:
+    ${{if eq(parameters.enableThreadSanitizer, true)}}:
       env:
         TSAN_OPTIONS: suppressions=$(Build.SourcesDirectory)/.github/tsan_suppressions.txt
