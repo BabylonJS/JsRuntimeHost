@@ -528,7 +528,9 @@ if (hostPlatform !== "Unix") {
 
         it("should trigger error callback with invalid server", function (done) {
             this.timeout(10000);
-            const ws = new WebSocket("wss://example.invalid");
+            // Random UUID-based hostname so the domain is guaranteed unregistered
+            // (RFC-reserved `.invalid` causes a >10s DNS path on Win32 x86 Chakra).
+            const ws = new WebSocket("wss://caddddfd-ee88-4771-b293-8a8e13b330ee.com");
             let errorFired = false;
             ws.onerror = () => {
                 errorFired = true;
