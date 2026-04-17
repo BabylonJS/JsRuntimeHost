@@ -7,10 +7,7 @@ parameters:
 
 jobs:
 - job: ${{parameters.name}}
-  ${{if eq(parameters.enableThreadSanitizer, true)}}:
-    timeoutInMinutes: 30
-  ${{else}}:
-    timeoutInMinutes: 15
+  timeoutInMinutes: 15
 
   pool:
     vmImage: ubuntu-latest
@@ -42,3 +39,10 @@ jobs:
     ${{if eq(parameters.enableThreadSanitizer, true)}}:
       env:
         TSAN_OPTIONS: suppressions=$(Build.SourcesDirectory)/.github/tsan_suppressions.txt
+        # JSC's concurrent GC on Linux uses SIGUSR1 + sem_wait to suspend mutator
+        # threads at safepoints. TSan's signal interception delays SIGUSR1 delivery
+        # indefinitely, deadlocking the Collector Thread's sem_wait. Disabling the
+        # concurrent collector removes the dedicated Collector Thread, so GC runs
+        # on the mutator without cross-thread signals. macOS JSC uses Mach
+        # thread_suspend() and is unaffected.
+        JSC_useConcurrentGC: '0'
