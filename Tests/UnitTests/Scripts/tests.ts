@@ -527,9 +527,20 @@ if (hostPlatform !== "Unix") {
         });
 
         it("should trigger error callback with invalid server", function (done) {
-            const ws = new WebSocket("wss://caddddfd-ee88-4771-b293-8a8e13b330ee.com");
+            this.timeout(10000);
+            const ws = new WebSocket("wss://example.invalid");
+            let errorFired = false;
             ws.onerror = () => {
-                done();
+                errorFired = true;
+            };
+            ws.onclose = () => {
+                try {
+                    expect(errorFired).to.be.true;
+                    done();
+                }
+                catch (e) {
+                    done(e);
+                }
             };
         });
 
