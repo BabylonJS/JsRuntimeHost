@@ -526,13 +526,18 @@ if (hostPlatform !== "Unix") {
             };
         });
 
-        // TODO: This is not working reliably: see https://github.com/BabylonJS/JsRuntimeHost/issues/131
-        // it("should trigger error callback with invalid server", function (done) {
-        //     const ws = new WebSocket("wss://caddddfd-ee88-4771-b293-8a8e13b330ee.com");
-        //     ws.onerror = () => {
-        //         done();
-        //     };
-        // });
+        // Repro for https://github.com/BabylonJS/JsRuntimeHost/issues/131
+        // Issue reports ~1/3 flake rate. Running 20 iterations so that if the
+        // flake still exists, P(all pass) = (2/3)^20 ≈ 0.03%.
+        for (let i = 1; i <= 20; i++) {
+            it(`should trigger error callback with invalid server (iter ${i})`, function (done) {
+                this.timeout(15000);
+                const ws = new WebSocket("wss://caddddfd-ee88-4771-b293-8a8e13b330ee.com");
+                ws.onerror = () => {
+                    done();
+                };
+            });
+        }
 
         it("should trigger error callback with invalid domain", function (done) {
             this.timeout(10000);
