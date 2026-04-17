@@ -96,6 +96,19 @@ jobs:
       xcode-version: '26.4'
       runs-on: macos-26
 
+  macOS_Xcode264_Sanitizers:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      xcode-version: '26.4'
+      runs-on: macos-26
+      enable-sanitizers: true
+
+  macOS_Xcode264_ThreadSanitizer:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      xcode-version: '26.4'
+      runs-on: macos-26
+      enable-thread-sanitizer: true
 
   # ── iOS ───────────────────────────────────────────────────────
   iOS_Xcode164:
