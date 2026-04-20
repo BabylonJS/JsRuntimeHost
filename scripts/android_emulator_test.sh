@@ -153,6 +153,17 @@ else
     --force
 fi
 
+# The Homebrew avdmanager writes image.sysdir.1 relative to dirname($ANDROID_SDK)
+# (e.g. "sdk/system-images/...") because it computes the SDK root as one level
+# above $ANDROID_SDK.  Patch config.ini so the path is correct relative to
+# $ANDROID_SDK itself (strip the leading "sdk/" prefix).
+CONFIG_INI="$AVD_HOME/$AVD_NAME.avd/config.ini"
+if grep -q "^image\.sysdir\.1=sdk/" "$CONFIG_INI" 2>/dev/null; then
+  echo "Patching config.ini: removing spurious 'sdk/' prefix from image.sysdir.1 ..."
+  sed -i.bak 's|^image\.sysdir\.1=sdk/|image.sysdir.1=|' "$CONFIG_INI"
+  echo "  image.sysdir.1=$(grep '^image\.sysdir\.1=' "$CONFIG_INI")"
+fi
+
 # ─── Write Hello World C source ───────────────────────────────────────────────
 SRC_DIR="$SCRIPT_DIR/hello_world"
 mkdir -p "$SRC_DIR"
@@ -185,7 +196,7 @@ fi
 
 # ─── Start emulator ──────────────────────────────────────────────────────────
 echo "Starting emulator ..."
-ANDROID_AVD_HOME="$AVD_HOME" "$EMULATOR" \
+ANDROID_AVD_HOME="$AVD_HOME" ANDROID_SDK_ROOT="$ANDROID_SDK" "$EMULATOR" \
   -avd "$AVD_NAME" \
   -no-window \
   -no-audio \
@@ -204,9 +215,12 @@ trap cleanup EXIT
 
 # ─── Wait for device online ───────────────────────────────────────────────────
 echo "Waiting for device to come online ..."
-WAIT_TIMEOUT=60
+WAIT_TIMEOUT=120
 ELAPSED=0
-while ! "$ADB" -s "$EMU_SERIAL" get-state 2>/dev/null | grep -q "device"; do
+while true; do
+  # adb get-state may fail during early boot — don't let set -e exit the script
+  DEV_STATE=$("$ADB" -s "$EMU_SERIAL" get-state 2>/dev/null || true)
+  [ "$DEV_STATE" = "device" ] && break
   if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
     echo "ERROR: Emulator process died unexpectedly." >&2; exit 1
   fi
@@ -215,12 +229,15 @@ while ! "$ADB" -s "$EMU_SERIAL" get-state 2>/dev/null | grep -q "device"; do
   fi
   sleep 2; ELAPSED=$((ELAPSED + 2))
 done
+echo "Device online."
 
 echo "Waiting for boot to complete (may take a few minutes) ..."
 BOOT_TIMEOUT=300
 ELAPSED=0
 while true; do
-  BOOT_PROP=$("$ADB" -s "$EMU_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+  # adb shell may fail transiently during boot — guard with || true
+  BOOT_PROP=$("$ADB" -s "$EMU_SERIAL" shell getprop sys.boot_completed 2>/dev/null || true)
+  BOOT_PROP=$(printf '%s' "$BOOT_PROP" | tr -d '\r\n')
   if [ "$BOOT_PROP" = "1" ]; then
     echo "Emulator booted successfully."
     break
@@ -244,7 +261,7 @@ echo "Clearing logcat buffer ..."
 "$ADB" -s "$EMU_SERIAL" logcat -c
 
 echo "Running hello binary ..."
-STDOUT=$("$ADB" -s "$EMU_SERIAL" shell /data/local/tmp/hello 2>&1)
+STDOUT=$("$ADB" -s "$EMU_SERIAL" shell /data/local/tmp/hello 2>&1 || true)
 echo "Program stdout: $STDOUT"
 
 # ─── Poll logcat until entry appears or timeout ───────────────────────────────
@@ -252,7 +269,7 @@ echo "Polling logcat for '$LOGCAT_TAG' (up to ${LOGCAT_TIMEOUT}s) ..."
 LOGCAT=""
 ELAPSED=0
 while [ "$ELAPSED" -lt "$LOGCAT_TIMEOUT" ]; do
-  LOGCAT=$("$ADB" -s "$EMU_SERIAL" logcat -d -s "$LOGCAT_TAG:I" 2>&1)
+  LOGCAT=$("$ADB" -s "$EMU_SERIAL" logcat -d -s "$LOGCAT_TAG:I" 2>&1 || true)
   if echo "$LOGCAT" | grep -qi "hello world"; then
     break
   fi
