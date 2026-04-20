@@ -34,6 +34,13 @@ else
   AVDMANAGER="$ANDROID_SDK/cmdline-tools/latest/bin/avdmanager"
 fi
 
+# Homebrew's avdmanager/sdkmanager compute the SDK root from 'toolsdir'.
+# By pointing toolsdir at $ANDROID_SDK/platform-tools (always present), the
+# parent directory becomes the correct SDK root.  Without this the Homebrew
+# wrapper uses its own cellar path and cannot find installed system images.
+export AVDMANAGER_OPTS="-Dcom.android.sdkmanager.toolsdir=$ANDROID_SDK/platform-tools"
+export SDKMANAGER_OPTS="-Dcom.android.sdkmanager.toolsdir=$ANDROID_SDK/platform-tools"
+
 # ─── Detect host arch and NDK host tag ───────────────────────────────────────
 HOST_ARCH="$(uname -m)"
 OS="$(uname -s)"
