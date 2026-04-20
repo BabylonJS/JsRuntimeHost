@@ -101,6 +101,7 @@ ANDROID_AVD_HOME="$AVD_HOME" ANDROID_SDK_ROOT="$ANDROID_SDK" "$EMULATOR" \
   -no-window \
   -no-audio \
   -no-boot-anim \
+  -no-snapshot \
   -gpu swiftshader_indirect \
   -port 5554 \
   &
