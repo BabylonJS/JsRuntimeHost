@@ -170,8 +170,7 @@ RESULT_SUMMARY="$ANDROID_PROJECT/app/build/reports/androidTests/connected/index.
 
 TOTAL=0; FAILURES=0; ERRORS=0; SKIPPED=0
 if [ -d "$RESULTS_DIR" ]; then
-  for xml in "$RESULTS_DIR"/*.xml "$RESULTS_DIR"/**/*.xml 2>/dev/null; do
-    [ -f "$xml" ] || continue
+  while IFS= read -r xml; do
     t=$(grep -o 'tests="[0-9]*"'    "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
     f=$(grep -o 'failures="[0-9]*"' "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
     e=$(grep -o 'errors="[0-9]*"'   "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
@@ -181,9 +180,8 @@ if [ -d "$RESULTS_DIR" ]; then
     ERRORS=$((ERRORS + e))
     SKIPPED=$((SKIPPED + s))
     echo "  Result file: $(basename "$xml") — tests=$t failures=$f errors=$e"
-    # Print any failure details
     grep -A5 '<failure' "$xml" 2>/dev/null | head -30 || true
-  done
+  done < <(find "$RESULTS_DIR" -name "*.xml" 2>/dev/null)
 else
   echo "  No result XML files found in $RESULTS_DIR"
 fi
