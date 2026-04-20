@@ -64,10 +64,10 @@ jobs:
   #   with:
   #     js-engine: JavaScriptCore
 
-  # Android_V8:
-  #   uses: ./.github/workflows/build-android.yml
-  #   with:
-  #     js-engine: V8
+  Android_V8:
+    uses: ./.github/workflows/build-android.yml
+    with:
+      js-engine: V8
 
   # ── macOS ─────────────────────────────────────────────────────
   macOS_Xcode164:
