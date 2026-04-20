@@ -12,6 +12,9 @@ include(FetchContent)
 FetchContent_Declare(AndroidExtensions
     GIT_REPOSITORY https://github.com/BabylonJS/AndroidExtensions.git
     GIT_TAG 2e85a8d43b89246c460112c9e5546ad54b6e87b4
+    PATCH_COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_CURRENT_SOURCE_DIR}/patches/AndroidExtensions/StdoutLogger.cpp"
+        "Source/StdoutLogger.cpp"
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(arcana.cpp
     GIT_REPOSITORY https://github.com/microsoft/arcana.cpp.git
