@@ -3,3 +3,4 @@ Tests/UnitTests/dist/
 
 # Android emulator artifacts
 scripts/avd_home/
+scripts/logcat.log

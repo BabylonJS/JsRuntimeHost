@@ -107,8 +107,13 @@ ANDROID_AVD_HOME="$AVD_HOME" ANDROID_SDK_ROOT="$ANDROID_SDK" "$EMULATOR" \
 EMULATOR_PID=$!
 echo "Emulator PID: $EMULATOR_PID"
 
+LOGCAT_FILE="$SCRIPT_DIR/logcat.log"
+
 cleanup() {
   echo ""
+  # Stop logcat capture
+  kill "$LOGCAT_PID" 2>/dev/null || true
+  echo "Logcat saved : $LOGCAT_FILE"
   echo "Shutting down emulator (PID $EMULATOR_PID) ..."
   kill "$EMULATOR_PID" 2>/dev/null || true
 }
@@ -146,6 +151,12 @@ while true; do
   sleep 5; ELAPSED=$((ELAPSED + 5))
   echo "  ... waiting (${ELAPSED}s)"
 done
+
+# Start logcat capture (clear first so we only capture test output)
+"$ADB" -s "$EMU_SERIAL" logcat -c
+"$ADB" -s "$EMU_SERIAL" logcat > "$LOGCAT_FILE" 2>&1 &
+LOGCAT_PID=$!
+echo "Logcat PID : $LOGCAT_PID  →  $LOGCAT_FILE"
 
 # ─── Run Gradle instrumented tests ───────────────────────────────────────────
 echo ""
@@ -192,5 +203,11 @@ if [ "$GRADLE_EXIT" -eq 0 ] && [ "$FAILURES" -eq 0 ] && [ "$ERRORS" -eq 0 ]; the
 else
   echo "❌ FAILURE: $FAILURES failure(s), $ERRORS error(s) out of $TOTAL tests." >&2
   [ "$GRADLE_EXIT" -ne 0 ] && echo "   Gradle exit code: $GRADLE_EXIT" >&2
+  echo ""
+  echo "── Logcat (StdoutLogger / test output) ──────────────────────────────"
+  grep "StdoutLogger\|TestRunner\|FAILED\|PASSED\|AndroidRuntime\|FATAL" \
+    "$LOGCAT_FILE" 2>/dev/null | tail -60 || true
+  echo "── Full logcat: $LOGCAT_FILE ──────────────────────────────────────"
   exit 1
 fi
+echo "── Full logcat: $LOGCAT_FILE"
