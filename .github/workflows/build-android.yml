@@ -43,9 +43,8 @@ jobs:
           arch: x86_64
           emulator-options: -no-snapshot -no-window -no-boot-anim -no-audio
           script: |
-            cd Tests/UnitTests/Android
-            chmod +x gradlew
-            ./gradlew connectedAndroidTest \
+            chmod +x Tests/UnitTests/Android/gradlew
+            Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest \
               -PabiFilters=x86_64 \
               -PjsEngine=${{ inputs['js-engine'] }} \
               -PndkVersion=${{ env.NDK_VERSION }}
