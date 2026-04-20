@@ -108,12 +108,12 @@ EMULATOR_PID=$!
 echo "Emulator PID: $EMULATOR_PID"
 
 LOGCAT_FILE="$SCRIPT_DIR/logcat.log"
+LOGCAT_PID=""
 
 cleanup() {
   echo ""
-  # Stop logcat capture
-  kill "$LOGCAT_PID" 2>/dev/null || true
-  echo "Logcat saved : $LOGCAT_FILE"
+  [ -n "$LOGCAT_PID" ] && kill "$LOGCAT_PID" 2>/dev/null || true
+  [ -f "$LOGCAT_FILE" ] && echo "Logcat saved : $LOGCAT_FILE"
   echo "Shutting down emulator (PID $EMULATOR_PID) ..."
   kill "$EMULATOR_PID" 2>/dev/null || true
 }
