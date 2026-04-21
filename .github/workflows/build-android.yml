@@ -42,7 +42,7 @@ jobs:
           target: google_apis
           arch: x86_64
           emulator-options: -no-snapshot -no-window -no-boot-anim -no-audio
-          script: chmod +x Tests/UnitTests/Android/gradlew && Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs['js-engine'] }} -PndkVersion=${{ env.NDK_VERSION }}
+          script: chmod +x Tests/UnitTests/Android/gradlew && Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs.js-engine }} -PndkVersion=${{ env.NDK_VERSION }}
 
       - name: Dump Test Results
         if: always()
@@ -57,6 +57,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AndroidTestResults_${{ inputs['js-engine'] }}
+          name: AndroidTestResults_${{ inputs.js-engine }}
           path: Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected
           if-no-files-found: ignore
