@@ -35,21 +35,6 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Prepare test script
-        run: |
-          cat > /tmp/run_android_tests.sh << EOF
-          #!/bin/bash
-          adb logcat -c || true
-          adb logcat > \$GITHUB_WORKSPACE/logcat.txt &
-          LOGCAT_PID=\$!
-          chmod +x Tests/UnitTests/Android/gradlew
-          Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs['js-engine'] }} -PndkVersion=${{ env.NDK_VERSION }}
-          STATUS=\$?
-          kill \$LOGCAT_PID 2>/dev/null || true
-          exit \$STATUS
-          EOF
-          chmod +x /tmp/run_android_tests.sh
-
       - name: Run Connected Android Test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -57,7 +42,7 @@ jobs:
           target: google_apis
           arch: x86_64
           emulator-options: -no-snapshot -no-window -no-boot-anim -no-audio
-          script: /tmp/run_android_tests.sh
+          script: chmod +x Tests/UnitTests/Android/gradlew && Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs['js-engine'] }} -PndkVersion=${{ env.NDK_VERSION }}
 
       - name: Dump Test Results
         if: always()
@@ -74,12 +59,4 @@ jobs:
         with:
           name: AndroidTestResults_${{ inputs['js-engine'] }}
           path: Tests/UnitTests/Android/app/build/outputs/androidTest-results/connected
-          if-no-files-found: ignore
-
-      - name: Upload Logcat
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Logcat_${{ inputs['js-engine'] }}
-          path: logcat.txt
           if-no-files-found: ignore
