@@ -12,9 +12,11 @@
 
 namespace {
 
-// Custom class ID for external objects
+// Custom class IDs for external objects
 static JSClassID js_external_class_id = 0;
+static JSClassID js_callback_class_id = 0;
 static JSClassID js_wrap_class_id = 0;
+static bool class_ids_allocated = false;
 
 // Adapter for external data + finalize callback
 class ExternalData {
@@ -24,13 +26,26 @@ class ExternalData {
 
   void* Data() { return _data; }
 
+  static void RunCallback(ExternalData* externalData) {
+    if (externalData && externalData->_cb) {
+      externalData->_cb(externalData->_env, externalData->_data, externalData->_hint);
+    }
+  }
+
   static void Finalize(JSRuntime *rt, JSValue val) {
     void* opaque = JS_GetOpaque(val, js_external_class_id);
     ExternalData* externalData = reinterpret_cast<ExternalData*>(opaque);
     if (externalData != nullptr) {
-      if (externalData->_cb != nullptr) {
-        externalData->_cb(externalData->_env, externalData->_data, externalData->_hint);
-      }
+      RunCallback(externalData);
+      delete externalData;
+    }
+  }
+
+  static void FinalizeWrap(JSRuntime *rt, JSValue val) {
+    void* opaque = JS_GetOpaque(val, js_wrap_class_id);
+    ExternalData* externalData = reinterpret_cast<ExternalData*>(opaque);
+    if (externalData != nullptr) {
+      RunCallback(externalData);
       delete externalData;
     }
   }
@@ -59,7 +74,7 @@ class ExternalCallback {
     : _env(env), _cb(cb), _data(data), newTarget(JS_UNDEFINED) {}
 
 static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data) {
-  ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(JS_GetOpaque(func_data[0], js_external_class_id));
+  ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(JS_GetOpaque(func_data[0], js_callback_class_id));
   if (!externalCallback || !externalCallback->_cb) {
     return JS_UNDEFINED;
   }
@@ -158,9 +173,12 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
 }
 
   static void Finalize(JSRuntime *rt, JSValue val) {
-    void* opaque = JS_GetOpaque(val, js_external_class_id);
+    void* opaque = JS_GetOpaque(val, js_callback_class_id);
     ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(opaque);
-    delete externalCallback;
+    if (externalCallback != nullptr) {
+      JS_FreeValueRT(rt, externalCallback->newTarget);
+      delete externalCallback;
+    }
   }
 
   JSValue newTarget;
@@ -177,33 +195,42 @@ struct RefInfo {
   uint32_t count;
 };
 
-// Initialize class IDs
+// Initialize class IDs (allocate once globally, register per runtime)
 void InitClassIds(JSRuntime* rt) {
-  static bool initialized = false;
-  if (!initialized) {
+  if (!class_ids_allocated) {
     JS_NewClassID(rt, &js_external_class_id);
+    JS_NewClassID(rt, &js_callback_class_id);
     JS_NewClassID(rt, &js_wrap_class_id);
-    
-    JSClassDef external_class_def = {
-      "NapiExternal",
-      ExternalData::Finalize,
-      nullptr,
-      nullptr,
-      nullptr
-    };
-    JS_NewClass(rt, js_external_class_id, &external_class_def);
-    
-    JSClassDef wrap_class_def = {
-      "NapiWrap",
-      ExternalData::Finalize,
-      nullptr,
-      nullptr,
-      nullptr
-    };
-    JS_NewClass(rt, js_wrap_class_id, &wrap_class_def);
-    
-    initialized = true;
+    class_ids_allocated = true;
   }
+
+  // Register class defs per runtime (JS_NewClass is a no-op if already registered)
+  JSClassDef external_class_def = {
+    "NapiExternal",
+    ExternalData::Finalize,
+    nullptr,
+    nullptr,
+    nullptr
+  };
+  JS_NewClass(rt, js_external_class_id, &external_class_def);
+
+  JSClassDef callback_class_def = {
+    "NapiCallback",
+    ExternalCallback::Finalize,
+    nullptr,
+    nullptr,
+    nullptr
+  };
+  JS_NewClass(rt, js_callback_class_id, &callback_class_def);
+
+  JSClassDef wrap_class_def = {
+    "NapiWrap",
+    ExternalData::FinalizeWrap,
+    nullptr,
+    nullptr,
+    nullptr
+  };
+  JS_NewClass(rt, js_wrap_class_id, &wrap_class_def);
 }
 
 // Helper to convert napi_value to JSValue
@@ -891,7 +918,7 @@ static napi_status create_function_internal(napi_env env, const char* utf8name, 
   ExternalCallback* externalCallback = new ExternalCallback(env, cb, data);
   
   // Create opaque object to hold callback data
-  JSValue callbackData = JS_NewObjectClass(env->context, js_external_class_id);
+  JSValue callbackData = JS_NewObjectClass(env->context, js_callback_class_id);
   JS_SetOpaque(callbackData, externalCallback);
   
   // Create function with data - magic parameter determines if it's a constructor call
@@ -908,8 +935,10 @@ static napi_status create_function_internal(napi_env env, const char* utf8name, 
   if (utf8name != nullptr) {
     size_t name_len = (length == NAPI_AUTO_LENGTH) ? strlen(utf8name) : length;
     JSAtom nameAtom = JS_NewAtomLen(env->context, utf8name, name_len);
-    JS_DefinePropertyValue(env->context, func, JS_NewAtom(env->context, "name"), 
+    JSAtom nameProp = JS_NewAtom(env->context, "name");
+    JS_DefinePropertyValue(env->context, func, nameProp, 
                           JS_AtomToString(env->context, nameAtom), 0);
+    JS_FreeAtom(env->context, nameProp);
     JS_FreeAtom(env->context, nameAtom);
   }
   
@@ -1595,6 +1624,24 @@ napi_status napi_strict_equals(napi_env env, napi_value lhs, napi_value rhs, boo
   JSValue jsRhs = ToJSValue(rhs);
 
  // *result = JS_StrictEq(env->context, jsLhs, jsRhs) != 0; // TODO
+  *result = (JS_VALUE_GET_TAG(jsLhs) == JS_VALUE_GET_TAG(jsRhs)) &&
+            (JS_VALUE_GET_PTR(jsLhs) == JS_VALUE_GET_PTR(jsRhs));
+  
+  // For non-pointer types (numbers, bools), compare by value
+  if (!*result) {
+    if (JS_IsNumber(jsLhs) && JS_IsNumber(jsRhs)) {
+      double a, b;
+      JS_ToFloat64(env->context, &a, jsLhs);
+      JS_ToFloat64(env->context, &b, jsRhs);
+      *result = (a == b);
+    } else if (JS_IsString(jsLhs) && JS_IsString(jsRhs)) {
+      const char* a = JS_ToCString(env->context, jsLhs);
+      const char* b = JS_ToCString(env->context, jsRhs);
+      *result = (a && b && strcmp(a, b) == 0);
+      JS_FreeCString(env->context, a);
+      JS_FreeCString(env->context, b);
+    }
+  }
 
   napi_clear_last_error(env);
   return napi_ok;
@@ -1850,10 +1897,9 @@ namespace {
   void ArrayBufferFreeCallback(JSRuntime* rt, void* opaque, void* ptr) {
     ExternalData* externalData = reinterpret_cast<ExternalData*>(opaque);
     if (externalData != nullptr) {
-      if (externalData->Data() != nullptr) {
-        // Call the user's finalize callback
-        delete externalData;
-      }
+      // Invoke via the class finalizer which calls _cb properly
+      ExternalData::RunCallback(externalData);
+      delete externalData;
     }
   }
 }
@@ -2012,12 +2058,6 @@ napi_status napi_get_typedarray_info(napi_env env, napi_value typedarray, napi_t
     *length = byteLength / bytesPerElement;
   }
   
-  if (arraybuffer != nullptr) {
-    *arraybuffer = FromJSValue(env, buffer);
-  } else {
-    JS_FreeValue(env->context, buffer);
-  }
-  
   if (data != nullptr) {
     size_t bufferSize;
     uint8_t* bufferData = JS_GetArrayBuffer(env->context, &bufferSize, buffer);
@@ -2025,14 +2065,27 @@ napi_status napi_get_typedarray_info(napi_env env, napi_value typedarray, napi_t
   }
   
   if (type != nullptr) {
-    // Determine type from bytes per element
-    switch (bytesPerElement) {
-      case 1: *type = napi_uint8_array; break;
-      case 2: *type = napi_uint16_array; break;
-      case 4: *type = napi_uint32_array; break;
-      case 8: *type = napi_float64_array; break;
+    int taType = JS_GetTypedArrayType(jsTypedArray);
+    switch (taType) {
+      case JS_TYPED_ARRAY_INT8: *type = napi_int8_array; break;
+      case JS_TYPED_ARRAY_UINT8: *type = napi_uint8_array; break;
+      case JS_TYPED_ARRAY_UINT8C: *type = napi_uint8_clamped_array; break;
+      case JS_TYPED_ARRAY_INT16: *type = napi_int16_array; break;
+      case JS_TYPED_ARRAY_UINT16: *type = napi_uint16_array; break;
+      case JS_TYPED_ARRAY_INT32: *type = napi_int32_array; break;
+      case JS_TYPED_ARRAY_UINT32: *type = napi_uint32_array; break;
+      case JS_TYPED_ARRAY_FLOAT32: *type = napi_float32_array; break;
+      case JS_TYPED_ARRAY_FLOAT64: *type = napi_float64_array; break;
+      case JS_TYPED_ARRAY_BIG_INT64: *type = napi_bigint64_array; break;
+      case JS_TYPED_ARRAY_BIG_UINT64: *type = napi_biguint64_array; break;
       default: *type = napi_uint8_array; break;
     }
+  }
+  
+  if (arraybuffer != nullptr) {
+    *arraybuffer = FromJSValue(env, buffer);
+  } else {
+    JS_FreeValue(env->context, buffer);
   }
   
   napi_clear_last_error(env);
