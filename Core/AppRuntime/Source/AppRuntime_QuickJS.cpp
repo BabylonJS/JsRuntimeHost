@@ -34,8 +34,17 @@ namespace Babylon
         {
             Napi::Env env = Napi::Attach(context);
 
+            // Install microtask processing as a post-tick callback
+            SetPostTickCallback([runtime, context]() {
+                JSContext* pending_ctx;
+                while (JS_ExecutePendingJob(runtime, &pending_ctx) > 0)
+                {
+                }
+            });
+
             Run(env);
 
+            SetPostTickCallback(nullptr);
             Napi::Detach(env);
         }
 
