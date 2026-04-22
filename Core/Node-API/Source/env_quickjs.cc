@@ -52,7 +52,16 @@ namespace Napi
             if (!JS_IsUndefined(env_ptr->has_own_property_function))
             {
                 JS_FreeValue(env_ptr->context, env_ptr->has_own_property_function);
+                env_ptr->has_own_property_function = JS_UNDEFINED;
             }
+
+            // Free all remaining JSValues in the handle scope stack
+            for (auto& ptr : env_ptr->handle_scope_stack)
+            {
+                JS_FreeValue(env_ptr->context, *ptr);
+            }
+            env_ptr->handle_scope_stack.clear();
+
             delete env_ptr;
         }
     }
