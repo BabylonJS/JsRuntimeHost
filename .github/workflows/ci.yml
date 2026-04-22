@@ -74,10 +74,10 @@ jobs:
     with:
       js-engine: V8
 
-  # Android_QuickJS:
-  #   uses: ./.github/workflows/build-android.yml
-  #   with:
-  #     js-engine: QuickJS
+  Android_QuickJS:
+    uses: ./.github/workflows/build-android.yml
+    with:
+      js-engine: QuickJS
 
   # ── macOS ─────────────────────────────────────────────────────
   macOS_Xcode164:
