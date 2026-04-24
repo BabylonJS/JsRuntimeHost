@@ -176,7 +176,8 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     void* opaque = JS_GetOpaque(val, js_callback_class_id);
     ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(opaque);
     if (externalCallback != nullptr) {
-      JS_FreeValueRT(rt, externalCallback->newTarget);
+      // newTarget is NOT a strong reference (we do not dup when assigning),
+      // so do NOT JS_FreeValueRT it here. See create_function_internal.
       delete externalCallback;
     }
   }
@@ -942,7 +943,14 @@ static napi_status create_function_internal(napi_env env, const char* utf8name, 
     JS_FreeAtom(env->context, nameAtom);
   }
   
-  externalCallback->newTarget = JS_DupValue(env->context, func);
+  // newTarget is set to the function itself so that constructor callbacks
+  // can read `func.prototype`. We intentionally store it as a RAW JSValue
+  // (no JS_DupValue) to avoid a self-cycle: `func -> func_data[callbackData]
+  // -> opaque ExternalCallback -> newTarget -> func` (the NapiCallback class
+  // has gc_mark=nullptr so the cycle collector cannot break this). This is
+  // safe because `newTarget` is only read during ExternalCallback::Callback,
+  // during which QuickJS is itself holding `func` alive.
+  externalCallback->newTarget = func;
   
   *result = FromJSValue(env, func);
   napi_clear_last_error(env);
@@ -1682,8 +1690,15 @@ napi_status napi_create_reference(napi_env env, napi_value value, uint32_t initi
   CHECK_ARG(env, result);
 
   JSValue jsValue = ToJSValue(value);
-  RefInfo* info = new RefInfo{ JS_DupValue(env->context, jsValue), initial_refcount };
-  
+  // A reference with initial_refcount == 0 is a WEAK reference: it must not
+  // keep the JS value alive. Only the count > 0 (strong) case dups. Otherwise
+  // the reference self-pins the value (e.g. every ObjectWrap instance would
+  // leak forever because napi_wrap creates a weak self-reference).
+  JSValue stored = (initial_refcount == 0)
+                       ? jsValue
+                       : JS_DupValue(env->context, jsValue);
+  RefInfo* info = new RefInfo{ stored, initial_refcount };
+
   *result = reinterpret_cast<napi_ref>(info);
   napi_clear_last_error(env);
   return napi_ok;
@@ -1694,7 +1709,12 @@ napi_status napi_delete_reference(napi_env env, napi_ref ref) {
   CHECK_ARG(env, ref);
 
   RefInfo* info = reinterpret_cast<RefInfo*>(ref);
-  JS_FreeValue(env->context, info->value);
+  // Only a strong reference (count > 0) owns a dup that must be freed.
+  // A weak reference does not own the JS value; freeing it here would be a
+  // spurious decrement and could even touch an already-finalized value.
+  if (info->count > 0) {
+    JS_FreeValue(env->context, info->value);
+  }
   delete info;
 
   napi_clear_last_error(env);
@@ -1704,14 +1724,20 @@ napi_status napi_delete_reference(napi_env env, napi_ref ref) {
 napi_status napi_reference_ref(napi_env env, napi_ref ref, uint32_t* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
-  
+
   RefInfo* info = reinterpret_cast<RefInfo*>(ref);
+  // 0 -> 1 transition: promote to strong by taking a dup. The caller is
+  // responsible for ensuring the underlying value is still alive at this
+  // point (weak references do not keep the value alive).
+  if (info->count == 0) {
+    info->value = JS_DupValue(env->context, info->value);
+  }
   info->count++;
-  
+
   if (result != nullptr) {
     *result = info->count;
   }
-  
+
   napi_clear_last_error(env);
   return napi_ok;
 }
@@ -1719,16 +1745,24 @@ napi_status napi_reference_ref(napi_env env, napi_ref ref, uint32_t* result) {
 napi_status napi_reference_unref(napi_env env, napi_ref ref, uint32_t* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
-  
+
   RefInfo* info = reinterpret_cast<RefInfo*>(ref);
   if (info->count > 0) {
     info->count--;
+    // 1 -> 0 transition: demote to weak by releasing the dup we owned. The
+    // raw JSValue is retained (unowned) so that a subsequent ref can dup it
+    // again, but we no longer keep the value alive.
+    if (info->count == 0) {
+      JSValue v = info->value;
+      JS_FreeValue(env->context, v);
+      // Leave info->value as the (now unowned) raw tag/pointer; do not touch.
+    }
   }
-  
+
   if (result != nullptr) {
     *result = info->count;
   }
-  
+
   napi_clear_last_error(env);
   return napi_ok;
 }
