@@ -6,6 +6,13 @@
 #include <cassert>
 #include <vector>
 
+// Reference info for preventing GC. Defined in the header so that both
+// the NAPI implementation and env teardown (env_quickjs.cc) can touch it.
+struct RefInfo {
+  JSValue value;
+  uint32_t count;
+};
+
 struct napi_env__ {
   JSContext* context = nullptr;
   JSContext* current_context = nullptr;
@@ -17,6 +24,20 @@ struct napi_env__ {
   // Handle scope storage
   std::vector<std::unique_ptr<JSValue>> handle_scope_stack;
   size_t current_scope_start = 0;
+
+  // Tracks every RefInfo* created by napi_create_reference so that
+  // pending strong references can be released during Detach. Without
+  // this, any napi_ref held by a native object (e.g. a polyfill's
+  // Napi::FunctionReference) pins JS values, preventing QuickJS from
+  // freeing them during teardown and causing an assertion failure in
+  // JS_FreeRuntime.
+  std::vector<void*> refs_list;
+
+  // Set to true once Detach has run. Subsequent napi_delete_reference
+  // calls (from native destructors running during the JS teardown
+  // cascade) must not touch the context or the (already emptied)
+  // refs_list.
+  bool detached = false;
 };
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \

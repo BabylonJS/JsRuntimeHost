@@ -176,9 +176,20 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     void* opaque = JS_GetOpaque(val, js_callback_class_id);
     ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(opaque);
     if (externalCallback != nullptr) {
-      // newTarget is NOT a strong reference (we do not dup when assigning),
-      // so do NOT JS_FreeValueRT it here. See create_function_internal.
+      JS_FreeValueRT(rt, externalCallback->newTarget);
       delete externalCallback;
+    }
+  }
+
+  // Expose newTarget (a strong JSValue held by this class) to QuickJS's cycle
+  // collector. This is what allows the cycle
+  //   func(cid=15) -> func_data[callbackData(cid=66)] -> opaque -> newTarget -> func
+  // to be detected and broken at teardown.
+  static void GcMark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+    void* opaque = JS_GetOpaque(val, js_callback_class_id);
+    ExternalCallback* externalCallback = reinterpret_cast<ExternalCallback*>(opaque);
+    if (externalCallback != nullptr) {
+      JS_MarkValue(rt, externalCallback->newTarget, mark_func);
     }
   }
 
@@ -190,11 +201,7 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
   void* _data;
 };
 
-// Reference info for preventing GC
-struct RefInfo {
-  JSValue value;
-  uint32_t count;
-};
+// Reference info for preventing GC - defined in js_native_api_quickjs.h.
 
 // Initialize class IDs (allocate once globally, register per runtime)
 void InitClassIds(JSRuntime* rt) {
@@ -218,7 +225,7 @@ void InitClassIds(JSRuntime* rt) {
   JSClassDef callback_class_def = {
     "NapiCallback",
     ExternalCallback::Finalize,
-    nullptr,
+    ExternalCallback::GcMark,
     nullptr,
     nullptr
   };
@@ -943,14 +950,15 @@ static napi_status create_function_internal(napi_env env, const char* utf8name, 
     JS_FreeAtom(env->context, nameAtom);
   }
   
-  // newTarget is set to the function itself so that constructor callbacks
-  // can read `func.prototype`. We intentionally store it as a RAW JSValue
-  // (no JS_DupValue) to avoid a self-cycle: `func -> func_data[callbackData]
-  // -> opaque ExternalCallback -> newTarget -> func` (the NapiCallback class
-  // has gc_mark=nullptr so the cycle collector cannot break this). This is
-  // safe because `newTarget` is only read during ExternalCallback::Callback,
-  // during which QuickJS is itself holding `func` alive.
-  externalCallback->newTarget = func;
+  // Release our local ref on callbackData. JS_NewCFunctionData has already
+  // dup'd it into func's data array, so it stays alive as long as func does.
+  JS_FreeValue(env->context, callbackData);
+
+  // newTarget is a strong dup of the function. This creates a cycle
+  //   func -> func_data[callbackData] -> opaque ExternalCallback -> newTarget -> func
+  // which is safe because NapiCallback has a gc_mark (see ExternalCallback::GcMark)
+  // that allows QuickJS's cycle collector to detect and break it.
+  externalCallback->newTarget = JS_DupValue(env->context, func);
   
   *result = FromJSValue(env, func);
   napi_clear_last_error(env);
@@ -1699,6 +1707,9 @@ napi_status napi_create_reference(napi_env env, napi_value value, uint32_t initi
                        : JS_DupValue(env->context, jsValue);
   RefInfo* info = new RefInfo{ stored, initial_refcount };
 
+  // Track for env-scoped cleanup (see Napi::Detach).
+  env->refs_list.push_back(info);
+
   *result = reinterpret_cast<napi_ref>(info);
   napi_clear_last_error(env);
   return napi_ok;
@@ -1709,11 +1720,25 @@ napi_status napi_delete_reference(napi_env env, napi_ref ref) {
   CHECK_ARG(env, ref);
 
   RefInfo* info = reinterpret_cast<RefInfo*>(ref);
+  if (env->detached) {
+    // Detach already released the JS side and cleared the tracking
+    // list; all we have to do is free the RefInfo allocation itself.
+    delete info;
+    return napi_ok;
+  }
   // Only a strong reference (count > 0) owns a dup that must be freed.
   // A weak reference does not own the JS value; freeing it here would be a
   // spurious decrement and could even touch an already-finalized value.
   if (info->count > 0) {
     JS_FreeValue(env->context, info->value);
+  }
+  // Remove from env tracking.
+  auto& list = env->refs_list;
+  for (auto it = list.begin(); it != list.end(); ++it) {
+    if (*it == info) {
+      list.erase(it);
+      break;
+    }
   }
   delete info;
 
