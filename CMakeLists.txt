@@ -151,18 +151,6 @@ endif()
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "QuickJS")
     option(QJS_BUILD_LIBC "Build QuickJS with libc support." ON)
     FetchContent_MakeAvailable_With_Message(quickjs-ng)
-    # Always disable assert() inside the QuickJS library, including in Debug
-    # builds. QuickJS asserts that rt->gc_obj_list is empty in JS_FreeRuntime,
-    # which can fire on teardown when external (non-cycle-collected) refs from
-    # the embedder pin objects. Defining NDEBUG turns those asserts into no-ops
-    # and lets QuickJS's own free-everything fallback path run without aborting
-    # the process. This only affects the quickjs/qjs targets; our own code is
-    # still built with asserts enabled.
-    foreach(_qjs_target qjs qjs-libc)
-        if(TARGET ${_qjs_target})
-            target_compile_definitions(${_qjs_target} PRIVATE NDEBUG)
-        endif()
-    endforeach()
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
