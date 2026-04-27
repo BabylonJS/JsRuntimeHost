@@ -954,11 +954,18 @@ static napi_status create_function_internal(napi_env env, const char* utf8name, 
   // dup'd it into func's data array, so it stays alive as long as func does.
   JS_FreeValue(env->context, callbackData);
 
-  // newTarget is a strong dup of the function. This creates a cycle
+  // newTarget is a strong dup of the function — but it's only read for
+  // constructor calls (see Callback() above, isConstructCall-gated path).
+  // For regular functions (magic=0) we'd be allocating a useless self-cycle
   //   func -> func_data[callbackData] -> opaque ExternalCallback -> newTarget -> func
-  // which is safe because NapiCallback has a gc_mark (see ExternalCallback::GcMark)
-  // that allows QuickJS's cycle collector to detect and break it.
-  externalCallback->newTarget = JS_DupValue(env->context, func);
+  // for every Napi::Function::New call (lambdas, mocha callbacks, console.log,
+  // etc.). Even with NapiCallback's gc_mark exposing newTarget to the cycle
+  // collector, in practice many of these cycles end up externally pinned (e.g.
+  // by closures captured into bytecode) and survive teardown, leaving entries
+  // on rt->gc_obj_list and tripping the assert in JS_FreeRuntime.
+  if (magic == 1) {
+    externalCallback->newTarget = JS_DupValue(env->context, func);
+  }
   
   *result = FromJSValue(env, func);
   napi_clear_last_error(env);
