@@ -35,6 +35,7 @@ namespace Babylon
         std::optional<std::scoped_lock<std::mutex>> m_suspensionLock{};
         arcana::cancellation_source m_cancelSource{};
         arcana::manual_dispatcher<128> m_dispatcher{};
+        std::function<void()> m_postTickCallback{};
         std::thread m_thread;
     };
 
@@ -85,6 +86,10 @@ namespace Babylon
         while (!m_impl->m_cancelSource.cancelled())
         {
             m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
+            if (m_impl->m_postTickCallback)
+            {
+                m_impl->m_postTickCallback();
+            }
         }
 
         // The dispatcher can be non-empty if something is dispatched after cancellation.
@@ -103,6 +108,11 @@ namespace Babylon
     void AppRuntime::Resume()
     {
         m_impl->m_suspensionLock.reset();
+    }
+
+    void AppRuntime::SetPostTickCallback(std::function<void()> callback)
+    {
+        m_impl->m_postTickCallback = std::move(callback);
     }
 
     void AppRuntime::Dispatch(Dispatchable<void(Napi::Env)> func)
