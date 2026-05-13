@@ -267,7 +267,7 @@ namespace Babylon::Polyfills::Internal
                 // Run on every outcome -- transport exception OR underlying request succeeded but ended in a non-2xx
                 // status (e.g. a missing local file on UWP, where UrlLib silently retains status 0). The previous
                 // success-only continuation here skipped readyState=Done / loadend / error and let the JS observer
-                // hang. See https://github.com/BabylonJS/JsRuntimeHost/issues/<TBD>.
+                // hang.
                 const auto statusCode = arcana::underlying_cast(m_request.StatusCode());
                 const bool failed = result.has_error() || statusCode < 200 || statusCode >= 300;
 

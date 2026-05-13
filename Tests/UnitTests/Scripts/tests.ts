@@ -125,18 +125,24 @@ describe("XMLHTTPRequest", function () {
         // Regression test: previously the success-only continuation in XMLHttpRequest::Send
         // skipped 'error' on async failures including non-2xx HTTP responses, so onerror
         // observers never ran. See https://github.com/BabylonJS/JsRuntimeHost/pull/165.
-        const result = await new Promise<{ errorFired: boolean; status: number; readyState: number }>((resolve) => {
+        this.timeout(30000);
+        const result = await new Promise<{ errorFired: boolean; loadendFired: boolean; status: number; readyState: number }>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             let errorFired = false;
+            let loadendFired = false;
+            const guard = setTimeout(() => reject(new Error("XHR neither errored nor loadended within 25s")), 25000);
             xhr.addEventListener("error", () => { errorFired = true; });
             xhr.addEventListener("loadend", () => {
-                resolve({ errorFired, status: xhr.status, readyState: xhr.readyState });
+                loadendFired = true;
+                clearTimeout(guard);
+                resolve({ errorFired, loadendFired, status: xhr.status, readyState: xhr.readyState });
             });
             xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
             xhr.send();
         });
         expect(result.status).to.equal(404);
         expect(result.errorFired).to.equal(true);
+        expect(result.loadendFired).to.equal(true);
         expect(result.readyState).to.equal(4);
     });
 
