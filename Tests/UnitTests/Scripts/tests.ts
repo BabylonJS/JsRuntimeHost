@@ -121,6 +121,25 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.status).to.equal(404);
     });
 
+    it("should fire 'error' event for a remote URL that returns HTTP 404", async function () {
+        // Regression test: previously the success-only continuation in XMLHttpRequest::Send
+        // skipped 'error' on async failures including non-2xx HTTP responses, so onerror
+        // observers never ran. See https://github.com/BabylonJS/JsRuntimeHost/pull/165.
+        const result = await new Promise<{ errorFired: boolean; status: number; readyState: number }>((resolve) => {
+            const xhr = new XMLHttpRequest();
+            let errorFired = false;
+            xhr.addEventListener("error", () => { errorFired = true; });
+            xhr.addEventListener("loadend", () => {
+                resolve({ errorFired, status: xhr.status, readyState: xhr.readyState });
+            });
+            xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
+            xhr.send();
+        });
+        expect(result.status).to.equal(404);
+        expect(result.errorFired).to.equal(true);
+        expect(result.readyState).to.equal(4);
+    });
+
     it("should throw something when opening //", async function () {
         function openDoubleSlash() {
             const xhr = new XMLHttpRequest();
