@@ -165,6 +165,16 @@ namespace Babylon::Polyfills::Console
         catch (...)
         {
         }
+
+        // N-API operations can leave a pending JS exception on `env` independently of throwing a
+        // C++ exception (e.g., `Object::Get` on a property accessor that throws); returning from
+        // the callback with a pending exception would cause `console.*` itself to throw on the
+        // JS side. Clear it so stack capture is truly side-effect free.
+        if (env.IsExceptionPending())
+        {
+            (void)env.GetAndClearPendingException();
+        }
+
         return stack;
     }
 }
