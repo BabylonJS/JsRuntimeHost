@@ -3,6 +3,8 @@
 #include <napi/env.h>
 #include <Babylon/Api.h>
 
+#include <string>
+
 namespace Babylon::Polyfills::Console
 {
     /**
@@ -15,17 +17,25 @@ namespace Babylon::Polyfills::Console
         Error,
     };
 
-    /**
-     * Called for each `console.log` / `console.warn` / `console.error` invocation.
-     *
-     * @param message   Formatted message produced by joining the call arguments (like browsers do).
-     * @param logLevel  Importance of the message.
-     * @param jsStack   For `LogLevel::Error`, the JavaScript callstack captured at the
-     *                  `console.error` call site (raw `Error.stack` string -- the format is engine-
-     *                  defined and typically starts with the literal `Error\n`). Empty string for
-     *                  `Log` and `Warn` (capturing a stack on every `console.log` is too expensive).
-     */
-    using CallbackT = std::function<void BABYLON_API (const char* message, LogLevel logLevel, const char* jsStack)>;
+    using CallbackT = std::function<void BABYLON_API (const char*, LogLevel)>;
 
     void BABYLON_API Initialize(Napi::Env env, CallbackT callback);
+
+    /**
+     * Capture the JavaScript callstack at the current JS execution point.
+     *
+     * Only meaningful when called from within a `CallbackT` invocation (or any other Napi callback
+     * the polyfill itself registered) -- captures the JS frames that produced the originating
+     * `console.*` call. The polyfill's own shim frame(s) are skipped, so the top frame is the
+     * user's call site.
+     *
+     * Format is engine-defined opaque text -- treat as diagnostic-only, do not parse. Returns an
+     * empty string if no JS context is active or if stack capture fails for any reason.
+     *
+     * Cost is non-trivial (currently implemented via `new Error().stack` under the hood); the
+     * caller decides per-message whether to invoke. Hosts that want stacks only on error
+     * messages can branch on `LogLevel`; hosts that want them everywhere are free to do so;
+     * hosts that don't care pay nothing.
+     */
+    std::string BABYLON_API CaptureCurrentJsStack(Napi::Env env);
 }

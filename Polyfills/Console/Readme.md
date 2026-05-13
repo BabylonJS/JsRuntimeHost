@@ -6,12 +6,24 @@ Currently supports:
 * `warn()`
 * `error()`
 
-When initializing, you should provide a callback which takes a message, a log level, and a JS callstack and outputs the message in whatever way you like. The callstack is captured at the call site for `error()` calls (raw `Error.stack`, engine-defined format -- typically starting with a literal `Error\n` line); it is an empty string for `log()` and `warn()` calls (capturing a stack on every `console.log` would be too costly). For example, you could initialize it like so:
+When initializing, you should provide a callback which takes a message and a log level and outputs the message in whatever way you like. For example, you could initialize it like so:
 ```c++
-Babylon::Polyfills::Console::Initialize(env, [](const char* message, auto, const char* jsStack) {
+Babylon::Polyfills::Console::Initialize(env, [](const char* message, auto) {
     fprintf(stdout, "%s", message);
-    if (jsStack[0] != '\0') {
-        fprintf(stdout, "\n%s", jsStack);
+    fflush(stdout);
+});
+```
+
+Inside the callback you can optionally capture the JavaScript callstack at the originating `console.*` call site via `Babylon::Polyfills::Console::CaptureCurrentJsStack(env)`. The polyfill's own shim frames are skipped, so the top frame is the user's call site. The capture is opt-in per-call -- hosts that don't need stacks pay nothing; hosts that want them on a specific level can branch on the `LogLevel` argument:
+```c++
+Babylon::Polyfills::Console::Initialize(env, [env](const char* message, auto level) {
+    fprintf(stdout, "%s", message);
+    if (level == Babylon::Polyfills::Console::LogLevel::Error) {
+        auto stack = Babylon::Polyfills::Console::CaptureCurrentJsStack(env);
+        if (!stack.empty()) {
+            fprintf(stdout, "\n%s", stack.c_str());
+        }
     }
     fflush(stdout);
 });
+```
