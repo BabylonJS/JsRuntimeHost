@@ -61,8 +61,13 @@ TEST(JavaScript, All)
     Babylon::AppRuntime runtime{options};
 
     runtime.Dispatch([&exitCodePromise](Napi::Env env) mutable {
-        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
-            std::cout << "[" << EnumToString(logLevel) << "] " << message << std::endl;
+        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel, const char* jsStack) {
+            std::cout << "[" << EnumToString(logLevel) << "] " << message;
+            if (logLevel == Babylon::Polyfills::Console::LogLevel::Error && jsStack != nullptr && jsStack[0] != '\0')
+            {
+                std::cout << std::endl << jsStack;
+            }
+            std::cout << std::endl;
             std::cout.flush();
         });
 
@@ -100,7 +105,7 @@ TEST(Console, Log)
     Babylon::AppRuntime runtime{};
 
     runtime.Dispatch([](Napi::Env env) mutable {
-        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
+        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel, const char* /*jsStack*/) {
             const char* test = "foo bar";
             if (strcmp(message, test) != 0)
             {
@@ -121,6 +126,40 @@ TEST(Console, Log)
     });
 
     done.get_future().get();
+}
+
+TEST(Console, ErrorProvidesJsStack)
+{
+    // Regression: console.error must invoke the callback with a non-empty jsStack containing
+    // the JS call site. console.log / console.warn must be empty (stack capture is skipped for
+    // hot paths).
+    Babylon::AppRuntime runtime{};
+
+    std::promise<std::string> errorStackPromise;
+    std::promise<std::string> logStackPromise;
+
+    runtime.Dispatch([&errorStackPromise, &logStackPromise](Napi::Env env) mutable {
+        Babylon::Polyfills::Console::Initialize(env, [&](const char* /*message*/, Babylon::Polyfills::Console::LogLevel logLevel, const char* jsStack) {
+            if (logLevel == Babylon::Polyfills::Console::LogLevel::Error)
+            {
+                errorStackPromise.set_value(jsStack ? jsStack : "");
+            }
+            else if (logLevel == Babylon::Polyfills::Console::LogLevel::Log)
+            {
+                logStackPromise.set_value(jsStack ? jsStack : "");
+            }
+        });
+    });
+
+    Babylon::ScriptLoader loader{runtime};
+    loader.Eval("console.log('log message');", "");
+    loader.Eval("function inner() { console.error('error message'); } inner();", "");
+
+    std::string errorStack = errorStackPromise.get_future().get();
+    std::string logStack = logStackPromise.get_future().get();
+
+    EXPECT_TRUE(logStack.empty()) << "Log path should not capture a stack; got: " << logStack;
+    EXPECT_FALSE(errorStack.empty()) << "Error path must provide a non-empty jsStack";
 }
 
 TEST(AppRuntime, DestroyDoesNotDeadlock)

@@ -102,7 +102,34 @@ namespace
             }
         }
 
-        callback(ss.str().c_str(), logLevel);
+        std::string jsStack{};
+        if (logLevel == Babylon::Polyfills::Console::LogLevel::Error)
+        {
+            // Capture the JS callstack at the `console.error` call site. We construct a JS `Error`
+            // object via N-API which fills its `stack` property using the engine's current JS frames;
+            // the topmost real frame is the user's `console.error(...)` callsite (the Napi-wrapped
+            // function we registered does not add a visible JS frame on V8/JSC/Chakra). Best effort;
+            // any failure leaves `jsStack` empty.
+            try
+            {
+                Napi::Env env = info.Env();
+                Napi::Value errorCtorValue = env.Global().Get("Error");
+                if (errorCtorValue.IsFunction())
+                {
+                    Napi::Object errObj = errorCtorValue.As<Napi::Function>().New({}).As<Napi::Object>();
+                    Napi::Value stackValue = errObj.Get("stack");
+                    if (stackValue.IsString())
+                    {
+                        jsStack = stackValue.As<Napi::String>().Utf8Value();
+                    }
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+
+        callback(ss.str().c_str(), logLevel, jsStack.c_str());
     }
 
     void AddMethod(Napi::Object& console, const char* functionName, Babylon::Polyfills::Console::LogLevel logLevel, Babylon::Polyfills::Console::CallbackT callback)
