@@ -160,8 +160,16 @@ TEST(Console, CaptureCurrentJsStack)
     loader.Eval("console.log('log message');", "");
     loader.Eval("function inner() { console.error('error message'); } inner();", "");
 
-    std::string errorStack = errorStackPromise.get_future().get();
-    std::string logStack = logStackPromise.get_future().get();
+    auto errorFuture = errorStackPromise.get_future();
+    auto logFuture = logStackPromise.get_future();
+    constexpr auto timeout = std::chrono::seconds(30);
+    ASSERT_EQ(errorFuture.wait_for(timeout), std::future_status::ready)
+        << "console.error callback did not fire within timeout";
+    ASSERT_EQ(logFuture.wait_for(timeout), std::future_status::ready)
+        << "console.log callback did not fire within timeout";
+
+    std::string errorStack = errorFuture.get();
+    std::string logStack = logFuture.get();
 
     EXPECT_FALSE(errorStack.empty()) << "console.error path must capture a non-empty JS stack";
     EXPECT_FALSE(logStack.empty()) << "console.log path must capture a non-empty JS stack";
