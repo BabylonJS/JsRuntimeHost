@@ -62,6 +62,7 @@ namespace Babylon
         void RunPlatformTier();
         void RunEnvironmentTier(const char* executablePath = ".");
         void Run(Napi::Env);
+        void SetPostTickCallback(std::function<void()> callback);
 
         // This method is called from Dispatch to allow platform-specific code to add
         // extra logic around the invocation of a dispatched callback.
