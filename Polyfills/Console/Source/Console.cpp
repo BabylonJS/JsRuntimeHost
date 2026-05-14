@@ -154,7 +154,7 @@ namespace Babylon::Polyfills::Console
             Napi::Value errorCtorValue = env.Global().Get("Error");
             if (errorCtorValue.IsFunction())
             {
-                Napi::Object errObj = errorCtorValue.As<Napi::Function>().New({}).As<Napi::Object>();
+                Napi::Object errObj = errorCtorValue.As<Napi::Function>().New({});
                 Napi::Value stackValue = errObj.Get("stack");
                 if (stackValue.IsString())
                 {
