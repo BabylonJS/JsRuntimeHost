@@ -136,7 +136,7 @@ TEST(Console, CaptureCurrentJsStack)
 {
     // Regression: Console::CaptureCurrentJsStack must return a non-empty stack when called from
     // within a callback fired by `console.error`, and when called from `console.log` (any frame
-    // produced by JS execution). When called with no JS context active it should return empty.
+    // produced by JS execution).
     Babylon::AppRuntime runtime{};
 
     std::promise<std::string> errorStackPromise;
