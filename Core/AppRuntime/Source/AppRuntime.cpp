@@ -4,6 +4,7 @@
 #include <arcana/threading/dispatcher.h>
 
 #include <cassert>
+#include <chrono>
 #include <optional>
 #include <mutex>
 #include <thread>
@@ -11,6 +12,29 @@
 
 namespace Babylon
 {
+    namespace internal
+    {
+        // Per-thread post-tick hook installed by engine-specific code (e.g.
+        // the V8 environment tier) so it can drain engine-managed task
+        // queues that are NOT part of the AppRuntime dispatcher.
+        //
+        // Motivating case: V8's foreground task runner holds the
+        // continuations for asynchronous WebAssembly compilation
+        // (WebAssembly.instantiate / .compile). Those tasks are scheduled
+        // by V8's background worker threads when WASM compilation
+        // completes and must be drained by the embedder via
+        // v8::platform::PumpMessageLoop. Without that drain, any code
+        // that awaits async WASM (Draco / Basis / KTX2 emscripten glue,
+        // etc.) freezes forever because the resolving Promise's
+        // continuation is never invoked.
+        thread_local std::function<void()> g_postTickHook;
+
+        void SetPostTickHook(std::function<void()> hook)
+        {
+            g_postTickHook = std::move(hook);
+        }
+    }
+
     class AppRuntime::Impl
     {
     public:
@@ -82,9 +106,26 @@ namespace Babylon
 
         m_impl->m_dispatcher.set_affinity(std::this_thread::get_id());
 
+        // The loop uses non-blocking tick + brief sleep instead of
+        // blocking_tick so we can periodically pump the engine's own
+        // task queue (see internal::g_postTickHook). A blocking_tick
+        // would only wake on AppRuntime-side dispatches, missing V8
+        // platform tasks (e.g. async WebAssembly compile completions
+        // posted from V8 worker threads) and freezing any code that
+        // awaits them.
         while (!m_impl->m_cancelSource.cancelled())
         {
-            m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
+            const bool ranWork = m_impl->m_dispatcher.tick(m_impl->m_cancelSource);
+
+            if (internal::g_postTickHook)
+            {
+                internal::g_postTickHook();
+            }
+
+            if (!ranWork)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
 
         // The dispatcher can be non-empty if something is dispatched after cancellation.
