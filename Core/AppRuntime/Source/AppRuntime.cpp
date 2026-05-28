@@ -1,4 +1,5 @@
 #include "AppRuntime.h"
+#include "PostTickHook.h"
 
 #include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
@@ -14,19 +15,8 @@ namespace Babylon
 {
     namespace internal
     {
-        // Per-thread post-tick hook installed by engine-specific code (e.g.
-        // the V8 environment tier) so it can drain engine-managed task
-        // queues that are NOT part of the AppRuntime dispatcher.
-        //
-        // Motivating case: V8's foreground task runner holds the
-        // continuations for asynchronous WebAssembly compilation
-        // (WebAssembly.instantiate / .compile). Those tasks are scheduled
-        // by V8's background worker threads when WASM compilation
-        // completes and must be drained by the embedder via
-        // v8::platform::PumpMessageLoop. Without that drain, any code
-        // that awaits async WASM (Draco / Basis / KTX2 emscripten glue,
-        // etc.) freezes forever because the resolving Promise's
-        // continuation is never invoked.
+        // Storage for the per-thread post-tick hook declared in PostTickHook.h.
+        // See that header for the rationale.
         thread_local std::function<void()> g_postTickHook;
 
         void SetPostTickHook(std::function<void()> hook)

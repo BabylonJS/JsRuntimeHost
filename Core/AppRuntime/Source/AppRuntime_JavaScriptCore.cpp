@@ -1,16 +1,9 @@
 #include "AppRuntime.h"
+#include "PostTickHook.h"
 #include <napi/env.h>
 
 namespace Babylon
 {
-    namespace internal
-    {
-        // Defined in AppRuntime.cpp; the engine-agnostic dispatcher loop
-        // calls this between ticks so we can pump engine-managed task
-        // queues that are not part of the AppRuntime dispatcher.
-        void SetPostTickHook(std::function<void()> hook);
-    }
-
     void AppRuntime::RunEnvironmentTier(const char*)
     {
         auto globalContext = JSGlobalContextCreateInGroup(nullptr, nullptr);

@@ -1,4 +1,5 @@
 #include "AppRuntime.h"
+#include "PostTickHook.h"
 #include <napi/env.h>
 
 #include <libplatform/libplatform.h>
@@ -11,13 +12,6 @@
 
 namespace Babylon
 {
-    namespace internal
-    {
-        // Defined in AppRuntime.cpp; the engine-agnostic dispatcher loop
-        // calls this between ticks so we can pump V8-side foreground tasks.
-        void SetPostTickHook(std::function<void()> hook);
-    }
-
     namespace
     {
         class Module final
@@ -128,9 +122,10 @@ namespace Babylon
 
             Napi::Detach(env);
 
-            // Drop the hook before the isolate (captured by reference)
-            // goes out of scope; otherwise a stale capture could fire
-            // during teardown.
+            // Clear the hook before this scope ends so the captured
+            // isolate (which is about to be destroyed at scope exit
+            // via isolate->Dispose() below) cannot be invoked through
+            // a stale function object during teardown.
             internal::SetPostTickHook(nullptr);
         }
 
