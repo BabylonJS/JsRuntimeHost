@@ -11,7 +11,6 @@
 #include <Babylon/Polyfills/Blob.h>
 #include <Babylon/Polyfills/TextDecoder.h>
 #include <gtest/gtest.h>
-#include <arcana/threading/blocking_concurrent_queue.h>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -177,99 +176,95 @@ TEST(Console, CaptureCurrentJsStack)
 
 TEST(AppRuntime, DestroyDoesNotDeadlock)
 {
-    // Regression test verifying AppRuntime destruction doesn't deadlock.
-    // Uses a global arcana hook to sleep while holding the queue mutex
-    // before wait(), ensuring the worker is in the vulnerable window
-    // when the destructor fires. See #147 for details on the bug and fix.
+    // Regression test verifying AppRuntime destruction completes
+    // promptly across the full range of worker-thread states.
     //
-    // The entire test runs on a separate thread so the gtest thread can
-    // detect a deadlock via timeout without hanging the process.
+    // History: issue #147 fixed a specific race in the original
+    // blocking_drain-based dispatcher loop where the destructor's
+    // push() could deadlock if the worker held the queue mutex
+    // inside wait(). The dispatcher loop has since been reworked
+    // (non-blocking tick + brief sleep + post-tick hook) so the
+    // engine-side task queues (notably V8's foreground task runner,
+    // for async WebAssembly compile continuations) can be drained
+    // between ticks. The blocking_drain race window no longer
+    // exists in that design, but ~AppRuntime is still required to
+    // unblock the worker thread promptly under all conditions.
     //
-    // Test flow:
+    // We exercise three worker states to cover the dispatch loop:
+    //   1. Idle           -- worker is in tick() / sleep()
+    //   2. In a callback  -- worker is running a Dispatch handler
+    //   3. Busy queue     -- many pending dispatches when ~AppRuntime
+    //                        fires; the destructor drops them.
     //
-    //   Test Thread                    Worker Thread
-    //   -----------                    -------------
-    //   1. Create AppRuntime           Worker starts, enters blocking_tick
-    //      Wait for init to complete
-    //   2. Install hook
-    //      Dispatch(no-op)             Worker wakes, runs no-op,
-    //                                  returns to blocking_tick
-    //                                  Hook fires:
-    //                                    signal workerInHook
-    //                                    sleep 200ms (holding mutex!)
-    //   3. workerInHook.wait()
-    //      Worker is sleeping in hook
-    //   4. ~AppRuntime():
-    //          cancel()
-    //          Append(no-op):
-    //            push() blocks ------> (worker holds mutex)
-    //                                  200ms sleep ends
-    //                                  wait(lock) releases mutex
-    //            push() acquires mutex
-    //            pushes, notifies ---> wakes up!
-    //            join() waits          drains no-op, cancelled -> exit
-    //            join() returns <----- thread exits
-    //   5. destroy completes -> PASS
+    // Each lifecycle is run on a separate thread so the gtest thread
+    // can detect a deadlock via wait_for() without hanging the
+    // process.
 
-    bool hookSignaled{false};
-    std::promise<void> workerInHook;
-    std::promise<void> testDone;
+    constexpr auto destructionTimeout = std::chrono::seconds(5);
 
-    // Run the full lifecycle on a separate thread so the gtest thread
-    // can detect a deadlock via timeout.
-    std::thread testThread([&]() {
-        auto runtime = std::make_unique<Babylon::AppRuntime>();
+    auto runLifecycleOnThread = [destructionTimeout](const char* label, auto setup)
+    {
+        std::promise<void> done;
+        std::thread t([&]()
+        {
+            auto runtime = std::make_unique<Babylon::AppRuntime>();
 
-        // Wait for the runtime to fully initialize. The constructor dispatches
-        // CreateForJavaScript which must complete before we install the hook
-        // so the worker is idle and ready to enter the hook on the next wait.
-        std::promise<void> ready;
-        runtime->Dispatch([&ready](Napi::Env) {
-            ready.set_value();
+            // Ensure the runtime is fully initialized (CreateForJavaScript
+            // queued by the AppRuntime constructor has run).
+            std::promise<void> ready;
+            runtime->Dispatch([&ready](Napi::Env) { ready.set_value(); });
+            ready.get_future().wait();
+
+            setup(*runtime);
+
+            // Destroy -- must complete promptly.
+            runtime.reset();
+            done.set_value();
         });
-        ready.get_future().wait();
 
-        // Install the hook and dispatch a no-op to wake the worker,
-        // ensuring it cycles through the hook on its way back to idle.
-        arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([&]() {
-            if (hookSignaled)
-            {
-                return;
-            }
-            hookSignaled = true;
-            workerInHook.set_value();
-            // This sleep is not truly deterministic. Its purpose is to hold the
-            // mutex long enough for runtime.reset() (called by the test thread
-            // after workerInHook signals) to reach push() while the mutex is
-            // still held. When the sleep ends, the worker enters wait() which
-            // releases the mutex, allowing push() to acquire it and deliver the
-            // wake-up notification. If runtime.reset() hasn't reached push()
-            // by the time the sleep ends, the test still passes but doesn't
-            // exercise the intended contention window.
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        });
-        runtime->Dispatch([](Napi::Env) {});
+        auto status = done.get_future().wait_for(destructionTimeout);
+        if (status == std::future_status::timeout)
+        {
+            t.detach();
+            FAIL() << "Deadlock detected in scenario '" << label
+                   << "': AppRuntime destructor did not complete within "
+                   << destructionTimeout.count() << " seconds";
+        }
+        else
+        {
+            t.join();
+        }
+    };
 
-        // Wait for the worker to be in the hook (holding mutex, sleeping)
-        workerInHook.get_future().wait();
-
-        // Destroy — if the fix works, the destructor completes.
-        // If broken, it deadlocks and the timeout detects it.
-        runtime.reset();
-        testDone.set_value();
+    // Scenario 1: idle worker. The constructor's initial CreateForJavaScript
+    // dispatch has already drained by the time we destroy; the worker is
+    // sitting in the tick + sleep loop with no pending work.
+    runLifecycleOnThread("idle worker", [](Babylon::AppRuntime&) {
+        // Nothing -- destroy immediately after construction.
     });
 
-    auto status = testDone.get_future().wait_for(std::chrono::seconds(5));
+    // Scenario 2: destroy while a callback is in flight. We dispatch a
+    // handler that signals it has started running, then sleeps. The
+    // destructor is invoked while that handler is still on the worker
+    // thread, exercising the codepath that cancels mid-callback.
+    runLifecycleOnThread("callback in flight", [](Babylon::AppRuntime& runtime) {
+        std::promise<void> handlerStarted;
+        runtime.Dispatch([&handlerStarted](Napi::Env) {
+            handlerStarted.set_value();
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        });
+        handlerStarted.get_future().wait();
+    });
 
-    arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([]() {});
-
-    if (status == std::future_status::timeout)
-    {
-        testThread.detach();
-        FAIL() << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
-    }
-
-    testThread.join();
+    // Scenario 3: backlog at destruction. Queue many no-op dispatches
+    // without waiting for any to complete, then destroy. The destructor
+    // must drop the unprocessed work without waiting on it.
+    runLifecycleOnThread("backlog at destruction", [](Babylon::AppRuntime& runtime) {
+        for (int i = 0; i < 50; ++i)
+        {
+            runtime.Dispatch([](Napi::Env) {});
+        }
+    });
 }
 
 int RunTests()
