@@ -10,6 +10,14 @@
 
 namespace Babylon
 {
+    namespace internal
+    {
+        // Defined in AppRuntime.cpp; the engine-agnostic dispatcher loop
+        // calls this between ticks so we can pump engine-managed task
+        // queues that are not part of the AppRuntime dispatcher.
+        void SetPostTickHook(std::function<void()> hook);
+    }
+
     namespace
     {
         void ThrowIfFailed(JsErrorCode errorCode)
@@ -38,6 +46,18 @@ namespace Babylon
         JsContextRef context;
         ThrowIfFailed(JsCreateContext(jsRuntime, &context));
         ThrowIfFailed(JsSetCurrentContext(context));
+
+        // Chakra/EdgeJsRt route promise microtasks (Promise.then jobs,
+        // await continuations) through this callback. Each job is wrapped
+        // in a Dispatch onto the AppRuntime queue, where it runs on the
+        // next tick.
+        //
+        // ASYNC WASM NOTE: ChakraCore's WebAssembly.compile / .instantiate
+        // do not use background worker threads in the public JSRT API --
+        // the compile runs synchronously within the Promise's resolve
+        // step, which itself fires through this PromiseContinuationCallback.
+        // No separate platform-task pump is required for async WASM here,
+        // unlike V8.
         ThrowIfFailed(JsSetPromiseContinuationCallback(
             [](JsValueRef task, void* callbackState) {
                 ThrowIfFailed(JsAddRef(task, nullptr));
@@ -62,6 +82,13 @@ namespace Babylon
         }
 
         Napi::Env env = Napi::Attach();
+
+        // No post-tick hook needed for Chakra: there is no embedder-owned
+        // platform task queue analogous to V8's foreground task runner,
+        // and ChakraCore's WASM completion is delivered through the
+        // promise-continuation callback above. If a future host needs to
+        // drain a Chakra-managed work queue here, install via
+        // internal::SetPostTickHook.
 
         Run(env);
 
