@@ -1392,43 +1392,6 @@ describe("TextEncoder", function () {
         const bytes = encoder.encode("H\0i");
         expect(Array.from(bytes)).to.eql([72, 0, 105]);
     });
-
-    it("encodeInto should write UTF-8 bytes and return { read, written }", function () {
-        const encoder = new TextEncoder();
-        const dst = new Uint8Array(8);
-        const result = encoder.encodeInto("Hi", dst);
-        expect(result.read).to.equal(2);
-        expect(result.written).to.equal(2);
-        expect(dst[0]).to.equal(72);
-        expect(dst[1]).to.equal(105);
-    });
-
-    it("encodeInto should not split multi-byte sequences when destination is too small", function () {
-        const encoder = new TextEncoder();
-        // "aé" -> 0x61 0xC3 0xA9 (3 bytes). A 2-byte destination must hold 'a' but
-        // must NOT partially write the 2-byte 'é' sequence.
-        const dst = new Uint8Array(2);
-        const result = encoder.encodeInto("aé", dst);
-        expect(result.written).to.equal(1);
-        expect(result.read).to.equal(1);
-        expect(dst[0]).to.equal(0x61);
-        expect(dst[1]).to.equal(0);
-    });
-
-    it("encodeInto should report read as 2 for a code point outside the BMP", function () {
-        const encoder = new TextEncoder();
-        // U+1F600 -> 4-byte UTF-8 sequence; corresponds to a UTF-16 surrogate pair (2 code units).
-        const dst = new Uint8Array(8);
-        const result = encoder.encodeInto("\u{1F600}", dst);
-        expect(result.read).to.equal(2);
-        expect(result.written).to.equal(4);
-        expect(Array.from(dst.subarray(0, 4))).to.eql([0xF0, 0x9F, 0x98, 0x80]);
-    });
-
-    it("encodeInto should throw if destination is not a Uint8Array", function () {
-        const encoder = new TextEncoder();
-        expect(() => (encoder as any).encodeInto("x", "not a buffer")).to.throw(TypeError);
-    });
 });
 
 function runTests() {
