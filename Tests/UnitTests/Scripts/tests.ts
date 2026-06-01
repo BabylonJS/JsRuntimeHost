@@ -1356,6 +1356,81 @@ describe("TextDecoder", function () {
     });
 });
 
+describe("TextEncoder", function () {
+    it("should expose encoding === 'utf-8'", function () {
+        const encoder = new TextEncoder();
+        expect(encoder.encoding).to.equal("utf-8");
+    });
+
+    it("should encode an ASCII string into UTF-8 bytes", function () {
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode("Hello");
+        expect(Array.from(bytes)).to.eql([72, 101, 108, 108, 111]);
+    });
+
+    it("should return an empty Uint8Array when called with no argument", function () {
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode();
+        expect(bytes.length).to.equal(0);
+    });
+
+    it("should return an empty Uint8Array for undefined input", function () {
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(undefined);
+        expect(bytes.length).to.equal(0);
+    });
+
+    it("should encode a multi-byte UTF-8 string", function () {
+        const encoder = new TextEncoder();
+        // "é" is U+00E9 -> 0xC3 0xA9 in UTF-8
+        const bytes = encoder.encode("é");
+        expect(Array.from(bytes)).to.eql([0xC3, 0xA9]);
+    });
+
+    it("should encode a string containing a null byte", function () {
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode("H\0i");
+        expect(Array.from(bytes)).to.eql([72, 0, 105]);
+    });
+
+    it("encodeInto should write UTF-8 bytes and return { read, written }", function () {
+        const encoder = new TextEncoder();
+        const dst = new Uint8Array(8);
+        const result = encoder.encodeInto("Hi", dst);
+        expect(result.read).to.equal(2);
+        expect(result.written).to.equal(2);
+        expect(dst[0]).to.equal(72);
+        expect(dst[1]).to.equal(105);
+    });
+
+    it("encodeInto should not split multi-byte sequences when destination is too small", function () {
+        const encoder = new TextEncoder();
+        // "aé" -> 0x61 0xC3 0xA9 (3 bytes). A 2-byte destination must hold 'a' but
+        // must NOT partially write the 2-byte 'é' sequence.
+        const dst = new Uint8Array(2);
+        const result = encoder.encodeInto("aé", dst);
+        expect(result.written).to.equal(1);
+        expect(result.read).to.equal(1);
+        expect(dst[0]).to.equal(0x61);
+        expect(dst[1]).to.equal(0);
+    });
+
+    it("encodeInto should report read as 2 for a code point outside the BMP", function () {
+        const encoder = new TextEncoder();
+        // U+1F600 -> 4-byte UTF-8 sequence; corresponds to a UTF-16 surrogate pair (2 code units).
+        const dst = new Uint8Array(8);
+        const result = encoder.encodeInto("\u{1F600}", dst);
+        expect(result.read).to.equal(2);
+        expect(result.written).to.equal(4);
+        expect(Array.from(dst.subarray(0, 4))).to.eql([0xF0, 0x9F, 0x98, 0x80]);
+    });
+
+    it("encodeInto should throw if destination is not a Uint8Array", function () {
+        const encoder = new TextEncoder();
+        expect(() => (encoder as any).encodeInto("x", "not a buffer")).to.throw(TypeError);
+    });
+});
+
 function runTests() {
     mocha.run((failures: number) => {
         // Test program will wait for code to be set before exiting
