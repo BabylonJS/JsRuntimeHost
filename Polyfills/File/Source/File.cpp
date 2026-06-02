@@ -6,12 +6,49 @@
 #include <chrono>
 #include <string>
 
+#if defined(__has_include) && __has_include(<napi/env.h>)
+#include <napi/env.h>
+#define BABYLON_POLYFILL_USE_NAPI_JSI_EVAL 1
+#endif
+
 namespace Babylon::Polyfills::Internal
 {
     namespace
     {
         constexpr auto JS_FILE_CONSTRUCTOR_NAME = "File";
         constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
+
+        // Wire File.prototype to inherit from Blob.prototype so that
+        // `new File(...) instanceof Blob === true`. The shim runs entirely
+        // in JS so each engine's quirks are handled by the JS try/catch:
+        //
+        // - V8 / Chakra: `File.prototype` is the real prototype that
+        //   instances use, so the direct setPrototypeOf succeeds and the
+        //   probe path is skipped.
+        // - JSC: `File.prototype` aliases Object.prototype (napi_define_class
+        //   wraps JSObjectMakeConstructor; same quirk the FileReader
+        //   constants block documents). The direct call throws TypeError,
+        //   the catch swallows it, and the probe path discovers the real
+        //   napi-internal prototype via `Object.getPrototypeOf(new File())`
+        //   and sets its [[Prototype]] to Blob.prototype.
+        //
+        // Doing this in JS rather than via Napi::Function::Call avoids a
+        // JSC napi-shim quirk where setPrototypeOf on Object.prototype
+        // escapes as an uncaught error instead of being capturable via
+        // IsExceptionPending.
+        constexpr auto JS_PROTOTYPE_CHAIN_SHIM = R"JS(
+(function() {
+    if (typeof File !== 'function' || typeof Blob !== 'function') return;
+    var blobProto = Blob.prototype;
+    try { Object.setPrototypeOf(File.prototype, blobProto); } catch (e) {}
+    try {
+        var probe = new File([], '');
+        if (!(probe instanceof Blob)) {
+            Object.setPrototypeOf(Object.getPrototypeOf(probe), blobProto);
+        }
+    } catch (e) {}
+})();
+)JS";
     }
 
     void File::Initialize(Napi::Env env)
@@ -52,93 +89,18 @@ namespace Babylon::Polyfills::Internal
 
         global.Set(JS_FILE_CONSTRUCTOR_NAME, func);
 
-        // File should behave as a subtype of Blob: any `instanceof Blob`
-        // check over a File must succeed. Babylon.js core does this in
-        // fileTools, Offline/database, abstractEngine, and thinNativeEngine,
-        // so without inheritance those checks silently fail and the
-        // serializer/loader paths take the wrong branch.
-        //
-        // The internal m_blob composition stays as an implementation
-        // detail; only the JS-visible prototype chain is wired so
-        // `new File(...) instanceof Blob === true`.
-        //
-        // Two engine quirks force a dual-path approach:
-        //
-        // - V8 / Chakra: `func.Get("prototype")` is the real prototype
-        //   that instances use, so `setPrototypeOf(func.prototype,
-        //   blobProto)` is the natural wire-up.
-        // - JSC: napi_define_class wraps JSObjectMakeConstructor, whose
-        //   `.prototype` JS property points to Object.prototype, not to
-        //   the real prototype JSC assigns to instances (the same quirk
-        //   the FileReader constants block in FileReader.cpp documents).
-        //   The direct call therefore either tries to mutate
-        //   Object.prototype's [[Prototype]] (immutable -> TypeError) or
-        //   silently does the wrong thing. The portable workaround is to
-        //   instantiate a throwaway File and reach the real prototype via
-        //   `Object.getPrototypeOf(tempInstance)`.
-        //
-        // Strategy: try the direct call first, verify by walking the
-        // prototype chain of a probe instance, and only fall back to the
-        // temp-instance trick if the chain isn't wired up. This keeps
-        // the cost minimal on V8/Chakra (one extra `instanceof Blob`
-        // walk) and still recovers on JSC.
-        auto objectCtor = global.Get("Object").As<Napi::Object>();
-        auto getPrototypeOf = objectCtor.Get("getPrototypeOf").As<Napi::Function>();
-        auto setPrototypeOf = objectCtor.Get("setPrototypeOf").As<Napi::Function>();
-        auto blobProto = blob.As<Napi::Object>().Get("prototype");
-
-        // Step 1: direct wire-up. Best-effort; on JSC this raises and we
-        // swallow.
-        auto funcProto = func.Get("prototype");
-        setPrototypeOf.Call(objectCtor, {funcProto, blobProto});
+        // Wire File.prototype -> Blob.prototype via a tiny JS shim. See
+        // the JS_PROTOTYPE_CHAIN_SHIM comment for engine-specific rationale.
+#if defined(BABYLON_POLYFILL_USE_NAPI_JSI_EVAL)
+        Napi::Eval(env, JS_PROTOTYPE_CHAIN_SHIM, "JsRuntimeHost-File-PrototypeChainShim.js");
+#else
+        env.RunScript(JS_PROTOTYPE_CHAIN_SHIM, "JsRuntimeHost-File-PrototypeChainShim.js");
+#endif
         if (env.IsExceptionPending())
         {
-            env.GetAndClearPendingException();
-        }
-
-        // Step 2: probe instance to verify the chain.
-        auto emptyParts = Napi::Array::New(env, 0);
-        auto initName = Napi::String::New(env, "");
-        auto tempInstance = func.New({emptyParts, initName});
-        if (env.IsExceptionPending())
-        {
-            env.GetAndClearPendingException();
-            return;
-        }
-
-        auto realProto = getPrototypeOf.Call(objectCtor, {tempInstance});
-        if (env.IsExceptionPending())
-        {
-            env.GetAndClearPendingException();
-            return;
-        }
-
-        // Walk the chain to check if blobProto is reachable.
-        auto cursor = realProto;
-        while (!cursor.IsNull() && !cursor.IsUndefined())
-        {
-            if (cursor.StrictEquals(blobProto))
-            {
-                return; // direct wire-up succeeded
-            }
-            cursor = getPrototypeOf.Call(objectCtor, {cursor});
-            if (env.IsExceptionPending())
-            {
-                env.GetAndClearPendingException();
-                return;
-            }
-        }
-
-        // Step 3: fallback for engines where func.prototype != realProto
-        // (notably JSC). Set the chain on the real prototype we just
-        // discovered via getPrototypeOf(tempInstance).
-        setPrototypeOf.Call(objectCtor, {realProto, blobProto});
-        if (env.IsExceptionPending())
-        {
-            // Some engines may reject setPrototypeOf even on the real
-            // napi-internal prototype. Swallow so Initialize stays
-            // best-effort; `instanceof Blob` will be false on those
-            // engines but everything else still works.
+            // The shim itself wraps every operation in try/catch, so this
+            // should never fire. Belt-and-braces: clear so Initialize stays
+            // best-effort and the rest of the polyfill remains installed.
             env.GetAndClearPendingException();
         }
     }
