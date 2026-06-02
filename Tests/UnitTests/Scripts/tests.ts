@@ -1199,6 +1199,23 @@ describe("Blob", function () {
         expect(modelGltfJson.type).to.equal("model/gltf+json");
     });
 
+    // -------------------------------- Prototype isolation (regression: JsRH#172) --------------------------------
+    it("Blob.prototype is a fresh per-class object, not Object.prototype", function () {
+        expect(Blob.prototype).to.not.equal(Object.prototype);
+        expect(Object.getPrototypeOf(Blob.prototype)).to.equal(Object.prototype);
+        expect(Object.getPrototypeOf(new Blob([]))).to.equal(Blob.prototype);
+    });
+
+    it("does not leak instance members onto the global Object.prototype", function () {
+        // Blob's instance accessors live on Blob.prototype. Before the JSC napi-shim
+        // fix in JsRH#172, napi_define_class wrote them onto the global Object.prototype,
+        // corrupting every object in the runtime.
+        for (const key of ["size", "type", "arrayBuffer", "text", "bytes"]) {
+            expect(key in {}).to.equal(false, `Object.prototype was polluted with '${key}'`);
+            expect(Object.prototype.hasOwnProperty.call(Object.prototype, key)).to.equal(false);
+        }
+    });
+
     // -------------------------------- Blob.text() --------------------------------
     it("returns empty string for empty blobs", async function () {
         for (const blob of emptyBlobs) {
