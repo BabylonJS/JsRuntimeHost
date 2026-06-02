@@ -62,32 +62,46 @@ namespace Babylon::Polyfills::Internal
         // detail; only the JS-visible prototype chain is wired so
         // `new File(...) instanceof Blob === true`.
         //
-        // JSC-specific quirk: on JSC, the napi-defined class's
-        // `.prototype` JS property points to Object.prototype, not to
-        // the real prototype that JSObjectMakeConstructor uses for
-        // instances (the same quirk the FileReader constants block in
-        // FileReader.cpp documents in detail). Writing through
-        // `func.Get("prototype")` would either pollute Object.prototype
-        // or be rejected by setPrototypeOf with a TypeError.
+        // Two engine quirks force a dual-path approach:
         //
-        // Portable trick: instantiate a throwaway File, fetch its real
-        // prototype via Object.getPrototypeOf, and set THAT prototype's
-        // prototype to Blob.prototype. On V8 / Chakra the real prototype
-        // is also `func.prototype`, so this is correct everywhere.
-        // The temp instance is GC-eligible immediately after.
+        // - V8 / Chakra: `func.Get("prototype")` is the real prototype
+        //   that instances use, so `setPrototypeOf(func.prototype,
+        //   blobProto)` is the natural wire-up.
+        // - JSC: napi_define_class wraps JSObjectMakeConstructor, whose
+        //   `.prototype` JS property points to Object.prototype, not to
+        //   the real prototype JSC assigns to instances (the same quirk
+        //   the FileReader constants block in FileReader.cpp documents).
+        //   The direct call therefore either tries to mutate
+        //   Object.prototype's [[Prototype]] (immutable -> TypeError) or
+        //   silently does the wrong thing. The portable workaround is to
+        //   instantiate a throwaway File and reach the real prototype via
+        //   `Object.getPrototypeOf(tempInstance)`.
+        //
+        // Strategy: try the direct call first, verify by walking the
+        // prototype chain of a probe instance, and only fall back to the
+        // temp-instance trick if the chain isn't wired up. This keeps
+        // the cost minimal on V8/Chakra (one extra `instanceof Blob`
+        // walk) and still recovers on JSC.
         auto objectCtor = global.Get("Object").As<Napi::Object>();
         auto getPrototypeOf = objectCtor.Get("getPrototypeOf").As<Napi::Function>();
         auto setPrototypeOf = objectCtor.Get("setPrototypeOf").As<Napi::Function>();
         auto blobProto = blob.As<Napi::Object>().Get("prototype");
 
+        // Step 1: direct wire-up. Best-effort; on JSC this raises and we
+        // swallow.
+        auto funcProto = func.Get("prototype");
+        setPrototypeOf.Call(objectCtor, {funcProto, blobProto});
+        if (env.IsExceptionPending())
+        {
+            env.GetAndClearPendingException();
+        }
+
+        // Step 2: probe instance to verify the chain.
         auto emptyParts = Napi::Array::New(env, 0);
         auto initName = Napi::String::New(env, "");
         auto tempInstance = func.New({emptyParts, initName});
         if (env.IsExceptionPending())
         {
-            // Constructing the probe File raised; clear and skip the
-            // prototype-chain wire-up. Instances will not be Blob
-            // subtypes, but the rest of the polyfill stays installed.
             env.GetAndClearPendingException();
             return;
         }
@@ -99,13 +113,32 @@ namespace Babylon::Polyfills::Internal
             return;
         }
 
+        // Walk the chain to check if blobProto is reachable.
+        auto cursor = realProto;
+        while (!cursor.IsNull() && !cursor.IsUndefined())
+        {
+            if (cursor.StrictEquals(blobProto))
+            {
+                return; // direct wire-up succeeded
+            }
+            cursor = getPrototypeOf.Call(objectCtor, {cursor});
+            if (env.IsExceptionPending())
+            {
+                env.GetAndClearPendingException();
+                return;
+            }
+        }
+
+        // Step 3: fallback for engines where func.prototype != realProto
+        // (notably JSC). Set the chain on the real prototype we just
+        // discovered via getPrototypeOf(tempInstance).
         setPrototypeOf.Call(objectCtor, {realProto, blobProto});
         if (env.IsExceptionPending())
         {
-            // Some engines (notably older JSC builds) reject
-            // setPrototypeOf on the napi-internal prototype. Swallow so
-            // Initialize stays best-effort; `instanceof Blob` will be
-            // false on those engines but everything else still works.
+            // Some engines may reject setPrototypeOf even on the real
+            // napi-internal prototype. Swallow so Initialize stays
+            // best-effort; `instanceof Blob` will be false on those
+            // engines but everything else still works.
             env.GetAndClearPendingException();
         }
     }
