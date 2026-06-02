@@ -15,13 +15,17 @@ output) to work.
   `Blob` constructor to build the underlying byte storage, then decorates
   the instance with `name` and `lastModified`. Methods (`size`, `type`,
   `arrayBuffer`, `text`, `bytes`) forward to the inner `Blob`.
-* `FileReader` supports `readAsArrayBuffer`, `readAsText`,
-  `readAsDataURL`, `readAsBinaryString`, plus `abort`,
-  `addEventListener` / `removeEventListener` / `dispatchEvent`, and the
-  standard `onload` / `onerror` / `onloadstart` / `onloadend` /
-  `onprogress` / `onabort` handler slots. `abort()` invalidates in-flight
-  reads via a monotonic token so late-resolving `arrayBuffer()` promises
-  cannot dispatch a phantom `load` event after a user-initiated abort.
+* `FileReader` supports `readAsArrayBuffer`, `readAsText`, and
+  `readAsDataURL`, plus `abort`, `addEventListener` /
+  `removeEventListener` / `dispatchEvent`, and the standard `onload` /
+  `onerror` / `onloadstart` / `onloadend` / `onprogress` / `onabort`
+  handler slots. `abort()` invalidates in-flight reads via a monotonic
+  token so late-resolving `arrayBuffer()` promises cannot dispatch a
+  phantom `load` event after a user-initiated abort.
+* `File` extends `Blob`: the JS-visible prototype chain is wired so
+  `new File(...) instanceof Blob === true`. Babylon.js core branches on
+  `instanceof Blob` in several places (fileTools, Offline/database,
+  abstractEngine, thinNativeEngine).
 
 ## Prerequisites
 

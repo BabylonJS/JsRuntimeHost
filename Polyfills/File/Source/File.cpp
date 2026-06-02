@@ -51,6 +51,25 @@ namespace Babylon::Polyfills::Internal
             });
 
         global.Set(JS_FILE_CONSTRUCTOR_NAME, func);
+
+        // File should behave as a subtype of Blob: any `instanceof Blob`
+        // check over a File must succeed. Babylon.js core does this in
+        // fileTools, Offline/database, abstractEngine, and thinNativeEngine,
+        // so without inheritance those checks silently fail and the
+        // serializer/loader paths take the wrong branch.
+        //
+        // The internal m_blob composition stays as an implementation
+        // detail; only the JS-visible prototype chain is wired so
+        // `new File(...) instanceof Blob === true`.
+        //
+        // Use Object.setPrototypeOf rather than __proto__ assignment so
+        // the operation routes through the engine's standard binding,
+        // working uniformly across V8 / JSC / Chakra.
+        auto objectCtor = global.Get("Object").As<Napi::Object>();
+        auto setPrototypeOf = objectCtor.Get("setPrototypeOf").As<Napi::Function>();
+        auto blobProto = blob.As<Napi::Object>().Get("prototype");
+        auto fileProto = func.Get("prototype");
+        setPrototypeOf.Call(objectCtor, {fileProto, blobProto});
     }
 
     File::File(const Napi::CallbackInfo& info)

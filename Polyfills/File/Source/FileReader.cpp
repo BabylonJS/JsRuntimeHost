@@ -1,7 +1,6 @@
 #include "FileReader.h"
 
 #include <cstring>
-#include <memory>
 #include <utility>
 
 namespace Babylon::Polyfills::Internal
@@ -121,7 +120,6 @@ namespace Babylon::Polyfills::Internal
                 InstanceMethod("readAsArrayBuffer", &FileReader::ReadAsArrayBuffer),
                 InstanceMethod("readAsText", &FileReader::ReadAsText),
                 InstanceMethod("readAsDataURL", &FileReader::ReadAsDataURL),
-                InstanceMethod("readAsBinaryString", &FileReader::ReadAsBinaryString),
                 InstanceMethod("abort", &FileReader::Abort),
                 InstanceMethod("addEventListener", &FileReader::AddEventListener),
                 InstanceMethod("removeEventListener", &FileReader::RemoveEventListener),
@@ -164,11 +162,6 @@ namespace Babylon::Polyfills::Internal
         StartRead(info, ReadMode::DataUrl);
     }
 
-    void FileReader::ReadAsBinaryString(const Napi::CallbackInfo& info)
-    {
-        StartRead(info, ReadMode::BinaryString);
-    }
-
     void FileReader::Abort(const Napi::CallbackInfo& info)
     {
         auto env = info.Env();
@@ -191,6 +184,10 @@ namespace Babylon::Polyfills::Internal
 
         Dispatch(env, jsThis, "abort");
         Dispatch(env, jsThis, "loadend");
+
+        // Release the in-flight self-reference; no further continuation
+        // will reach a terminal path for the now-abandoned read.
+        m_selfRef.Reset();
     }
 
     void FileReader::AddEventListener(const Napi::CallbackInfo& info)
@@ -372,25 +369,31 @@ namespace Babylon::Polyfills::Internal
         }
 
         // The .then() callbacks fire asynchronously, after StartRead() returns.
-        // Capture a strong reference to the FileReader's JS wrapper so the
+        // Anchor the FileReader's JS wrapper on the member m_selfRef so the
         // C++ ObjectWrap stays alive until the read settles even if the
-        // user dropped their reference. ObjectReference is move-only, so
-        // route it through shared_ptr to make the lambda copy-constructible
-        // (Napi::Function::New stores via std::function).
-        auto thisRef = std::make_shared<Napi::ObjectReference>(Napi::Persistent(jsThis));
+        // user drops their JS-side reference. The lambdas only capture
+        // POD plus `this`, so they remain copyable and can be stored in
+        // jsi::Function's std::function-style callable slot. Every terminal
+        // path (load, error, abort) resets m_selfRef to break the cycle.
+        m_selfRef = Napi::Persistent(jsThis);
 
         auto onResolve = Napi::Function::New(env,
-            [this, myReadId, mode, contentType, thisRef](const Napi::CallbackInfo& cb) {
+            [this, myReadId, mode, contentType](const Napi::CallbackInfo& cb) {
+                // Abandoned-read guard: if Abort() or a newer StartRead
+                // bumped the token, m_selfRef may already be Reset.
+                // Bail before dereferencing it.
+                if (m_readId != myReadId) return;
                 Napi::Value buf = cb.Length() > 0 ? cb[0] : cb.Env().Null();
-                HandleReadResult(myReadId, mode, contentType, thisRef->Value(), buf);
+                HandleReadResult(myReadId, mode, contentType, m_selfRef.Value(), buf);
             });
 
         auto onReject = Napi::Function::New(env,
-            [this, myReadId, thisRef](const Napi::CallbackInfo& cb) {
+            [this, myReadId](const Napi::CallbackInfo& cb) {
+                if (m_readId != myReadId) return;
                 Napi::Value err = cb.Length() > 0
                     ? cb[0]
                     : static_cast<Napi::Value>(Napi::Error::New(cb.Env(), "FileReader: unknown error").Value());
-                HandleReadError(myReadId, thisRef->Value(), err);
+                HandleReadError(myReadId, m_selfRef.Value(), err);
             });
 
         auto promiseObj = promiseValue.As<Napi::Object>();
@@ -420,6 +423,7 @@ namespace Babylon::Polyfills::Internal
             jsThis.Set("readyState", Napi::Number::New(env, DONE));
             Dispatch(env, jsThis, "error");
             Dispatch(env, jsThis, "loadend");
+            m_selfRef.Reset();
             return;
         }
 
@@ -453,21 +457,13 @@ namespace Babylon::Polyfills::Internal
                 resultValue = Napi::String::New(env, url);
                 break;
             }
-            case ReadMode::BinaryString:
-            {
-                // Byte-per-char Latin-1 mapping, matching the spec for
-                // readAsBinaryString().
-                std::string out;
-                out.assign(reinterpret_cast<const char*>(data), size);
-                resultValue = Napi::String::New(env, out);
-                break;
-            }
         }
 
         jsThis.Set("result", resultValue);
         jsThis.Set("readyState", Napi::Number::New(env, DONE));
         Dispatch(env, jsThis, "load");
         Dispatch(env, jsThis, "loadend");
+        m_selfRef.Reset();
     }
 
     void FileReader::HandleReadError(uint64_t myReadId, Napi::Object jsThis, const Napi::Value& error)
@@ -495,5 +491,6 @@ namespace Babylon::Polyfills::Internal
         jsThis.Set("readyState", Napi::Number::New(env, DONE));
         Dispatch(env, jsThis, "error");
         Dispatch(env, jsThis, "loadend");
+        m_selfRef.Reset();
     }
 }

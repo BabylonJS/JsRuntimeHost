@@ -26,13 +26,11 @@ namespace Babylon::Polyfills::Internal
             ArrayBuffer,
             Text,
             DataUrl,
-            BinaryString,
         };
 
         void ReadAsArrayBuffer(const Napi::CallbackInfo& info);
         void ReadAsText(const Napi::CallbackInfo& info);
         void ReadAsDataURL(const Napi::CallbackInfo& info);
-        void ReadAsBinaryString(const Napi::CallbackInfo& info);
         void Abort(const Napi::CallbackInfo& info);
         void AddEventListener(const Napi::CallbackInfo& info);
         void RemoveEventListener(const Napi::CallbackInfo& info);
@@ -46,5 +44,16 @@ namespace Babylon::Polyfills::Internal
 
         uint64_t m_readId{0};
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
+
+        // Strong reference to the JS wrapper while a read is in flight, so
+        // the C++ ObjectWrap stays alive across the async promise resolution
+        // even if the user has dropped their JS-side reference. Reset on
+        // every terminal path (load/error/abort). This matches the member-
+        // slot pattern used by WebSocket/XHR in this repo and avoids the
+        // shared_ptr<ObjectReference>-in-lambda trick that would otherwise
+        // be needed because Napi::Function::New stores its callable in
+        // std::function (CopyConstructible) and Napi::ObjectReference is
+        // move-only.
+        Napi::ObjectReference m_selfRef;
     };
 }

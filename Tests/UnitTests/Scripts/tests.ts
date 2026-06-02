@@ -1547,6 +1547,17 @@ describe("File", function () {
         const text = await file.text();
         expect(text).to.equal("你好, 世界");
     });
+
+    // -------------------------------- Blob inheritance --------------------------------
+    it("is an instance of Blob (prototype chain wired up)", function () {
+        // BJS core (fileTools, Offline/database, abstractEngine,
+        // thinNativeEngine) branches on `instanceof Blob`. File must
+        // satisfy that check for File inputs to take the Blob path,
+        // matching the WHATWG spec where File is a Blob subtype.
+        const file = new File(["x"], "x.txt");
+        expect(file instanceof Blob).to.equal(true);
+        expect(file instanceof File).to.equal(true);
+    });
 });
 
 describe("FileReader", function () {
@@ -1696,21 +1707,6 @@ describe("FileReader", function () {
             }
         };
         reader.readAsDataURL(blob);
-    });
-
-    // -------------------------------- readAsBinaryString --------------------------------
-    it("reads a Blob as a binary string", function (done) {
-        const reader = new FileReader();
-        const blob = new Blob([new Uint8Array([72, 105])]); // "Hi"
-        reader.onload = function () {
-            try {
-                expect(reader.result).to.equal("Hi");
-                done();
-            } catch (e) {
-                done(e);
-            }
-        };
-        reader.readAsBinaryString(blob);
     });
 
     // -------------------------------- addEventListener --------------------------------
