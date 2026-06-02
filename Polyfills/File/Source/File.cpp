@@ -62,14 +62,52 @@ namespace Babylon::Polyfills::Internal
         // detail; only the JS-visible prototype chain is wired so
         // `new File(...) instanceof Blob === true`.
         //
-        // Use Object.setPrototypeOf rather than __proto__ assignment so
-        // the operation routes through the engine's standard binding,
-        // working uniformly across V8 / JSC / Chakra.
+        // JSC-specific quirk: on JSC, the napi-defined class's
+        // `.prototype` JS property points to Object.prototype, not to
+        // the real prototype that JSObjectMakeConstructor uses for
+        // instances (the same quirk the FileReader constants block in
+        // FileReader.cpp documents in detail). Writing through
+        // `func.Get("prototype")` would either pollute Object.prototype
+        // or be rejected by setPrototypeOf with a TypeError.
+        //
+        // Portable trick: instantiate a throwaway File, fetch its real
+        // prototype via Object.getPrototypeOf, and set THAT prototype's
+        // prototype to Blob.prototype. On V8 / Chakra the real prototype
+        // is also `func.prototype`, so this is correct everywhere.
+        // The temp instance is GC-eligible immediately after.
         auto objectCtor = global.Get("Object").As<Napi::Object>();
+        auto getPrototypeOf = objectCtor.Get("getPrototypeOf").As<Napi::Function>();
         auto setPrototypeOf = objectCtor.Get("setPrototypeOf").As<Napi::Function>();
         auto blobProto = blob.As<Napi::Object>().Get("prototype");
-        auto fileProto = func.Get("prototype");
-        setPrototypeOf.Call(objectCtor, {fileProto, blobProto});
+
+        auto emptyParts = Napi::Array::New(env, 0);
+        auto initName = Napi::String::New(env, "");
+        auto tempInstance = func.New({emptyParts, initName});
+        if (env.IsExceptionPending())
+        {
+            // Constructing the probe File raised; clear and skip the
+            // prototype-chain wire-up. Instances will not be Blob
+            // subtypes, but the rest of the polyfill stays installed.
+            env.GetAndClearPendingException();
+            return;
+        }
+
+        auto realProto = getPrototypeOf.Call(objectCtor, {tempInstance});
+        if (env.IsExceptionPending())
+        {
+            env.GetAndClearPendingException();
+            return;
+        }
+
+        setPrototypeOf.Call(objectCtor, {realProto, blobProto});
+        if (env.IsExceptionPending())
+        {
+            // Some engines (notably older JSC builds) reject
+            // setPrototypeOf on the napi-internal prototype. Swallow so
+            // Initialize stays best-effort; `instanceof Blob` will be
+            // false on those engines but everything else still works.
+            env.GetAndClearPendingException();
+        }
     }
 
     File::File(const Napi::CallbackInfo& info)
