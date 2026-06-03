@@ -32,6 +32,12 @@ jobs:
       platform: x64
       js-engine: V8
 
+  Win32_x64_Hermes:
+    uses: ./.github/workflows/build-win32.yml
+    with:
+      platform: x64
+      js-engine: Hermes
+
   # ── UWP ───────────────────────────────────────────────────────
   UWP_x64_Chakra:
     uses: ./.github/workflows/build-uwp.yml
@@ -108,6 +114,17 @@ jobs:
       xcode-version: '26.4'
       runs-on: macos-26
       enable-thread-sanitizer: true
+
+  # Hermes on macOS: only one variant — Hermes is expensive to build, and
+  # we already cover both Xcode toolchains for JSC.  Pinning to 26.4 keeps
+  # the matrix on the newer toolchain that downstream embedders care about
+  # most; bump if needed.
+  macOS_Xcode264_Hermes:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      xcode-version: '26.4'
+      runs-on: macos-26
+      js-engine: Hermes
 
   # ── iOS ───────────────────────────────────────────────────────
   iOS_Xcode164:

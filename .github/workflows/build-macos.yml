@@ -18,11 +18,22 @@ on:
         required: false
         type: boolean
         default: false
+      js-engine:
+        # When unset we let Core/Node-API/CMakeLists.txt pick the per-platform
+        # default (JavaScriptCore on macOS).  Pass "Hermes" to fetch and link
+        # against facebook/hermes (static_h branch); pass "V8"/"Chakra"/etc.
+        # to override.
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
     runs-on: ${{ inputs.runs-on }}
-    timeout-minutes: 15
+    # Hermes builds take roughly 4x as long as a JSC build because the
+    # umbrella `hermesvm_a` static lib drags in the full Hermes compiler
+    # pipeline.  Allow a wider window when Hermes is selected.
+    timeout-minutes: ${{ inputs.js-engine == 'Hermes' && 60 || 15 }}
     steps:
       - uses: actions/checkout@v5
 
@@ -33,7 +44,8 @@ jobs:
         run: |
           cmake -B Build/macOS -G Xcode \
             -D ENABLE_SANITIZERS=${{ inputs.enable-sanitizers && 'ON' || 'OFF' }} \
-            -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }}
+            -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }} \
+            ${{ inputs.js-engine != '' && format('-D NAPI_JAVASCRIPT_ENGINE={0}', inputs.js-engine) || '' }}
 
       - name: Build
         run: cmake --build Build/macOS --target UnitTests --config RelWithDebInfo

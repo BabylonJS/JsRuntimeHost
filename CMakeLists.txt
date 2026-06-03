@@ -28,6 +28,14 @@ FetchContent_Declare(CMakeExtensions
 FetchContent_Declare(googletest
     URL "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz"
     EXCLUDE_FROM_ALL)
+FetchContent_Declare(hermes
+    GIT_REPOSITORY https://github.com/facebook/hermes.git
+    # Pinned to the tip of the `static_h` branch as of 2026-06-03 so CI is
+    # reproducible.  Bump this SHA when you intentionally want to pick up
+    # upstream Hermes changes — keep it on the static_h branch (Static
+    # Hermes is the variant our NAPI integration targets).
+    GIT_TAG 348582831f50954895da8e80cc91112d51036c69
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
     GIT_TAG 4.4.1
@@ -142,6 +150,33 @@ endif()
 
 if(BABYLON_DEBUG_TRACE)
     add_definitions(-DBABYLON_DEBUG_TRACE)
+endif()
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    # Configure Hermes static_h options BEFORE making it available so that
+    # cache variables take effect.  We disable the parts of Hermes we don't
+    # need (the unit-test suite, debugger) to keep build time reasonable and
+    # to avoid pulling extra targets into our build tree.  Notably we leave
+    # HERMES_ENABLE_NAPI ON (the default) — that's the whole point of
+    # integrating Hermes here.
+    #
+    # HERMES_ENABLE_TOOLS must stay ON: even when HERMES_ENABLE_TEST_SUITE is
+    # OFF, Hermes unconditionally adds external/node-api-cts and
+    # external/node-api-tests whenever HERMES_ENABLE_NAPI is on, and those
+    # subdirectories reference the `hermes` CLI tool target via
+    # $<TARGET_FILE:hermes>.  CMake fails to generate if the target doesn't
+    # exist, so we let Hermes build its tools.  None of them ship in our
+    # final binaries because they're EXCLUDE_FROM_ALL via FetchContent.
+    set(HERMES_ENABLE_TOOLS ON CACHE BOOL "" FORCE)
+    set(HERMES_ENABLE_TEST_SUITE OFF CACHE BOOL "" FORCE)
+    set(HERMES_ENABLE_DEBUGGER OFF CACHE BOOL "" FORCE)
+    set(HERMES_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
+    set(HERMES_ENABLE_NAPI ON CACHE BOOL "" FORCE)
+    # Hermes ships its own bundled gtest as `llvh-gtest` (a different
+    # CMake target name from googletest's `gtest`), so the two coexist
+    # without clashing.  We never link llvh-gtest into our UnitTests
+    # executable, so there's no duplicate-symbol issue at link time.
+    FetchContent_MakeAvailable_With_Message(hermes)
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" AND JSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR)
