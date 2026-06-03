@@ -227,46 +227,44 @@ JsErrorCode JsNameValueFromPropertyDescriptor(const napi_property_descriptor* p,
   }
 }
 
-inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper, JsValueRef* parent = nullptr) {
-  // Search the object's prototype chain for the wrapper with external data.
-  // Usually the wrapper would be the first in the chain, but it is OK for
-  // other objects to be inserted in the prototype chain.
-  JsValueRef candidate = obj;
-  JsValueRef current = JS_INVALID_REFERENCE;
-  bool hasExternalData = false;
-
-  JsValueRef nullValue = JS_INVALID_REFERENCE;
-  CHECK_JSRT(env, JsGetNullValue(&nullValue));
-
-  do {
-    current = candidate;
-
-    CHECK_JSRT(env, JsGetPrototype(current, &candidate));
-    if (candidate == JS_INVALID_REFERENCE || candidate == nullValue) {
-      if (parent != nullptr) {
-        *parent = JS_INVALID_REFERENCE;
-      }
-
-      *wrapper = JS_INVALID_REFERENCE;
-      return napi_ok;
-    }
-
-    CHECK_JSRT(env, JsHasExternalData(candidate, &hasExternalData));
-  } while (!hasExternalData);
-
-  if (parent != nullptr) {
-    *parent = current;
-  }
-
-  *wrapper = candidate;
-
+inline napi_status GetWrapPropertyId(napi_env env, JsPropertyIdRef* result) {
+  // Hidden own-property key used to attach napi_wrap externals without
+  // mutating the wrapped value's prototype chain. The SOH (\x01) prefix
+  // keeps the name out of user-typed identifier space; the property is
+  // also defined as non-enumerable / non-writable in napi_wrap so it
+  // cannot be observed via for..in or overwritten by assignment.
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("\x01napi_external"), result));
   return napi_ok;
 }
 
-inline napi_status Unwrap(napi_env env, JsValueRef obj, ExternalData** externalData, JsValueRef* wrapper = nullptr, JsValueRef* parent = nullptr) {
+inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper) {
+  // Look up the external attached by napi_wrap as a hidden own property.
+  // Returns JS_INVALID_REFERENCE in *wrapper when the value was never
+  // wrapped (or isn't an object).
+  JsValueType valueType;
+  CHECK_JSRT(env, JsGetValueType(obj, &valueType));
+  if (valueType != JsObject && valueType != JsFunction) {
+    *wrapper = JS_INVALID_REFERENCE;
+    return napi_ok;
+  }
+
+  JsPropertyIdRef wrapKey;
+  CHECK_NAPI(GetWrapPropertyId(env, &wrapKey));
+
+  bool hasWrap = false;
+  CHECK_JSRT(env, JsHasProperty(obj, wrapKey, &hasWrap));
+  if (!hasWrap) {
+    *wrapper = JS_INVALID_REFERENCE;
+    return napi_ok;
+  }
+
+  CHECK_JSRT(env, JsGetProperty(obj, wrapKey, wrapper));
+  return napi_ok;
+}
+
+inline napi_status Unwrap(napi_env env, JsValueRef obj, ExternalData** externalData, JsValueRef* wrapper = nullptr) {
   JsValueRef candidate = JS_INVALID_REFERENCE;
-  JsValueRef candidateParent = JS_INVALID_REFERENCE;
-  CHECK_NAPI(FindWrapper(env, obj, &candidate, &candidateParent));
+  CHECK_NAPI(FindWrapper(env, obj, &candidate));
   RETURN_STATUS_IF_FALSE(env, candidate != JS_INVALID_REFERENCE, napi_invalid_arg);
 
   CHECK_JSRT(env, JsGetExternalData(candidate,
@@ -274,10 +272,6 @@ inline napi_status Unwrap(napi_env env, JsValueRef obj, ExternalData** externalD
 
   if (wrapper != nullptr) {
     *wrapper = candidate;
-  }
-
-  if (parent != nullptr) {
-    *parent = candidateParent;
   }
 
   return napi_ok;
@@ -1659,11 +1653,43 @@ napi_status napi_wrap(napi_env env,
   CHECK_JSRT(env, JsCreateExternalObject(
     externalData, ExternalData::Finalize, &external));
 
-  // Insert the external object into the value's prototype chain.
-  JsValueRef valuePrototype = JS_INVALID_REFERENCE;
-  CHECK_JSRT(env, JsGetPrototype(value, &valuePrototype));
-  CHECK_JSRT(env, JsSetPrototype(external, valuePrototype));
-  CHECK_JSRT(env, JsSetPrototype(value, external));
+  // Attach the external as a hidden own property (non-enumerable so it
+  // does not appear in for..in / Object.keys / JSON.stringify, non-writable
+  // so a stray assignment cannot replace it). Configurable so napi_remove_wrap
+  // can delete it. This keeps the value's prototype chain intact, so
+  // Object.getPrototypeOf(value) still returns whatever the constructor
+  // installed.
+  JsPropertyIdRef wrapKey;
+  CHECK_NAPI(GetWrapPropertyId(env, &wrapKey));
+
+  JsValueRef descriptor;
+  CHECK_JSRT(env, JsCreateObject(&descriptor));
+
+  JsValueRef falseValue;
+  CHECK_JSRT(env, JsBoolToBoolean(false, &falseValue));
+
+  JsValueRef trueValue;
+  CHECK_JSRT(env, JsBoolToBoolean(true, &trueValue));
+
+  JsPropertyIdRef valuePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("value"), &valuePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, valuePid, external, true));
+
+  JsPropertyIdRef writablePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("writable"), &writablePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, writablePid, falseValue, true));
+
+  JsPropertyIdRef enumerablePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("enumerable"), &enumerablePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, enumerablePid, falseValue, true));
+
+  JsPropertyIdRef configurablePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("configurable"), &configurablePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, configurablePid, trueValue, true));
+
+  bool defined = false;
+  CHECK_JSRT(env, JsDefineProperty(value, wrapKey, descriptor, &defined));
+  RETURN_STATUS_IF_FALSE(env, defined, napi_invalid_arg);
 
   if (result != nullptr) {
     CHECK_NAPI(napi_create_reference(env, js_object, 0, result));
@@ -1693,18 +1719,18 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   JsValueRef value = reinterpret_cast<JsValueRef>(js_object);
 
   ExternalData* externalData = nullptr;
-  JsValueRef parent = JS_INVALID_REFERENCE;
   JsValueRef wrapper = JS_INVALID_REFERENCE;
-  CHECK_NAPI(Unwrap(env, value, &externalData, &wrapper, &parent));
-  RETURN_STATUS_IF_FALSE(env, parent != JS_INVALID_REFERENCE, napi_invalid_arg);
+  CHECK_NAPI(Unwrap(env, value, &externalData, &wrapper));
   RETURN_STATUS_IF_FALSE(env, wrapper != JS_INVALID_REFERENCE, napi_invalid_arg);
 
-  // Remove the external from the prototype chain
-  JsValueRef wrapperProto = JS_INVALID_REFERENCE;
-  CHECK_JSRT(env, JsGetPrototype(wrapper, &wrapperProto));
-  CHECK_JSRT(env, JsSetPrototype(parent, wrapperProto));
+  // Remove the hidden wrap property and detach the external data so the
+  // external object can be collected and Finalize won't run twice.
+  JsPropertyIdRef wrapKey;
+  CHECK_NAPI(GetWrapPropertyId(env, &wrapKey));
 
-  // Clear the external data from the object
+  JsValueRef deleteResult = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsDeleteProperty(value, wrapKey, false /* isStrictMode */, &deleteResult));
+
   CHECK_JSRT(env, JsSetExternalData(wrapper, nullptr));
 
   if (externalData != nullptr) {
