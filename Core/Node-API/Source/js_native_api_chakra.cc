@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <optional>
 #include <vector>
 #include <string>
 #include <stdexcept>
@@ -444,45 +445,53 @@ struct DataViewInfo {
   }
 };
 
-// Defines a data property on `object` keyed by `property_id` with the given
-// value and attribute flags. Writes whether Chakra accepted the descriptor
-// into `*defined` (false means the property already exists with conflicting
-// flags); the caller decides whether to treat that as an error.
-napi_status DefineDataProperty(napi_env env,
-                               JsValueRef object,
-                               JsPropertyIdRef property_id,
-                               JsValueRef value,
-                               bool writable,
-                               bool enumerable,
-                               bool configurable,
-                               bool* defined) {
+// Defines a property on `object` keyed by `property_id`. Each of `value`,
+// `getter`, and `setter` is included in the descriptor only when non-
+// JS_INVALID_REFERENCE; `writable` is included only when set (method
+// properties intentionally omit it). `enumerable` and `configurable` are
+// always set. Writes whether Chakra accepted the descriptor into `*defined`
+// (false means the property already exists with conflicting flags); the
+// caller decides whether to treat that as an error.
+napi_status DefineProperty(napi_env env,
+                           JsValueRef object,
+                           JsPropertyIdRef property_id,
+                           JsValueRef value,
+                           JsValueRef getter,
+                           JsValueRef setter,
+                           std::optional<bool> writable,
+                           bool enumerable,
+                           bool configurable,
+                           bool* defined) {
   JsValueRef descriptor;
   CHECK_JSRT(env, JsCreateObject(&descriptor));
 
-  JsValueRef writableValue;
-  CHECK_JSRT(env, JsBoolToBoolean(writable, &writableValue));
+  auto setField = [&](const char* name, size_t len, JsValueRef v) -> napi_status {
+    JsPropertyIdRef pid;
+    CHECK_JSRT(env, JsCreatePropertyId(name, len, &pid));
+    CHECK_JSRT(env, JsSetProperty(descriptor, pid, v, true));
+    return napi_ok;
+  };
 
-  JsValueRef enumerableValue;
-  CHECK_JSRT(env, JsBoolToBoolean(enumerable, &enumerableValue));
+  auto setBoolField = [&](const char* name, size_t len, bool v) -> napi_status {
+    JsValueRef vr;
+    CHECK_JSRT(env, JsBoolToBoolean(v, &vr));
+    return setField(name, len, vr);
+  };
 
-  JsValueRef configurableValue;
-  CHECK_JSRT(env, JsBoolToBoolean(configurable, &configurableValue));
-
-  JsPropertyIdRef valuePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("value"), &valuePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, valuePid, value, true));
-
-  JsPropertyIdRef writablePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("writable"), &writablePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, writablePid, writableValue, true));
-
-  JsPropertyIdRef enumerablePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("enumerable"), &enumerablePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, enumerablePid, enumerableValue, true));
-
-  JsPropertyIdRef configurablePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("configurable"), &configurablePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, configurablePid, configurableValue, true));
+  CHECK_NAPI(setBoolField(STR_AND_LENGTH("enumerable"), enumerable));
+  CHECK_NAPI(setBoolField(STR_AND_LENGTH("configurable"), configurable));
+  if (writable.has_value()) {
+    CHECK_NAPI(setBoolField(STR_AND_LENGTH("writable"), *writable));
+  }
+  if (value != JS_INVALID_REFERENCE) {
+    CHECK_NAPI(setField(STR_AND_LENGTH("value"), value));
+  }
+  if (getter != JS_INVALID_REFERENCE) {
+    CHECK_NAPI(setField(STR_AND_LENGTH("get"), getter));
+  }
+  if (setter != JS_INVALID_REFERENCE) {
+    CHECK_NAPI(setField(STR_AND_LENGTH("set"), setter));
+  }
 
   CHECK_JSRT(env, JsDefineProperty(object, property_id, descriptor, defined));
   return napi_ok;
@@ -846,44 +855,18 @@ napi_status napi_define_properties(napi_env env,
     CHECK_ARG(env, properties);
   }
 
-  JsPropertyIdRef configurableProperty;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("configurable"),
-                                &configurableProperty));
-
-  JsPropertyIdRef enumerableProperty;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("enumerable"),
-                                &enumerableProperty));
-
   for (size_t i = 0; i < property_count; i++) {
     const napi_property_descriptor* p = properties + i;
 
     JsPropertyIdRef nameProperty;
     CHECK_JSRT(env, JsPropertyIdFromPropertyDescriptor(p, &nameProperty));
 
-    if (p->getter == nullptr && p->setter == nullptr && p->method == nullptr) {
-      RETURN_STATUS_IF_FALSE(env, p->value != nullptr, napi_invalid_arg);
-      bool defined;
-      CHECK_NAPI(DefineDataProperty(env,
-        reinterpret_cast<JsValueRef>(object),
-        nameProperty,
-        reinterpret_cast<JsValueRef>(p->value),
-        (p->attributes & napi_writable) != 0,
-        (p->attributes & napi_enumerable) != 0,
-        (p->attributes & napi_configurable) != 0,
-        &defined));
-      continue;
-    }
-
-    JsValueRef descriptor;
-    CHECK_JSRT(env, JsCreateObject(&descriptor));
-
-    JsValueRef configurable;
-    CHECK_JSRT(env, JsBoolToBoolean((p->attributes & napi_configurable), &configurable));
-    CHECK_JSRT(env, JsSetProperty(descriptor, configurableProperty, configurable, true));
-
-    JsValueRef enumerable;
-    CHECK_JSRT(env, JsBoolToBoolean((p->attributes & napi_enumerable), &enumerable));
-    CHECK_JSRT(env, JsSetProperty(descriptor, enumerableProperty, enumerable, true));
+    JsValueRef value = JS_INVALID_REFERENCE;
+    JsValueRef getter = JS_INVALID_REFERENCE;
+    JsValueRef setter = JS_INVALID_REFERENCE;
+    std::optional<bool> writable;
+    bool enumerable = (p->attributes & napi_enumerable) != 0;
+    bool configurable = (p->attributes & napi_configurable) != 0;
 
     if (p->getter != nullptr || p->setter != nullptr) {
       napi_value property_name;
@@ -891,41 +874,31 @@ napi_status napi_define_properties(napi_env env,
         JsNameValueFromPropertyDescriptor(p, &property_name));
 
       if (p->getter != nullptr) {
-        JsPropertyIdRef getProperty;
-        CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("get"), &getProperty));
-        JsValueRef getter;
         CHECK_NAPI(CreatePropertyFunction(env, property_name,
           p->getter, p->data, reinterpret_cast<napi_value*>(&getter)));
-        CHECK_JSRT(env, JsSetProperty(descriptor, getProperty, getter, true));
       }
 
       if (p->setter != nullptr) {
-        JsPropertyIdRef setProperty;
-        CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("set"), &setProperty));
-        JsValueRef setter;
         CHECK_NAPI(CreatePropertyFunction(env, property_name,
           p->setter, p->data, reinterpret_cast<napi_value*>(&setter)));
-        CHECK_JSRT(env, JsSetProperty(descriptor, setProperty, setter, true));
       }
-    } else {
+    } else if (p->method != nullptr) {
       napi_value property_name;
       CHECK_JSRT(env,
         JsNameValueFromPropertyDescriptor(p, &property_name));
 
-      JsPropertyIdRef valueProperty;
-      CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("value"), &valueProperty));
-      JsValueRef method;
       CHECK_NAPI(CreatePropertyFunction(env, property_name,
-        p->method, p->data, reinterpret_cast<napi_value*>(&method)));
-      CHECK_JSRT(env, JsSetProperty(descriptor, valueProperty, method, true));
+        p->method, p->data, reinterpret_cast<napi_value*>(&value)));
+    } else {
+      RETURN_STATUS_IF_FALSE(env, p->value != nullptr, napi_invalid_arg);
+      value = reinterpret_cast<JsValueRef>(p->value);
+      writable = (p->attributes & napi_writable) != 0;
     }
 
-    bool result;
-    CHECK_JSRT(env, JsDefineProperty(
-      reinterpret_cast<JsValueRef>(object),
-      nameProperty,
-      descriptor,
-      &result));
+    bool defined;
+    CHECK_NAPI(DefineProperty(env, reinterpret_cast<JsValueRef>(object),
+      nameProperty, value, getter, setter, writable, enumerable,
+      configurable, &defined));
   }
 
   return napi_ok;
@@ -1719,8 +1692,14 @@ napi_status napi_wrap(napi_env env,
   // Object.getPrototypeOf(value) still returns whatever the constructor
   // installed.
   bool defined = false;
-  CHECK_NAPI(DefineDataProperty(env, value, env->wrap_property_id, external,
-    /*writable*/ false, /*enumerable*/ false, /*configurable*/ true, &defined));
+  CHECK_NAPI(DefineProperty(env, value, env->wrap_property_id,
+    /*value*/ external,
+    /*getter*/ JS_INVALID_REFERENCE,
+    /*setter*/ JS_INVALID_REFERENCE,
+    /*writable*/ false,
+    /*enumerable*/ false,
+    /*configurable*/ true,
+    &defined));
   RETURN_STATUS_IF_FALSE(env, defined, napi_invalid_arg);
 
   if (result != nullptr) {
