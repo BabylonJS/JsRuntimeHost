@@ -6,9 +6,13 @@ on:
   pull_request:
     branches: [main]
 
-# NOTE: this file is temporarily narrowed to ONLY the Hermes jobs to
-# iterate on Hermes CI failures faster.  The full matrix is restored
-# in a follow-up commit before this PR merges.
+# NOTE: this file is temporarily narrowed to ONLY the Hermes jobs that
+# currently build and run on hosted GitHub runners — Win32 x64 and macOS
+# Xcode 26.4.  Android + iOS Hermes jobs are excluded for now (the
+# existing build-android.yml / build-ios.yml workflows don't accept a
+# `js-engine` input yet; wiring that up cleanly is a follow-up).
+#
+# The full matrix is restored in the very last commit of this PR.
 
 jobs:
   Win32_x64_Hermes:
@@ -17,22 +21,9 @@ jobs:
       platform: x64
       js-engine: Hermes
 
-  Android_Hermes:
-    uses: ./.github/workflows/build-android.yml
-    with:
-      js-engine: Hermes
-
   macOS_Xcode264_Hermes:
     uses: ./.github/workflows/build-macos.yml
     with:
       xcode-version: '26.4'
       runs-on: macos-26
-      js-engine: Hermes
-
-  iOS_Xcode264_Hermes:
-    uses: ./.github/workflows/build-ios.yml
-    with:
-      xcode-version: '26.4'
-      runs-on: macos-26
-      simulator: 'iPhone 17'
       js-engine: Hermes
