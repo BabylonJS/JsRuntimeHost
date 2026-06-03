@@ -444,6 +444,50 @@ struct DataViewInfo {
   }
 };
 
+// Defines a data property on `object` keyed by `property_id` with the given
+// value and attribute flags. Writes whether Chakra accepted the descriptor
+// into `*defined` (false means the property already exists with conflicting
+// flags); the caller decides whether to treat that as an error.
+napi_status DefineDataProperty(napi_env env,
+                               JsValueRef object,
+                               JsPropertyIdRef property_id,
+                               JsValueRef value,
+                               bool writable,
+                               bool enumerable,
+                               bool configurable,
+                               bool* defined) {
+  JsValueRef descriptor;
+  CHECK_JSRT(env, JsCreateObject(&descriptor));
+
+  JsValueRef writableValue;
+  CHECK_JSRT(env, JsBoolToBoolean(writable, &writableValue));
+
+  JsValueRef enumerableValue;
+  CHECK_JSRT(env, JsBoolToBoolean(enumerable, &enumerableValue));
+
+  JsValueRef configurableValue;
+  CHECK_JSRT(env, JsBoolToBoolean(configurable, &configurableValue));
+
+  JsPropertyIdRef valuePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("value"), &valuePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, valuePid, value, true));
+
+  JsPropertyIdRef writablePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("writable"), &writablePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, writablePid, writableValue, true));
+
+  JsPropertyIdRef enumerablePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("enumerable"), &enumerablePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, enumerablePid, enumerableValue, true));
+
+  JsPropertyIdRef configurablePid;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("configurable"), &configurablePid));
+  CHECK_JSRT(env, JsSetProperty(descriptor, configurablePid, configurableValue, true));
+
+  CHECK_JSRT(env, JsDefineProperty(object, property_id, descriptor, defined));
+  return napi_ok;
+}
+
 } // end anonymous namespace
 
 // Warning: Keep in-sync with napi_status enum
@@ -813,6 +857,23 @@ napi_status napi_define_properties(napi_env env,
   for (size_t i = 0; i < property_count; i++) {
     const napi_property_descriptor* p = properties + i;
 
+    JsPropertyIdRef nameProperty;
+    CHECK_JSRT(env, JsPropertyIdFromPropertyDescriptor(p, &nameProperty));
+
+    if (p->getter == nullptr && p->setter == nullptr && p->method == nullptr) {
+      RETURN_STATUS_IF_FALSE(env, p->value != nullptr, napi_invalid_arg);
+      bool defined;
+      CHECK_NAPI(DefineDataProperty(env,
+        reinterpret_cast<JsValueRef>(object),
+        nameProperty,
+        reinterpret_cast<JsValueRef>(p->value),
+        (p->attributes & napi_writable) != 0,
+        (p->attributes & napi_enumerable) != 0,
+        (p->attributes & napi_configurable) != 0,
+        &defined));
+      continue;
+    }
+
     JsValueRef descriptor;
     CHECK_JSRT(env, JsCreateObject(&descriptor));
 
@@ -846,7 +907,7 @@ napi_status napi_define_properties(napi_env env,
           p->setter, p->data, reinterpret_cast<napi_value*>(&setter)));
         CHECK_JSRT(env, JsSetProperty(descriptor, setProperty, setter, true));
       }
-    } else if (p->method != nullptr) {
+    } else {
       napi_value property_name;
       CHECK_JSRT(env,
         JsNameValueFromPropertyDescriptor(p, &property_name));
@@ -857,29 +918,13 @@ napi_status napi_define_properties(napi_env env,
       CHECK_NAPI(CreatePropertyFunction(env, property_name,
         p->method, p->data, reinterpret_cast<napi_value*>(&method)));
       CHECK_JSRT(env, JsSetProperty(descriptor, valueProperty, method, true));
-    } else {
-      RETURN_STATUS_IF_FALSE(env, p->value != nullptr, napi_invalid_arg);
-
-      JsPropertyIdRef writableProperty;
-      CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("writable"),
-                                    &writableProperty));
-      JsValueRef writable;
-      CHECK_JSRT(env, JsBoolToBoolean((p->attributes & napi_writable), &writable));
-      CHECK_JSRT(env, JsSetProperty(descriptor, writableProperty, writable, true));
-
-      JsPropertyIdRef valueProperty;
-      CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("value"), &valueProperty));
-      CHECK_JSRT(env, JsSetProperty(descriptor, valueProperty,
-        reinterpret_cast<JsValueRef>(p->value), true));
     }
 
-    JsPropertyIdRef nameProperty;
-    CHECK_JSRT(env, JsPropertyIdFromPropertyDescriptor(p, &nameProperty));
     bool result;
     CHECK_JSRT(env, JsDefineProperty(
       reinterpret_cast<JsValueRef>(object),
-      reinterpret_cast<JsPropertyIdRef>(nameProperty),
-      reinterpret_cast<JsValueRef>(descriptor),
+      nameProperty,
+      descriptor,
       &result));
   }
 
@@ -1673,33 +1718,9 @@ napi_status napi_wrap(napi_env env,
   // This keeps the value's prototype chain intact, so
   // Object.getPrototypeOf(value) still returns whatever the constructor
   // installed.
-  JsValueRef descriptor;
-  CHECK_JSRT(env, JsCreateObject(&descriptor));
-
-  JsValueRef falseValue;
-  CHECK_JSRT(env, JsBoolToBoolean(false, &falseValue));
-
-  JsValueRef trueValue;
-  CHECK_JSRT(env, JsBoolToBoolean(true, &trueValue));
-
-  JsPropertyIdRef valuePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("value"), &valuePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, valuePid, external, true));
-
-  JsPropertyIdRef writablePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("writable"), &writablePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, writablePid, falseValue, true));
-
-  JsPropertyIdRef enumerablePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("enumerable"), &enumerablePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, enumerablePid, falseValue, true));
-
-  JsPropertyIdRef configurablePid;
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("configurable"), &configurablePid));
-  CHECK_JSRT(env, JsSetProperty(descriptor, configurablePid, trueValue, true));
-
   bool defined = false;
-  CHECK_JSRT(env, JsDefineProperty(value, env->wrap_property_id, descriptor, &defined));
+  CHECK_NAPI(DefineDataProperty(env, value, env->wrap_property_id, external,
+    /*writable*/ false, /*enumerable*/ false, /*configurable*/ true, &defined));
   RETURN_STATUS_IF_FALSE(env, defined, napi_invalid_arg);
 
   if (result != nullptr) {
