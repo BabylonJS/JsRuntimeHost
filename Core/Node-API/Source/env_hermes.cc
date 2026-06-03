@@ -51,6 +51,7 @@ typedef napi_finalize node_api_basic_finalize;
 #include "hermes/Public/RuntimeConfig.h"
 #include "hermes/VM/Runtime.h"
 
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -140,8 +141,43 @@ namespace Napi
         }
 
         // Dropping the last shared_ptr to the runtime tears down the env via
-        // Hermes's post-shutdown deleter.
-        state.runtime.reset();
+        // Hermes's post-shutdown deleter.  This runs the cleanup-hook chain,
+        // persistent-reference finalizers, instance-data finalizer, and the
+        // GC heap's `finalizeAll()` — all of which execute *user-provided*
+        // C++ code (every napi_wrap / napi_add_finalizer finalizer in the
+        // process, plus our polyfills' wrap destructors).
+        //
+        // If any of that code throws, the exception escapes Runtime::~Runtime
+        // (its destructor is not marked noexcept) and propagates out of
+        // Napi::Detach into the AppRuntime worker thread.  The thread
+        // function has no catch, so C++ calls std::terminate → abort(),
+        // killing the process with SIGABRT — silently on macOS, because
+        // hermes_fatal isn't involved.  Observed on macOS arm64 CI as
+        // `Abort trap: 6` immediately after `145 passing`, with no stderr
+        // diagnostic.
+        //
+        // Catch here so the worker thread can exit cleanly: by the time we
+        // hit Detach the tests have already reported their results, and
+        // we have nothing useful to do with a teardown-time exception
+        // besides logging it.  Re-raising would just re-trigger the abort
+        // and leave CI red despite a fully successful test run.
+        try
+        {
+            state.runtime.reset();
+        }
+        catch (const std::exception& e)
+        {
+            std::fprintf(
+                stderr,
+                "[Hermes] swallowed exception during Runtime teardown: %s\n",
+                e.what());
+        }
+        catch (...)
+        {
+            std::fprintf(
+                stderr,
+                "[Hermes] swallowed non-std exception during Runtime teardown\n");
+        }
     }
 
     void DrainJobs(Napi::Env env)
