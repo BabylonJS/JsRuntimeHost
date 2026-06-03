@@ -229,9 +229,6 @@ JsErrorCode JsNameValueFromPropertyDescriptor(const napi_property_descriptor* p,
 }
 
 inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper) {
-  // Look up the external attached by napi_wrap as a hidden own property
-  // keyed by env->wrap_property_id. Returns JS_INVALID_REFERENCE in
-  // *wrapper when the value was never wrapped (or isn't an object).
   *wrapper = JS_INVALID_REFERENCE;
 
   JsValueType valueType;
@@ -240,10 +237,9 @@ inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper
     return napi_ok;
   }
 
-  // Use GetOwnPropertyDescriptor (not JsHasProperty) so a wrap-key
-  // property defined on Object.prototype (e.g. if some Object.prototype
-  // value were itself wrapped) cannot spoof an unwrap of an otherwise-
-  // unwrapped value via prototype-chain lookup.
+  // Use GetOwnPropertyDescriptor rather than JsGetProperty so a wrap-key
+  // property installed on Object.prototype cannot spoof an unwrap via the
+  // prototype chain.
   JsValueRef descriptor = JS_INVALID_REFERENCE;
   CHECK_JSRT(env, JsGetOwnPropertyDescriptor(obj, env->wrap_property_id, &descriptor));
 
@@ -259,9 +255,9 @@ inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper
   JsValueRef candidate = JS_INVALID_REFERENCE;
   CHECK_JSRT(env, JsGetProperty(descriptor, valuePid, &candidate));
 
-  // napi_wrap only stores JsExternalObjects under this key, so reject
-  // anything else -- protects against a caller stashing a fake value
-  // under the Symbol to make napi_unwrap return bogus data.
+  // Reject anything other than a JsExternalObject so a caller that
+  // stashed a fake value under the wrap key cannot make napi_unwrap
+  // hand back bogus data.
   bool hasExternalData = false;
   CHECK_JSRT(env, JsHasExternalData(candidate, &hasExternalData));
   if (!hasExternalData) {
@@ -445,13 +441,11 @@ struct DataViewInfo {
   }
 };
 
-// Defines a property on `object` keyed by `property_id`. Each of `value`,
-// `getter`, and `setter` is included in the descriptor only when non-
-// JS_INVALID_REFERENCE; `writable` is included only when set (method
-// properties intentionally omit it). `enumerable` and `configurable` are
-// always set. Writes whether Chakra accepted the descriptor into `*defined`
-// (false means the property already exists with conflicting flags); the
-// caller decides whether to treat that as an error.
+// `writable` is std::optional because the method-property branch in
+// napi_define_properties intentionally omits it.
+//
+// `*defined` is false if the property already exists with conflicting
+// flags; the caller decides whether to treat that as an error.
 napi_status DefineProperty(napi_env env,
                            JsValueRef object,
                            JsPropertyIdRef property_id,
@@ -1680,17 +1674,6 @@ napi_status napi_wrap(napi_env env,
   CHECK_JSRT(env, JsCreateExternalObject(
     externalData, ExternalData::Finalize, &external));
 
-  // Attach the external as a hidden own property keyed by the env's
-  // wrap-key Symbol. User code cannot construct an equal Symbol from JS,
-  // and even if it discovers ours via Object.getOwnPropertySymbols the
-  // descriptor flags below prevent overwrite-via-assignment. non-writable
-  // blocks `obj[sym] = junk`; non-enumerable for hygiene; configurable so
-  // napi_remove_wrap can delete it. (FindWrapper still checks
-  // JsHasExternalData to reject anything stashed under the key that
-  // isn't a real wrapper.)
-  // This keeps the value's prototype chain intact, so
-  // Object.getPrototypeOf(value) still returns whatever the constructor
-  // installed.
   bool defined = false;
   CHECK_NAPI(DefineProperty(env, value, env->wrap_property_id,
     /*value*/ external,

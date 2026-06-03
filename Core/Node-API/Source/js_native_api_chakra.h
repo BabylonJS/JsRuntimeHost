@@ -13,13 +13,6 @@ struct napi_env__ {
   napi_extended_error_info last_error{ nullptr, nullptr, 0, napi_ok };
   JsValueRef has_own_property_function = JS_INVALID_REFERENCE;
 
-  // Cached property id (keyed by a per-env Symbol) under which napi_wrap
-  // stores the ExternalData wrapper as a hidden own property on the
-  // wrapped value. Using a Symbol-derived id keeps the wrapped value's
-  // prototype chain intact and makes the key unforgeable from JS (user
-  // code cannot construct an equal Symbol). The Symbol itself is pinned
-  // via JsAddRef in Napi::Attach and reclaimed by JsDisposeRuntime; we
-  // never need to dereference it again after deriving the id.
   JsPropertyIdRef wrap_property_id = JS_INVALID_REFERENCE;
 
   const std::thread::id thread_id{std::this_thread::get_id()};
