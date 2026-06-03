@@ -392,12 +392,7 @@ namespace {
       if (*exception != nullptr) {
         return nullptr;
       }
-      // Per ECMAScript GetPrototypeFromConstructor: if constructor.prototype is
-      // not an object, fall back to %Object.prototype%. JSObjectMake with a null
-      // class already gave `instance` that default, so we just skip the override.
-      if (JSValueIsObject(ctx, prototypeValue)) {
-        JSObjectSetPrototype(ctx, instance, prototypeValue);
-      }
+      JSObjectSetPrototype(ctx, instance, prototypeValue);
 
       napi_callback_info__ cbinfo{};
       cbinfo.thisArg = ToNapi(instance);
