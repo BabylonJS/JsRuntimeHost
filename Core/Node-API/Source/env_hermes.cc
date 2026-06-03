@@ -51,7 +51,6 @@ typedef napi_finalize node_api_basic_finalize;
 #include "hermes/Public/RuntimeConfig.h"
 #include "hermes/VM/Runtime.h"
 
-#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -141,43 +140,8 @@ namespace Napi
         }
 
         // Dropping the last shared_ptr to the runtime tears down the env via
-        // Hermes's post-shutdown deleter.  This runs the cleanup-hook chain,
-        // persistent-reference finalizers, instance-data finalizer, and the
-        // GC heap's `finalizeAll()` — all of which execute *user-provided*
-        // C++ code (every napi_wrap / napi_add_finalizer finalizer in the
-        // process, plus our polyfills' wrap destructors).
-        //
-        // If any of that code throws, the exception escapes Runtime::~Runtime
-        // (its destructor is not marked noexcept) and propagates out of
-        // Napi::Detach into the AppRuntime worker thread.  The thread
-        // function has no catch, so C++ calls std::terminate → abort(),
-        // killing the process with SIGABRT — silently on macOS, because
-        // hermes_fatal isn't involved.  Observed on macOS arm64 CI as
-        // `Abort trap: 6` immediately after `145 passing`, with no stderr
-        // diagnostic.
-        //
-        // Catch here so the worker thread can exit cleanly: by the time we
-        // hit Detach the tests have already reported their results, and
-        // we have nothing useful to do with a teardown-time exception
-        // besides logging it.  Re-raising would just re-trigger the abort
-        // and leave CI red despite a fully successful test run.
-        try
-        {
-            state.runtime.reset();
-        }
-        catch (const std::exception& e)
-        {
-            std::fprintf(
-                stderr,
-                "[Hermes] swallowed exception during Runtime teardown: %s\n",
-                e.what());
-        }
-        catch (...)
-        {
-            std::fprintf(
-                stderr,
-                "[Hermes] swallowed non-std exception during Runtime teardown\n");
-        }
+        // Hermes's post-shutdown deleter.
+        state.runtime.reset();
     }
 
     void DrainJobs(Napi::Env env)
@@ -193,68 +157,28 @@ namespace Napi
         // and we don't have a meaningful way to bubble it up here.  Real
         // exceptions thrown FROM user callbacks are already handled in
         // AppRuntime::Dispatch's try/catch.
-        //
-        // Wrap in try/catch because drainJobs synchronously runs any
-        // pending finalizers we registered through addDrainJobsCallback
-        // (drainPendingFinalizers, which in turn invokes user napi_wrap /
-        // napi_add_finalizer C++ callbacks).  If one of those throws, the
-        // exception escapes Runtime::drainJobs into AppRuntime::Dispatch's
-        // outer (unguarded) call site and propagates out of the worker
-        // thread function, triggering std::terminate -> abort() with no
-        // diagnostic on macOS.  Swallow + log instead.
-        try
-        {
-            (void)runtime->drainJobs();
-        }
-        catch (const std::exception& e)
-        {
-            std::fprintf(
-                stderr,
-                "[Hermes] swallowed exception during drainJobs: %s\n",
-                e.what());
-        }
-        catch (...)
-        {
-            std::fprintf(
-                stderr,
-                "[Hermes] swallowed non-std exception during drainJobs\n");
-        }
+        (void)runtime->drainJobs();
     }
 
     Napi::Value Eval(Napi::Env env, const char* source, const char* sourceUrl)
     {
         napi_env env_ptr{env};
         const size_t length = std::strlen(source);
+        // hermes_run_script supports a zero-copy fast path when the last byte
+        // of the buffer is `\0` — pass length+1 and include the null
+        // terminator we already have in `source`.
+        const size_t size = length + 1;
 
         hermes_run_script_flags flags{};
         flags.struct_size = sizeof(flags);
 
         napi_value result = nullptr;
 
-        // Buffer-lifetime note:
-        //
-        // `hermes_run_script` has two ingest paths:
-        //   * If the byte at `size - 1` is `\0`, it wraps our pointer in a
-        //     `WeirdZeroTerminatedBuffer` *zero-copy* — meaning our buffer
-        //     stays live inside whatever `BCProvider` / `RuntimeModule` the
-        //     compiled script ends up owning, and our finalize callback fires
-        //     only when those are destroyed (often not until ~Runtime).
-        //   * Otherwise it copies the source into Hermes's own
-        //     `StdStringBuffer` and synchronously invokes our finalize
-        //     callback before returning, so we own the buffer only for the
-        //     duration of this call.
-        //
-        // We deliberately pick the second (copy) path by passing `length`
-        // (without the trailing `\0`).  The first path was producing a
-        // macOS libmalloc abort during Runtime teardown:
-        //   `malloc: *** error for object 0x…: pointer being freed was not
-        //    allocated`
-        // followed by SIGABRT.  Letting Hermes own the source as a
-        // std::string and tearing our buffer down synchronously side-steps
-        // the entire buffer-lifetime question and is plenty cheap for the
-        // sizes we Eval here (Mocha test bundles ~1 MiB).
-        auto* copy = new uint8_t[length];
-        std::memcpy(copy, source, length);
+        // Hermes's `hermes_run_script` takes ownership of the source buffer
+        // via the finalize callback.  Our `source` is owned by the caller,
+        // so we make a copy and let Hermes free it when it's done.
+        auto* copy = new uint8_t[size];
+        std::memcpy(copy, source, size);
         auto finalize = [](const uint8_t* data, size_t /*size*/, void* /*hint*/) {
             delete[] data;
         };
@@ -262,7 +186,7 @@ namespace Napi
         const napi_status status = hermes_run_script(
             env_ptr,
             copy,
-            length,
+            size,
             finalize,
             /*finalize_hint=*/nullptr,
             sourceUrl,

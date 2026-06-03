@@ -1,0 +1,61 @@
+Pre-mark all napi_ref__ as deletionPending before the teardown loop
+
+Hermes's napi_env__::shutdown() iterates refListHead_ one at a time, sets
+deletionPending_ on each ref *just before* its finalize_cb fires, then
+`delete`s the ref.  This is fine if the finalizer doesn't transitively
+destroy any other ref.
+
+However, the node-addon-api C++ wrappers (Napi::Reference / Napi::
+ObjectReference) RAII-own a napi_ref via napi_create_reference, and
+their destructor calls napi_delete_reference on it.  Embedders routinely
+hold these wrappers as members of a class that is itself the data
+pointer of a napi_wrap; e.g. JsRuntimeHost's URL polyfill:
+
+    class URL final : public Napi::ObjectWrap<URL> {
+        ...
+        Napi::ObjectReference m_searchParamsReference;
+    };
+
+If `m_searchParamsReference`'s underlying napi_ref happens to come
+*before* the URL wrap's napi_ref in `refListHead_`, the shutdown loop
+deletes it first.  When the URL wrap's finalize_cb later runs and
+deletes the C++ URL instance, ~URL destroys m_searchParamsReference,
+which calls napi_delete_reference on the *already-freed* napi_ref:
+
+    if (ref->deletionPending_) { return napi_ok; }   // UB: reads UAF
+    ...
+    delete ref;                                       // double-free
+
+macOS libmalloc catches this with
+`pointer being freed was not allocated` followed by SIGABRT.  Linux
+glibc may or may not (depends on tcache state).  Windows CRT typically
+doesn't.
+
+Fix: mark every ref deletionPending in a pre-pass *before* the loop, so
+that any napi_delete_reference triggered by finalize_cb on any sibling
+ref is unconditionally a no-op.  The pre-pass touches the same bit
+that's already set inside the loop, so it doesn't change behavior for
+refs whose finalize_cb does not transitively destroy others — it only
+adds the missing protection for the cross-ref case.
+
+diff --git a/API/napi/hermes_napi.cpp b/API/napi/hermes_napi.cpp
+--- a/API/napi/hermes_napi.cpp
++++ b/API/napi/hermes_napi.cpp
+@@ -198,6 +198,17 @@ void napi_env__::shutdown() {
+   // functions that create values.
+   napi_handle_scope teardownScope = nullptr;
+   napi_open_handle_scope(this, &teardownScope);
++  // Pre-mark every remaining napi_ref as deletionPending BEFORE we
++  // start invoking finalizers.  Some finalizers transitively destroy
++  // node-addon-api Napi::Reference / Napi::ObjectReference members
++  // (e.g. ObjectWrap<URL> destroying URL, whose member
++  // Napi::ObjectReference's destructor calls napi_delete_reference on
++  // its underlying ref).  If that sibling ref was deleted earlier in
++  // this loop, napi_delete_reference would otherwise read freed
++  // memory and double-free.  Pre-marking makes those calls no-ops.
++  for (napi_ref__ *r = refListHead_; r; r = r->next_) {
++    r->deletionPending_ = true;
++  }
+   while (refListHead_) {
+     napi_ref__ *ref = refListHead_;
+     refListHead_ = ref->next_;

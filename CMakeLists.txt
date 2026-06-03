@@ -35,6 +35,11 @@ FetchContent_Declare(hermes
     # upstream Hermes changes — keep it on the static_h branch (Static
     # Hermes is the variant our NAPI integration targets).
     GIT_TAG 348582831f50954895da8e80cc91112d51036c69
+    # Apply Babylon-side patches against the fetched Hermes source.  Each
+    # patch carries the rationale in its header; see the patches dir.
+    PATCH_COMMAND ${CMAKE_COMMAND}
+        -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/patches/hermes-shutdown-pre-mark-deletion-pending.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyPatchIfNeeded.cmake
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(ios-cmake
     GIT_REPOSITORY https://github.com/leetal/ios-cmake.git
