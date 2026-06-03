@@ -441,11 +441,6 @@ struct DataViewInfo {
   }
 };
 
-// `writable` is std::optional because the method-property branch in
-// napi_define_properties intentionally omits it.
-//
-// `*defined` is false if the property already exists with conflicting
-// flags; the caller decides whether to treat that as an error.
 napi_status DefineProperty(napi_env env,
                            JsValueRef object,
                            JsPropertyIdRef property_id,
