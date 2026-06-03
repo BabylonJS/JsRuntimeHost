@@ -227,20 +227,10 @@ JsErrorCode JsNameValueFromPropertyDescriptor(const napi_property_descriptor* p,
   }
 }
 
-inline napi_status GetWrapPropertyId(napi_env env, JsPropertyIdRef* result) {
-  // Hidden own-property key used to attach napi_wrap externals without
-  // mutating the wrapped value's prototype chain. The SOH (\x01) prefix
-  // keeps the name out of user-typed identifier space; the property is
-  // also defined as non-enumerable / non-writable in napi_wrap so it
-  // cannot be observed via for..in or overwritten by assignment.
-  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("\x01napi_external"), result));
-  return napi_ok;
-}
-
 inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper) {
-  // Look up the external attached by napi_wrap as a hidden own property.
-  // Returns JS_INVALID_REFERENCE in *wrapper when the value was never
-  // wrapped (or isn't an object).
+  // Look up the external attached by napi_wrap as a hidden own property
+  // keyed by env->wrap_info_symbol. Returns JS_INVALID_REFERENCE in
+  // *wrapper when the value was never wrapped (or isn't an object).
   *wrapper = JS_INVALID_REFERENCE;
 
   JsValueType valueType;
@@ -249,14 +239,12 @@ inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper
     return napi_ok;
   }
 
-  JsPropertyIdRef wrapKey;
-  CHECK_NAPI(GetWrapPropertyId(env, &wrapKey));
-
-  // Use GetOwnPropertyDescriptor (not JsHasProperty) so a stray
-  // "\x01napi_external" defined on Object.prototype (or any other object
-  // up the chain) cannot spoof an unwrap of an otherwise-unwrapped value.
+  // Use GetOwnPropertyDescriptor (not JsHasProperty) so a wrap-info symbol
+  // property defined on Object.prototype (e.g. if some Object.prototype
+  // value were itself wrapped) cannot spoof an unwrap of an otherwise-
+  // unwrapped value via prototype-chain lookup.
   JsValueRef descriptor = JS_INVALID_REFERENCE;
-  CHECK_JSRT(env, JsGetOwnPropertyDescriptor(obj, wrapKey, &descriptor));
+  CHECK_JSRT(env, JsGetOwnPropertyDescriptor(obj, env->wrap_info_property_id, &descriptor));
 
   JsValueType descriptorType;
   CHECK_JSRT(env, JsGetValueType(descriptor, &descriptorType));
@@ -1674,15 +1662,16 @@ napi_status napi_wrap(napi_env env,
   CHECK_JSRT(env, JsCreateExternalObject(
     externalData, ExternalData::Finalize, &external));
 
-  // Attach the external as a hidden own property (non-enumerable so it
-  // does not appear in for..in / Object.keys / JSON.stringify, non-writable
-  // so a stray assignment cannot replace it). Configurable so napi_remove_wrap
-  // can delete it. This keeps the value's prototype chain intact, so
+  // Attach the external as a hidden own property keyed by the env's
+  // wrap-info Symbol. User code cannot construct an equal Symbol from JS,
+  // and even if it discovers ours via Object.getOwnPropertySymbols the
+  // descriptor flags below prevent overwrite-via-assignment. non-writable
+  // blocks `obj[sym] = junk`; non-enumerable for hygiene; configurable so
+  // napi_remove_wrap can delete it. (FindWrapper still gates on
+  // JsHasExternalData as defense-in-depth against re-define attempts.)
+  // This keeps the value's prototype chain intact, so
   // Object.getPrototypeOf(value) still returns whatever the constructor
   // installed.
-  JsPropertyIdRef wrapKey;
-  CHECK_NAPI(GetWrapPropertyId(env, &wrapKey));
-
   JsValueRef descriptor;
   CHECK_JSRT(env, JsCreateObject(&descriptor));
 
@@ -1709,7 +1698,7 @@ napi_status napi_wrap(napi_env env,
   CHECK_JSRT(env, JsSetProperty(descriptor, configurablePid, trueValue, true));
 
   bool defined = false;
-  CHECK_JSRT(env, JsDefineProperty(value, wrapKey, descriptor, &defined));
+  CHECK_JSRT(env, JsDefineProperty(value, env->wrap_info_property_id, descriptor, &defined));
   RETURN_STATUS_IF_FALSE(env, defined, napi_invalid_arg);
 
   if (result != nullptr) {
@@ -1748,11 +1737,8 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   // code redefined it as non-configurable after napi_wrap), bail before
   // detaching the external data so a subsequent napi_unwrap still returns
   // the original data rather than a stale property with cleared external.
-  JsPropertyIdRef wrapKey;
-  CHECK_NAPI(GetWrapPropertyId(env, &wrapKey));
-
   JsValueRef deleteResult = JS_INVALID_REFERENCE;
-  CHECK_JSRT(env, JsDeleteProperty(value, wrapKey, false /* isStrictMode */, &deleteResult));
+  CHECK_JSRT(env, JsDeleteProperty(value, env->wrap_info_property_id, false /* isStrictMode */, &deleteResult));
 
   bool wasDeleted = false;
   CHECK_JSRT(env, JsBooleanToBool(deleteResult, &wasDeleted));
