@@ -12,38 +12,6 @@ namespace Babylon::Polyfills::Internal
     {
         constexpr auto JS_FILE_CONSTRUCTOR_NAME = "File";
         constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
-
-        // Wire File.prototype to inherit from Blob.prototype so that
-        // `new File(...) instanceof Blob === true`. The shim runs entirely
-        // in JS so each engine's quirks are handled by the JS try/catch:
-        //
-        // - V8 / Chakra: `File.prototype` is the real prototype that
-        //   instances use, so the direct setPrototypeOf succeeds and the
-        //   probe path is skipped.
-        // - JSC: `File.prototype` aliases Object.prototype (napi_define_class
-        //   wraps JSObjectMakeConstructor; see JsRH#172). The direct call
-        //   throws TypeError, the catch swallows it, and the probe path
-        //   discovers the real napi-internal prototype via
-        //   `Object.getPrototypeOf(new File())` and sets its [[Prototype]]
-        //   to Blob.prototype.
-        //
-        // Doing this in JS rather than via Napi::Function::Call avoids a
-        // JSC napi-shim quirk where setPrototypeOf on Object.prototype
-        // escapes as an uncaught error instead of being capturable via
-        // IsExceptionPending.
-        constexpr auto JS_PROTOTYPE_CHAIN_SHIM = R"JS(
-(function() {
-    if (typeof File !== 'function' || typeof Blob !== 'function') return;
-    var blobProto = Blob.prototype;
-    try { Object.setPrototypeOf(File.prototype, blobProto); } catch (e) {}
-    try {
-        var probe = new File([], '');
-        if (!(probe instanceof Blob)) {
-            Object.setPrototypeOf(Object.getPrototypeOf(probe), blobProto);
-        }
-    } catch (e) {}
-})();
-)JS";
     }
 
     void File::Initialize(Napi::Env env)
@@ -86,16 +54,23 @@ namespace Babylon::Polyfills::Internal
 
         global.Set(JS_FILE_CONSTRUCTOR_NAME, func);
 
-        // Wire File.prototype -> Blob.prototype via a tiny JS shim. See
-        // the JS_PROTOTYPE_CHAIN_SHIM comment for engine-specific rationale.
-        Napi::Eval(env, JS_PROTOTYPE_CHAIN_SHIM, "JsRuntimeHost-File-PrototypeChainShim.js");
-        if (env.IsExceptionPending())
-        {
-            // The shim itself wraps every operation in try/catch, so this
-            // should never fire. Belt-and-braces: clear so Initialize stays
-            // best-effort and the rest of the polyfill remains installed.
-            env.GetAndClearPendingException();
-        }
+        // Wire File.prototype's [[Prototype]] to Blob.prototype so
+        // `new File(...) instanceof Blob === true`. WHATWG specs File as
+        // a Blob subtype; BJS core (fileTools, Offline/database,
+        // abstractEngine, thinNativeEngine) branches on `instanceof Blob`
+        // and needs File inputs to satisfy that check.
+        //
+        // Relies on JsRH #177: prior to that fix the JSC napi shim aliased
+        // every napi class's `.prototype` to Object.prototype, so this
+        // assignment would have polluted every object globally. With #177
+        // in place each napi class has its own `.prototype` object and
+        // this is a plain prototype-chain edit.
+        auto setPrototypeOf = env.Global().Get("Object").As<Napi::Object>()
+            .Get("setPrototypeOf").As<Napi::Function>();
+        setPrototypeOf.Call({
+            func.Get("prototype"),
+            blob.As<Napi::Function>().Get("prototype"),
+        });
     }
 
     File::File(const Napi::CallbackInfo& info)
