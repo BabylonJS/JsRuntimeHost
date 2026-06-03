@@ -193,7 +193,32 @@ namespace Napi
         // and we don't have a meaningful way to bubble it up here.  Real
         // exceptions thrown FROM user callbacks are already handled in
         // AppRuntime::Dispatch's try/catch.
-        (void)runtime->drainJobs();
+        //
+        // Wrap in try/catch because drainJobs synchronously runs any
+        // pending finalizers we registered through addDrainJobsCallback
+        // (drainPendingFinalizers, which in turn invokes user napi_wrap /
+        // napi_add_finalizer C++ callbacks).  If one of those throws, the
+        // exception escapes Runtime::drainJobs into AppRuntime::Dispatch's
+        // outer (unguarded) call site and propagates out of the worker
+        // thread function, triggering std::terminate -> abort() with no
+        // diagnostic on macOS.  Swallow + log instead.
+        try
+        {
+            (void)runtime->drainJobs();
+        }
+        catch (const std::exception& e)
+        {
+            std::fprintf(
+                stderr,
+                "[Hermes] swallowed exception during drainJobs: %s\n",
+                e.what());
+        }
+        catch (...)
+        {
+            std::fprintf(
+                stderr,
+                "[Hermes] swallowed non-std exception during drainJobs\n");
+        }
     }
 
     Napi::Value Eval(Napi::Env env, const char* source, const char* sourceUrl)
