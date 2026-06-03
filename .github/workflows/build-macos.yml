@@ -70,20 +70,30 @@ jobs:
         #
         # For the Hermes path we wrap UnitTests in `lldb` so any abort/crash
         # (e.g. an `abort()` deep in Hermes/HadesGC teardown, or a silent
-        # std::terminate from a worker-thread uncaught exception) leaves an
-        # actual backtrace in the CI log instead of just `Abort trap: 6`.
+        # std::terminate from a worker-thread uncaught exception, or a
+        # macOS libmalloc abort from heap corruption) leaves an actual
+        # backtrace in the CI log instead of just `Abort trap: 6`.
+        #
+        # We `process handle SIGABRT --pass false --stop true` so lldb
+        # intercepts the abort *before* the kernel takes the process down
+        # — without this, lldb prints frame #0 (the __pthread_kill /
+        # __abort itself) and exits batch mode before the `thread
+        # backtrace all` queued behind `run` ever gets a chance to fire.
+        #
         # We force the exit code to match the inferior's so the job still
         # fails on real test failures.
         working-directory: ${{ inputs.js-engine == 'Hermes' && 'Build/macOS/Tests/UnitTests' || 'Build/macOS/Tests/UnitTests/RelWithDebInfo' }}
         run: |
           if [ "${{ inputs.js-engine }}" = "Hermes" ]; then
-            lldb -b -o 'run' -o 'thread backtrace all' -o 'quit' ./UnitTests \
+            lldb -b \
+              -o 'process handle SIGABRT --pass false --stop true --notify true' \
+              -o 'run' \
+              -o 'thread backtrace all' \
+              -o 'process status --verbose' \
+              -o 'continue' \
+              -o 'quit' \
+              ./UnitTests \
               | tee /tmp/lldb.log
-            # lldb returns 0 on a clean child exit; on crash, parse the
-            # inferior's status out of the trailing summary line.  The
-            # exact format is "Process N exited with status = K" or
-            # "Process N stopped" (signal).  Fail the job if the child
-            # didn't exit cleanly with 0.
             if grep -q 'exited with status = 0' /tmp/lldb.log; then
               exit 0
             else
