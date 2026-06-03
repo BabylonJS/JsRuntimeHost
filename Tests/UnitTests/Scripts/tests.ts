@@ -1289,9 +1289,10 @@ describe("napi class prototype isolation (#172)", function () {
 
     it("instances inherit from Blob.prototype", function () {
         const blob = new Blob([]);
-        // Some backends (Chakra) interpose a hidden external object into the
-        // instance's prototype chain via napi_wrap, so check chain membership
-        // rather than identity at depth 1.
+        // TODO(#178): Chakra's napi_wrap interposes a hidden external object
+        // into the instance's prototype chain, so Object.getPrototypeOf(blob)
+        // !== Blob.prototype at depth 1 on Chakra. Use isPrototypeOf (chain
+        // walk) until that is fixed.
         expect(Blob.prototype.isPrototypeOf(blob)).to.equal(true);
         expect(blob instanceof Blob).to.equal(true);
     });
