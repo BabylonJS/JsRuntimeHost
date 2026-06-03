@@ -67,8 +67,31 @@ jobs:
         # Single-config Ninja drops binaries directly under the target dir;
         # the multi-config Xcode generator nests them in a `RelWithDebInfo/`
         # subdir.
+        #
+        # For the Hermes path we wrap UnitTests in `lldb` so any abort/crash
+        # (e.g. an `abort()` deep in Hermes/HadesGC teardown, or a silent
+        # std::terminate from a worker-thread uncaught exception) leaves an
+        # actual backtrace in the CI log instead of just `Abort trap: 6`.
+        # We force the exit code to match the inferior's so the job still
+        # fails on real test failures.
         working-directory: ${{ inputs.js-engine == 'Hermes' && 'Build/macOS/Tests/UnitTests' || 'Build/macOS/Tests/UnitTests/RelWithDebInfo' }}
-        run: ./UnitTests
+        run: |
+          if [ "${{ inputs.js-engine }}" = "Hermes" ]; then
+            lldb -b -o 'run' -o 'thread backtrace all' -o 'quit' ./UnitTests \
+              | tee /tmp/lldb.log
+            # lldb returns 0 on a clean child exit; on crash, parse the
+            # inferior's status out of the trailing summary line.  The
+            # exact format is "Process N exited with status = K" or
+            # "Process N stopped" (signal).  Fail the job if the child
+            # didn't exit cleanly with 0.
+            if grep -q 'exited with status = 0' /tmp/lldb.log; then
+              exit 0
+            else
+              exit 1
+            fi
+          else
+            ./UnitTests
+          fi
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
 
