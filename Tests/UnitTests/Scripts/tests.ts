@@ -1506,7 +1506,8 @@ describe("File", function () {
         expect(new File([], null as any).name).to.equal("null");
     });
 
-    // TODO: Uncomment this once the Node-API implementation for Chakra supports throwing errors from constructors.
+    // TODO(JsRH#175): Re-enable once the Chakra Node-API shim surfaces
+    // exceptions thrown from class constructor callbacks back to JS.
     // it("throws when fewer than 2 arguments are passed", function () {
     //     // File requires both fileBits and fileName per the WebIDL bindings.
     //     // Browsers throw TypeError on missing arguments; the native polyfill

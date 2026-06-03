@@ -56,8 +56,9 @@ namespace Babylon::Polyfills::Internal
 
         Napi::Value MakeEvent(Napi::Env env, const Napi::Object& jsThis, const std::string& eventType)
         {
-            // Compute loaded/total best-effort from the current result, mirroring
-            // the JS polyfill that this C++ implementation replaces.
+            // ProgressEvent contract: loaded/total reflect bytes processed. For
+            // one-shot reads we don't track interim progress — report the final
+            // byte count for both and leave lengthComputable=false.
             double length = 0.0;
             auto result = jsThis.Get("result");
             if (result.IsArrayBuffer())
@@ -93,20 +94,8 @@ namespace Babylon::Polyfills::Internal
             return;
         }
 
-        // Expose EMPTY/LOADING/DONE both as static constants on the
-        // constructor (FileReader.EMPTY) and as instance constants on the
-        // prototype (new FileReader().EMPTY) per the WHATWG IDL.
-        //
-        // Important: do NOT set these via func.Get("prototype").Set(...) on
-        // the returned constructor. On JSC, JSObjectMakeConstructor defaults
-        // the constructor's .prototype property to Object.prototype, so
-        // writing through it pollutes Object.prototype and breaks any
-        // for..in over plain objects elsewhere in the runtime. The
-        // InstanceValue descriptors below go through napi_define_class's
-        // internal prototype lookup, which on JSC targets the napi-internal
-        // prototype (distinct from .prototype) and on V8 targets the
-        // function template's PrototypeTemplate — both correct, neither
-        // touches Object.prototype.
+        // Expose EMPTY/LOADING/DONE on both the constructor and the prototype
+        // per the WHATWG FileAPI IDL `const` member exposure rule (see JsRH#173).
         Napi::Function func = DefineClass(
             env,
             JS_FILE_READER_CONSTRUCTOR_NAME,

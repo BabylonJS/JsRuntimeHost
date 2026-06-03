@@ -6,11 +6,6 @@
 #include <chrono>
 #include <string>
 
-#if defined(__has_include) && __has_include(<napi/env.h>)
-#include <napi/env.h>
-#define BABYLON_POLYFILL_USE_NAPI_JSI_EVAL 1
-#endif
-
 namespace Babylon::Polyfills::Internal
 {
     namespace
@@ -26,11 +21,11 @@ namespace Babylon::Polyfills::Internal
         //   instances use, so the direct setPrototypeOf succeeds and the
         //   probe path is skipped.
         // - JSC: `File.prototype` aliases Object.prototype (napi_define_class
-        //   wraps JSObjectMakeConstructor; same quirk the FileReader
-        //   constants block documents). The direct call throws TypeError,
-        //   the catch swallows it, and the probe path discovers the real
-        //   napi-internal prototype via `Object.getPrototypeOf(new File())`
-        //   and sets its [[Prototype]] to Blob.prototype.
+        //   wraps JSObjectMakeConstructor; see JsRH#172). The direct call
+        //   throws TypeError, the catch swallows it, and the probe path
+        //   discovers the real napi-internal prototype via
+        //   `Object.getPrototypeOf(new File())` and sets its [[Prototype]]
+        //   to Blob.prototype.
         //
         // Doing this in JS rather than via Napi::Function::Call avoids a
         // JSC napi-shim quirk where setPrototypeOf on Object.prototype
@@ -55,23 +50,25 @@ namespace Babylon::Polyfills::Internal
     {
         auto global = env.Global();
 
-        // Refuse to install if the native Blob polyfill is not present:
-        // File delegates its byte storage to a Blob, so without it the
-        // constructor cannot produce useful instances. Use IsUndefined()
-        // rather than IsFunction() because some JavaScriptCore builds
-        // (notably libjavascriptcoregtk on Linux) classify constructors
-        // created via JSObjectMakeConstructor as typeof 'object', not
-        // 'function', so napi_typeof returns napi_object for them.
-        auto blob = global.Get(JS_BLOB_CONSTRUCTOR_NAME);
-        if (blob.IsUndefined() || blob.IsNull())
+        // No-op if the runtime already provides a global File. Cheapest
+        // check, and the common path on platforms with a native File.
+        if (!global.Get(JS_FILE_CONSTRUCTOR_NAME).IsUndefined())
         {
             return;
         }
 
-        // No-op if the runtime already provides a global File.
-        if (!global.Get(JS_FILE_CONSTRUCTOR_NAME).IsUndefined())
+        // Require the native Blob polyfill: File delegates byte storage to
+        // a Blob, so without it the constructor cannot produce useful
+        // instances. Use IsUndefined() rather than IsFunction() because
+        // some JavaScriptCore builds (notably libjavascriptcoregtk on
+        // Linux) classify constructors created via JSObjectMakeConstructor
+        // as typeof 'object', not 'function', so napi_typeof returns
+        // napi_object for them.
+        auto blob = global.Get(JS_BLOB_CONSTRUCTOR_NAME);
+        if (blob.IsUndefined() || blob.IsNull())
         {
-            return;
+            throw Napi::Error::New(env,
+                "File polyfill requires the Blob polyfill to be installed first.");
         }
 
         Napi::Function func = DefineClass(
@@ -91,11 +88,7 @@ namespace Babylon::Polyfills::Internal
 
         // Wire File.prototype -> Blob.prototype via a tiny JS shim. See
         // the JS_PROTOTYPE_CHAIN_SHIM comment for engine-specific rationale.
-#if defined(BABYLON_POLYFILL_USE_NAPI_JSI_EVAL)
         Napi::Eval(env, JS_PROTOTYPE_CHAIN_SHIM, "JsRuntimeHost-File-PrototypeChainShim.js");
-#else
-        env.RunScript(JS_PROTOTYPE_CHAIN_SHIM, "JsRuntimeHost-File-PrototypeChainShim.js");
-#endif
         if (env.IsExceptionPending())
         {
             // The shim itself wraps every operation in try/catch, so this
