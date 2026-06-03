@@ -214,20 +214,28 @@ Make sure Hermes was fetched at the top-level CMakeLists.txt and NAPI_JAVASCRIPT
             PRIVATE "${_HERMES_BINARY_DIR}/lib/config"
             PRIVATE "${_HERMES_BINARY_DIR}/external/llvh/include")
 
-        # Hermes's headers rely on a handful of MSVC warning suppressions
-        # that Hermes applies globally in its own `Hermes.cmake` (e.g.
-        # `-wd4576` for C-style compound literals like `(SHLegacyValue){...}`
-        # inside `sh_legacy_value.h`).  Those globals don't propagate to our
-        # `napi` target, so we apply the minimum set needed for the headers
-        # we transitively pull in via `env_hermes.cc`.
-        set(NAPI_HERMES_COMPILE_OPTIONS
-            /wd4068  # unknown pragma (GCC pragmas in Hermes headers)
-            /wd4141  # 'inline': used more than once
-            /wd4146  # unary minus on unsigned type
-            /wd4244  # conversion possible loss of data
-            /wd4267  # size_t -> smaller type conversion
-            /wd4291  # no matching delete found
-            /wd4576) # parenthesized type followed by initializer list
+        # Hermes's headers rely on a handful of compiler-specific warning
+        # suppressions that Hermes applies globally in its own
+        # `Hermes.cmake` (e.g. `-wd4576` for C-style compound literals like
+        # `(SHLegacyValue){...}` inside `sh_legacy_value.h`).  Those
+        # globals don't propagate to our `napi` target, so we apply the
+        # minimum set needed for the headers we transitively pull in via
+        # `env_hermes.cc`.  These flags are MSVC-only — clang and gcc
+        # accept compound literals as a GNU extension under `-std=gnu++20`
+        # (which CMake picks by default) and would otherwise interpret a
+        # `/wdNNNN` argument as a missing source file path.
+        if(MSVC)
+            set(NAPI_HERMES_COMPILE_OPTIONS
+                /wd4068  # unknown pragma (GCC pragmas in Hermes headers)
+                /wd4141  # 'inline': used more than once
+                /wd4146  # unary minus on unsigned type
+                /wd4244  # conversion possible loss of data
+                /wd4267  # size_t -> smaller type conversion
+                /wd4291  # no matching delete found
+                /wd4576) # parenthesized type followed by initializer list
+        else()
+            set(NAPI_HERMES_COMPILE_OPTIONS "")
+        endif()
     else()
         message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
     endif()
