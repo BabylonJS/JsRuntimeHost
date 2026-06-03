@@ -19,6 +19,8 @@ if(NOT EXISTS "${PATCH_FILE}")
     message(FATAL_ERROR "ApplyPatchIfNeeded.cmake: '${PATCH_FILE}' does not exist")
 endif()
 
+message(STATUS "[ApplyPatchIfNeeded] PATCH_FILE=${PATCH_FILE}")
+
 find_package(Git REQUIRED)
 
 execute_process(
