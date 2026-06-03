@@ -40,18 +40,34 @@ jobs:
       - name: Select Xcode ${{ inputs.xcode-version }}
         run: sudo xcode-select --switch /Applications/Xcode_${{ inputs.xcode-version }}.app/Contents/Developer
 
+      # Generator selection:
+      #   - Default: `Xcode` to keep parity with the rest of the macOS matrix.
+      #   - Hermes:  `Ninja`. Hermes's `lib/InternalJavaScript/CMakeLists.txt`
+      #     wires a single generated file (`InternalBytecode.js`) into two
+      #     downstream targets (`hermesInternalUnit_obj` and
+      #     `InternalBytecodeInclude`) with no common ancestor, which the
+      #     Xcode "new build system" rejects (a generated file may only be
+      #     attached to one target).  Ninja has no such restriction.
+      #     `xcode-select` above still pins clang/SDK to the chosen Xcode.
       - name: Configure CMake
         run: |
-          cmake -B Build/macOS -G Xcode \
+          cmake -B Build/macOS \
+            -G "${{ inputs.js-engine == 'Hermes' && 'Ninja' || 'Xcode' }}" \
+            ${{ inputs.js-engine == 'Hermes' && '-D CMAKE_BUILD_TYPE=RelWithDebInfo' || '' }} \
             -D ENABLE_SANITIZERS=${{ inputs.enable-sanitizers && 'ON' || 'OFF' }} \
             -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }} \
             ${{ inputs.js-engine != '' && format('-D NAPI_JAVASCRIPT_ENGINE={0}', inputs.js-engine) || '' }}
 
       - name: Build
+        # `--config` is required for the multi-config Xcode generator and
+        # a harmless no-op for the single-config Ninja path.
         run: cmake --build Build/macOS --target UnitTests --config RelWithDebInfo
 
       - name: Run Tests
-        working-directory: Build/macOS/Tests/UnitTests/RelWithDebInfo
+        # Single-config Ninja drops binaries directly under the target dir;
+        # the multi-config Xcode generator nests them in a `RelWithDebInfo/`
+        # subdir.
+        working-directory: ${{ inputs.js-engine == 'Hermes' && 'Build/macOS/Tests/UnitTests' || 'Build/macOS/Tests/UnitTests/RelWithDebInfo' }}
         run: ./UnitTests
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
