@@ -258,9 +258,9 @@ inline napi_status FindWrapper(napi_env env, JsValueRef obj, JsValueRef* wrapper
   JsValueRef candidate = JS_INVALID_REFERENCE;
   CHECK_JSRT(env, JsGetProperty(descriptor, valuePid, &candidate));
 
-  // Defense in depth: napi_wrap always attaches a JsExternalObject; refuse
-  // anything else so a caller cannot stash a non-external value under the
-  // hidden key and trick napi_unwrap into returning bogus data.
+  // napi_wrap only stores JsExternalObjects under this key, so reject
+  // anything else -- protects against a caller stashing a fake value
+  // under the Symbol to make napi_unwrap return bogus data.
   bool hasExternalData = false;
   CHECK_JSRT(env, JsHasExternalData(candidate, &hasExternalData));
   if (!hasExternalData) {
@@ -1667,8 +1667,9 @@ napi_status napi_wrap(napi_env env,
   // and even if it discovers ours via Object.getOwnPropertySymbols the
   // descriptor flags below prevent overwrite-via-assignment. non-writable
   // blocks `obj[sym] = junk`; non-enumerable for hygiene; configurable so
-  // napi_remove_wrap can delete it. (FindWrapper still gates on
-  // JsHasExternalData as defense-in-depth against re-define attempts.)
+  // napi_remove_wrap can delete it. (FindWrapper still checks
+  // JsHasExternalData to reject anything stashed under the key that
+  // isn't a real wrapper.)
   // This keeps the value's prototype chain intact, so
   // Object.getPrototypeOf(value) still returns whatever the constructor
   // installed.
