@@ -172,6 +172,14 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     set(HERMES_ENABLE_DEBUGGER OFF CACHE BOOL "" FORCE)
     set(HERMES_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
     set(HERMES_ENABLE_NAPI ON CACHE BOOL "" FORCE)
+    # Hermes defaults HERMES_SLOW_DEBUG=ON, which compiles in internal
+    # sanity checks that fire even in optimized (RelWithDebInfo / Release)
+    # builds — e.g. heap-state assertions in HadesGC and the finalizer
+    # chain.  These can SIGABRT during Runtime teardown on some platforms
+    # (observed on macOS arm64 RelWithDebInfo: process exited with code
+    # 134 right after `145 passing`, before any gtest [OK] line, with no
+    # diagnostic in stderr).  Embedders don't need them.
+    set(HERMES_SLOW_DEBUG OFF CACHE BOOL "" FORCE)
     # Hermes ships its own bundled gtest as `llvh-gtest` (a different
     # CMake target name from googletest's `gtest`), so the two coexist
     # without clashing.  We never link llvh-gtest into our UnitTests
