@@ -335,6 +335,11 @@ namespace {
       // makes the property unwritable after the fact. See #172.
       JSObjectRef constructor{JSObjectMakeConstructor(env->context, info->_class, CallAsConstructor)};
 
+      // Create the sentinel immediately so JSC's GC takes ownership of `info`
+      // via Finalize. If any of the prototype wiring below fails, the sentinel
+      // becomes garbage and Finalize will free `info`.
+      JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
+
       JSValueRef exception{};
       JSValueRef prototypeValue{JSObjectGetProperty(env->context, constructor, JSString("prototype"), &exception)};
       CHECK_JSC(env, exception);
@@ -344,7 +349,6 @@ namespace {
         kJSPropertyAttributeDontEnum, &exception);
       CHECK_JSC(env, exception);
 
-      JSObjectRef sentinel{JSObjectMake(env->context, info->_class, info)};
       CHECK_NAPI(NativeInfo::Link<ConstructorInfo>(env, constructor, sentinel));
 
       *result = ToNapi(constructor);
@@ -388,7 +392,12 @@ namespace {
       if (*exception != nullptr) {
         return nullptr;
       }
-      JSObjectSetPrototype(ctx, instance, prototypeValue);
+      // Per ECMAScript GetPrototypeFromConstructor: if constructor.prototype is
+      // not an object, fall back to %Object.prototype%. JSObjectMake with a null
+      // class already gave `instance` that default, so we just skip the override.
+      if (JSValueIsObject(ctx, prototypeValue)) {
+        JSObjectSetPrototype(ctx, instance, prototypeValue);
+      }
 
       napi_callback_info__ cbinfo{};
       cbinfo.thisArg = ToNapi(instance);
