@@ -69,16 +69,11 @@ jobs:
         # subdir.
         #
         # For the Hermes path we wrap UnitTests in `lldb` so any abort/crash
-        # (e.g. an `abort()` deep in Hermes/HadesGC teardown, or a silent
-        # std::terminate from a worker-thread uncaught exception, or a
-        # macOS libmalloc abort from heap corruption) leaves an actual
-        # backtrace in the CI log instead of just `Abort trap: 6`.
-        #
-        # We `process handle SIGABRT --pass false --stop true` so lldb
-        # intercepts the abort *before* the kernel takes the process down
-        # — without this, lldb prints frame #0 (the __pthread_kill /
-        # __abort itself) and exits batch mode before the `thread
-        # backtrace all` queued behind `run` ever gets a chance to fire.
+        # leaves a full backtrace in the CI log rather than just `Abort
+        # trap: 6`.  We use lldb's `-k`/`--one-line-on-crash` so the
+        # diagnostic commands fire automatically when the inferior crashes
+        # (in batch mode, queued `-o` commands aren't run after a fatal
+        # signal — only `-k` is).
         #
         # We force the exit code to match the inferior's so the job still
         # fails on real test failures.
@@ -86,12 +81,10 @@ jobs:
         run: |
           if [ "${{ inputs.js-engine }}" = "Hermes" ]; then
             lldb -b \
-              -o 'process handle SIGABRT --pass false --stop true --notify true' \
+              -k 'bt all' \
+              -k 'process status --verbose' \
+              -k 'quit 1' \
               -o 'run' \
-              -o 'thread backtrace all' \
-              -o 'process status --verbose' \
-              -o 'continue' \
-              -o 'quit' \
               ./UnitTests \
               | tee /tmp/lldb.log
             if grep -q 'exited with status = 0' /tmp/lldb.log; then
