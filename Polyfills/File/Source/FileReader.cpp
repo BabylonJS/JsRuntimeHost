@@ -1,6 +1,9 @@
 #include "FileReader.h"
 
+#include <basen.hpp>
+
 #include <cstring>
+#include <iterator>
 #include <utility>
 
 namespace Babylon::Polyfills::Internal
@@ -9,39 +12,17 @@ namespace Babylon::Polyfills::Internal
     {
         constexpr auto JS_FILE_READER_CONSTRUCTOR_NAME = "FileReader";
 
-        // Inlined RFC 4648 base64 encoder. We don't pull in a third-party
-        // base64 library because no other JsRuntimeHost polyfill needs one
-        // and this is the only call site.
+        // base-n's encode_b64 emits unpadded base64; data: URLs use the padded
+        // RFC 4648 alphabet, so append the '=' run for the final partial group.
         void EncodeBase64(const uint8_t* data, size_t size, std::string& out)
         {
-            static constexpr char kAlphabet[] =
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            const auto* begin = reinterpret_cast<const char*>(data);
+            bn::encode_b64(begin, begin + size, std::back_inserter(out));
 
-            out.reserve(out.size() + ((size + 2) / 3) * 4);
-
-            size_t i = 0;
-            for (; i + 3 <= size; i += 3)
+            const size_t remainder = size % 3;
+            if (remainder != 0)
             {
-                const uint32_t triple =
-                    (static_cast<uint32_t>(data[i]) << 16) |
-                    (static_cast<uint32_t>(data[i + 1]) << 8) |
-                    static_cast<uint32_t>(data[i + 2]);
-                out.push_back(kAlphabet[(triple >> 18) & 0x3F]);
-                out.push_back(kAlphabet[(triple >> 12) & 0x3F]);
-                out.push_back(kAlphabet[(triple >> 6) & 0x3F]);
-                out.push_back(kAlphabet[triple & 0x3F]);
-            }
-
-            if (i < size)
-            {
-                const uint32_t b0 = data[i];
-                const uint32_t b1 = (i + 1 < size) ? data[i + 1] : 0u;
-                const uint32_t triple = (b0 << 16) | (b1 << 8);
-
-                out.push_back(kAlphabet[(triple >> 18) & 0x3F]);
-                out.push_back(kAlphabet[(triple >> 12) & 0x3F]);
-                out.push_back((i + 1 < size) ? kAlphabet[(triple >> 6) & 0x3F] : '=');
-                out.push_back('=');
+                out.append(3 - remainder, '=');
             }
         }
 

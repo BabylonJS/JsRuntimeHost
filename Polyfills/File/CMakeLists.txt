@@ -11,6 +11,7 @@ warnings_as_errors(File)
 target_include_directories(File PUBLIC "Include")
 
 target_link_libraries(File
+    PRIVATE base-n
     PUBLIC JsRuntime)
 
 set_property(TARGET File PROPERTY FOLDER Polyfills)
