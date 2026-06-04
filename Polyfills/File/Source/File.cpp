@@ -59,12 +59,6 @@ namespace Babylon::Polyfills::Internal
         // a Blob subtype; BJS core (fileTools, Offline/database,
         // abstractEngine, thinNativeEngine) branches on `instanceof Blob`
         // and needs File inputs to satisfy that check.
-        //
-        // Relies on JsRH #177: prior to that fix the JSC napi shim aliased
-        // every napi class's `.prototype` to Object.prototype, so this
-        // assignment would have polluted every object globally. With #177
-        // in place each napi class has its own `.prototype` object and
-        // this is a plain prototype-chain edit.
         auto setPrototypeOf = env.Global().Get("Object").As<Napi::Object>()
             .Get("setPrototypeOf").As<Napi::Function>();
         setPrototypeOf.Call({
