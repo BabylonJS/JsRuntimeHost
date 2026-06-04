@@ -32,7 +32,7 @@ npm install
 _Follow the steps from [All Development Platforms](#all-development-platforms) before proceeding._
 
 **Required Tools:**
-[Android Studio](https://developer.android.com/studio), [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
+[Android Studio](https://developer.android.com/studio) with Android NDK 28.2.13676358 and API level 35 SDK platform installed, [Node.js](https://nodejs.org/en/download/), [Ninja](https://ninja-build.org/)
 
 The minimal requirement target is Android 5.0.
 
@@ -42,7 +42,7 @@ An `.apk` that can be executed on your device or simulator is the output.
 
 First, download the latest release of Ninja, extract the binary, and add it to your system path.
 
-Once you have Android Studio downloaded, you need to set up an Android emulator if you do not have a physical Android device. You can do this by selecting `Tools` -> `Device Manager` and then selecting a device. (We are using Pixel 2 API 27). 
+Once you have Android Studio downloaded, you need to set up an Android emulator if you do not have a physical Android device. You can do this by selecting `Tools` -> `Device Manager` and then selecting a device. (We are using Pixel 2 API 35).
 
 Open the project located at
 `JsRuntimeHost\Tests\UnitTests\Android` with Android Studio. Note that this can take a while to load. (The bottom right corner of the Android Studio window shows you what is currently being loaded.) 
