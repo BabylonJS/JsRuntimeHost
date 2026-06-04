@@ -13,7 +13,7 @@ def enableAsan = project.hasProperty("enableAsan")
 android {
     namespace 'com.jsruntimehost.unittests'
     compileSdk 33
-    ndkVersion = "23.1.7779620"
+    ndkVersion = "28.2.13676358"
     if (project.hasProperty("ndkVersion")) {
         ndkVersion = project.property("ndkVersion")
     }
@@ -35,7 +35,7 @@ android {
                     "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
                 ]
                 if (enableAsan) {
-                    cmakeArgs += "-DJSR_ENABLE_ASAN=ON"
+                    cmakeArgs += "-DENABLE_SANITIZERS=ON"
                 }
                 arguments(*cmakeArgs)
             }
