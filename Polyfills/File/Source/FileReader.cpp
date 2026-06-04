@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <iterator>
+#include <memory>
 #include <utility>
 
 namespace Babylon::Polyfills::Internal
@@ -137,7 +138,7 @@ namespace Babylon::Polyfills::Internal
             return;
         }
 
-        // Bump the read token so the in-flight .then continuation in
+        // Bump the read id so the in-flight .then continuation in
         // StartRead() early-returns instead of clobbering state and
         // dispatching a phantom "load" after the user-initiated abort.
         m_readId++;
@@ -148,10 +149,6 @@ namespace Babylon::Polyfills::Internal
 
         Dispatch(env, jsThis, "abort");
         Dispatch(env, jsThis, "loadend");
-
-        // Release the in-flight self-reference; no further continuation
-        // will reach a terminal path for the now-abandoned read.
-        m_selfRef.Reset();
     }
 
     void FileReader::AddEventListener(const Napi::CallbackInfo& info)
@@ -277,6 +274,8 @@ namespace Babylon::Polyfills::Internal
         m_state.Value().Set("result", env.Null());
         m_state.Value().Set("error", env.Null());
 
+        // Mint a fresh id for this read. Abort()/restart bumps it to invalidate
+        // a prior read's queued continuation.
         ++m_readId;
         const uint64_t myReadId = m_readId;
 
@@ -331,31 +330,36 @@ namespace Babylon::Polyfills::Internal
         }
 
         // The .then() callbacks fire asynchronously, after StartRead() returns.
-        // Anchor the FileReader's JS wrapper on the member m_selfRef so the
-        // C++ ObjectWrap stays alive until the read settles even if the
-        // user drops their JS-side reference. The lambdas only capture
-        // POD plus `this`, so they remain copyable and can be stored in
-        // jsi::Function's std::function-style callable slot. Every terminal
-        // path (load, error, abort) resets m_selfRef to break the cycle.
-        m_selfRef = Napi::Persistent(jsThis);
+        // Per the FileAPI spec an in-flight read must keep the FileReader alive
+        // even if script drops its reference, so anchor the JS wrapper for the
+        // duration of the read. The anchor lives in a shared_ptr captured by
+        // BOTH promise reactions (i.e. owned by the lambdas, external to the
+        // wrapper) rather than in a member self-reference: when the promise
+        // settles and the engine releases the reactions, the last shared_ptr
+        // copy drops and the anchor is released automatically — no member
+        // self-cycle and no manual Reset on each terminal path. Because the
+        // wrapper is held alive until a reaction runs, `this` is always valid
+        // inside the lambdas (no dead-`this` race), and `anchor->Value()`
+        // yields the wrapper object. shared_ptr is copyable, so the lambdas
+        // remain storable in jsi::Function's std::function-style slot even
+        // though Napi::ObjectReference itself is move-only.
+        auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(jsThis));
 
         auto onResolve = Napi::Function::New(env,
-            [this, myReadId, mode, contentType](const Napi::CallbackInfo& cb) {
-                // Abandoned-read guard: if Abort() or a newer StartRead
-                // bumped the token, m_selfRef may already be Reset.
-                // Bail before dereferencing it.
+            [this, anchor, myReadId, mode, contentType](const Napi::CallbackInfo& cb) {
+                // Abandoned-read guard: Abort() or a restart bumped m_readId.
                 if (m_readId != myReadId) return;
                 Napi::Value buf = cb.Length() > 0 ? cb[0] : cb.Env().Null();
-                HandleReadResult(myReadId, mode, contentType, m_selfRef.Value(), buf);
+                HandleReadResult(myReadId, mode, contentType, anchor->Value(), buf);
             });
 
         auto onReject = Napi::Function::New(env,
-            [this, myReadId](const Napi::CallbackInfo& cb) {
+            [this, anchor, myReadId](const Napi::CallbackInfo& cb) {
                 if (m_readId != myReadId) return;
                 Napi::Value err = cb.Length() > 0
                     ? cb[0]
                     : static_cast<Napi::Value>(Napi::Error::New(cb.Env(), "FileReader: unknown error").Value());
-                HandleReadError(myReadId, m_selfRef.Value(), err);
+                HandleReadError(myReadId, anchor->Value(), err);
             });
 
         auto promiseObj = promiseValue.As<Napi::Object>();
@@ -365,7 +369,7 @@ namespace Babylon::Polyfills::Internal
     void FileReader::HandleReadResult(uint64_t myReadId, ReadMode mode, const std::string& contentType,
                                       Napi::Object jsThis, const Napi::Value& bufValue)
     {
-        // Abort()-or-restart guard: the read token was bumped, so this
+        // Abort()-or-restart guard: the read id was bumped, so this
         // continuation belongs to a read that has been abandoned.
         if (m_readId != myReadId)
         {
@@ -384,7 +388,6 @@ namespace Babylon::Polyfills::Internal
             m_readyState = DONE;
             Dispatch(env, jsThis, "error");
             Dispatch(env, jsThis, "loadend");
-            m_selfRef.Reset();
             return;
         }
 
@@ -424,7 +427,6 @@ namespace Babylon::Polyfills::Internal
         m_readyState = DONE;
         Dispatch(env, jsThis, "load");
         Dispatch(env, jsThis, "loadend");
-        m_selfRef.Reset();
     }
 
     Napi::Value FileReader::GetReadyState(const Napi::CallbackInfo& info)
@@ -502,6 +504,5 @@ namespace Babylon::Polyfills::Internal
         m_readyState = DONE;
         Dispatch(env, jsThis, "error");
         Dispatch(env, jsThis, "loadend");
-        m_selfRef.Reset();
     }
 }

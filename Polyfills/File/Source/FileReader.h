@@ -58,6 +58,12 @@ namespace Babylon::Polyfills::Internal
         void StoreResult(const Napi::Value& value);
         void StoreError(const Napi::Value& value);
 
+        // Monotonic read id. StartRead bumps it to mint a fresh id; Abort bumps
+        // it to invalidate the in-flight read's queued continuation so a
+        // promise that settles after an abort-then-restart cannot dispatch a
+        // phantom "load" against the new read's state. The in-flight read's
+        // wrapper is kept alive by an externally-held anchor (see StartRead),
+        // so `this` is always valid when a continuation reads this field.
         uint64_t m_readId{0};
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
 
@@ -75,16 +81,5 @@ namespace Babylon::Polyfills::Internal
 
         // on* EventHandler slots, keyed by event type ("load", "error", ...).
         std::unordered_map<std::string, Napi::FunctionReference> m_onHandlers;
-
-        // Strong reference to the JS wrapper while a read is in flight, so
-        // the C++ ObjectWrap stays alive across the async promise resolution
-        // even if the user has dropped their JS-side reference. Reset on
-        // every terminal path (load/error/abort). This matches the member-
-        // slot pattern used by WebSocket/XHR in this repo and avoids the
-        // shared_ptr<ObjectReference>-in-lambda trick that would otherwise
-        // be needed because Napi::Function::New stores its callable in
-        // std::function (CopyConstructible) and Napi::ObjectReference is
-        // move-only.
-        Napi::ObjectReference m_selfRef;
     };
 }
