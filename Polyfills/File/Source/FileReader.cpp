@@ -45,15 +45,6 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        constexpr const char* ON_HANDLERS[] = {
-            "onloadstart",
-            "onprogress",
-            "onload",
-            "onabort",
-            "onerror",
-            "onloadend",
-        };
-
         Napi::Value MakeEvent(Napi::Env env, const Napi::Object& jsThis, const std::string& eventType)
         {
             // ProgressEvent contract: loaded/total reflect bytes processed. For
@@ -106,6 +97,15 @@ namespace Babylon::Polyfills::Internal
                 InstanceValue("EMPTY", Napi::Number::New(env, EMPTY)),
                 InstanceValue("LOADING", Napi::Number::New(env, LOADING)),
                 InstanceValue("DONE", Napi::Number::New(env, DONE)),
+                InstanceAccessor("readyState", &FileReader::GetReadyState, nullptr),
+                InstanceAccessor("result", &FileReader::GetResult, nullptr),
+                InstanceAccessor("error", &FileReader::GetError, nullptr),
+                InstanceAccessor("onloadstart", &FileReader::GetOnHandler, &FileReader::SetOnHandler, napi_default, const_cast<char*>("loadstart")),
+                InstanceAccessor("onprogress", &FileReader::GetOnHandler, &FileReader::SetOnHandler, napi_default, const_cast<char*>("progress")),
+                InstanceAccessor("onload", &FileReader::GetOnHandler, &FileReader::SetOnHandler, napi_default, const_cast<char*>("load")),
+                InstanceAccessor("onabort", &FileReader::GetOnHandler, &FileReader::SetOnHandler, napi_default, const_cast<char*>("abort")),
+                InstanceAccessor("onerror", &FileReader::GetOnHandler, &FileReader::SetOnHandler, napi_default, const_cast<char*>("error")),
+                InstanceAccessor("onloadend", &FileReader::GetOnHandler, &FileReader::SetOnHandler, napi_default, const_cast<char*>("loadend")),
                 InstanceMethod("readAsArrayBuffer", &FileReader::ReadAsArrayBuffer),
                 InstanceMethod("readAsText", &FileReader::ReadAsText),
                 InstanceMethod("readAsDataURL", &FileReader::ReadAsDataURL),
@@ -121,19 +121,9 @@ namespace Babylon::Polyfills::Internal
     FileReader::FileReader(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<FileReader>{info}
     {
-        auto env = info.Env();
-        auto jsThis = info.This().As<Napi::Object>();
-
-        jsThis.Set("readyState", Napi::Number::New(env, EMPTY));
-        jsThis.Set("result", env.Null());
-        jsThis.Set("error", env.Null());
-
-        // Initialize on* handler slots so they exist as enumerable, writable
-        // properties (consumers commonly assign to them after construction).
-        for (const auto* slot : ON_HANDLERS)
-        {
-            jsThis.Set(slot, env.Null());
-        }
+        // readyState/result/error and the on* handler slots are backed by C++
+        // members (default-initialized) and surfaced through prototype
+        // accessors, so there is nothing to stamp onto the instance here.
     }
 
     void FileReader::ReadAsArrayBuffer(const Napi::CallbackInfo& info)
@@ -156,8 +146,7 @@ namespace Babylon::Polyfills::Internal
         auto env = info.Env();
         auto jsThis = info.This().As<Napi::Object>();
 
-        auto state = jsThis.Get("readyState");
-        if (!state.IsNumber() || state.As<Napi::Number>().Int32Value() != LOADING)
+        if (m_readyState != LOADING)
         {
             return;
         }
@@ -167,9 +156,9 @@ namespace Babylon::Polyfills::Internal
         // dispatching a phantom "load" after the user-initiated abort.
         m_readId++;
 
-        jsThis.Set("readyState", Napi::Number::New(env, DONE));
-        jsThis.Set("result", env.Null());
-        jsThis.Set("error", Napi::Error::New(env, "FileReader aborted").Value());
+        m_readyState = DONE;
+        m_result.Reset();
+        StoreError(Napi::Error::New(env, "FileReader aborted").Value());
 
         Dispatch(env, jsThis, "abort");
         Dispatch(env, jsThis, "loadend");
@@ -252,11 +241,10 @@ namespace Babylon::Polyfills::Internal
     {
         auto event = MakeEvent(env, jsThis, eventType);
 
-        const std::string onHandler = "on" + eventType;
-        auto handler = jsThis.Get(onHandler);
-        if (handler.IsFunction())
+        auto onIt = m_onHandlers.find(eventType);
+        if (onIt != m_onHandlers.end() && !onIt->second.IsEmpty())
         {
-            handler.As<Napi::Function>().Call(jsThis, {event});
+            onIt->second.Value().Call(jsThis, {event});
             if (env.IsExceptionPending())
             {
                 env.GetAndClearPendingException();
@@ -294,15 +282,14 @@ namespace Babylon::Polyfills::Internal
         auto env = info.Env();
         auto jsThis = info.This().As<Napi::Object>();
 
-        auto state = jsThis.Get("readyState");
-        if (state.IsNumber() && state.As<Napi::Number>().Int32Value() == LOADING)
+        if (m_readyState == LOADING)
         {
             throw Napi::Error::New(env, "FileReader: read already in progress");
         }
 
-        jsThis.Set("readyState", Napi::Number::New(env, LOADING));
-        jsThis.Set("result", env.Null());
-        jsThis.Set("error", env.Null());
+        m_readyState = LOADING;
+        m_result.Reset();
+        m_error.Reset();
 
         ++m_readId;
         const uint64_t myReadId = m_readId;
@@ -311,8 +298,8 @@ namespace Babylon::Polyfills::Internal
 
         if (info.Length() == 0 || info[0].IsNull() || info[0].IsUndefined())
         {
-            jsThis.Set("error", Napi::Error::New(env, "FileReader: argument is not a Blob").Value());
-            jsThis.Set("readyState", Napi::Number::New(env, DONE));
+            StoreError(Napi::Error::New(env, "FileReader: argument is not a Blob").Value());
+            m_readyState = DONE;
             Dispatch(env, jsThis, "error");
             Dispatch(env, jsThis, "loadend");
             return;
@@ -350,8 +337,8 @@ namespace Babylon::Polyfills::Internal
 
         if (!promiseValue.IsObject())
         {
-            jsThis.Set("error", Napi::Error::New(env, "FileReader: argument has no arrayBuffer()").Value());
-            jsThis.Set("readyState", Napi::Number::New(env, DONE));
+            StoreError(Napi::Error::New(env, "FileReader: argument has no arrayBuffer()").Value());
+            m_readyState = DONE;
             Dispatch(env, jsThis, "error");
             Dispatch(env, jsThis, "loadend");
             return;
@@ -398,8 +385,7 @@ namespace Babylon::Polyfills::Internal
         {
             return;
         }
-        auto state = jsThis.Get("readyState");
-        if (!state.IsNumber() || state.As<Napi::Number>().Int32Value() != LOADING)
+        if (m_readyState != LOADING)
         {
             return;
         }
@@ -408,8 +394,8 @@ namespace Babylon::Polyfills::Internal
 
         if (!bufValue.IsArrayBuffer())
         {
-            jsThis.Set("error", Napi::Error::New(env, "FileReader: source did not return an ArrayBuffer").Value());
-            jsThis.Set("readyState", Napi::Number::New(env, DONE));
+            StoreError(Napi::Error::New(env, "FileReader: source did not return an ArrayBuffer").Value());
+            m_readyState = DONE;
             Dispatch(env, jsThis, "error");
             Dispatch(env, jsThis, "loadend");
             m_selfRef.Reset();
@@ -448,11 +434,76 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        jsThis.Set("result", resultValue);
-        jsThis.Set("readyState", Napi::Number::New(env, DONE));
+        StoreResult(resultValue);
+        m_readyState = DONE;
         Dispatch(env, jsThis, "load");
         Dispatch(env, jsThis, "loadend");
         m_selfRef.Reset();
+    }
+
+    Napi::Value FileReader::GetReadyState(const Napi::CallbackInfo& info)
+    {
+        return Napi::Number::New(info.Env(), m_readyState);
+    }
+
+    Napi::Value FileReader::GetResult(const Napi::CallbackInfo& info)
+    {
+        return m_result.IsEmpty() ? info.Env().Null() : m_result.Value();
+    }
+
+    Napi::Value FileReader::GetError(const Napi::CallbackInfo& info)
+    {
+        return m_error.IsEmpty() ? info.Env().Null() : m_error.Value();
+    }
+
+    Napi::Value FileReader::GetOnHandler(const Napi::CallbackInfo& info)
+    {
+        const auto* eventType = static_cast<const char*>(info.Data());
+        auto it = m_onHandlers.find(eventType);
+        if (it != m_onHandlers.end() && !it->second.IsEmpty())
+        {
+            return it->second.Value();
+        }
+        return info.Env().Null();
+    }
+
+    void FileReader::SetOnHandler(const Napi::CallbackInfo& info, const Napi::Value& value)
+    {
+        const auto* eventType = static_cast<const char*>(info.Data());
+        if (value.IsFunction())
+        {
+            m_onHandlers[eventType] = Napi::Persistent(value.As<Napi::Function>());
+        }
+        else
+        {
+            // Assigning null/undefined (or any non-function) clears the slot,
+            // per the EventHandler IDL setter.
+            m_onHandlers.erase(eventType);
+        }
+    }
+
+    void FileReader::StoreResult(const Napi::Value& value)
+    {
+        if (value.IsNull() || value.IsUndefined())
+        {
+            m_result.Reset();
+        }
+        else
+        {
+            m_result = Napi::Persistent(value);
+        }
+    }
+
+    void FileReader::StoreError(const Napi::Value& value)
+    {
+        if (value.IsNull() || value.IsUndefined())
+        {
+            m_error.Reset();
+        }
+        else
+        {
+            m_error = Napi::Persistent(value);
+        }
     }
 
     void FileReader::HandleReadError(uint64_t myReadId, Napi::Object jsThis, const Napi::Value& error)
@@ -461,8 +512,7 @@ namespace Babylon::Polyfills::Internal
         {
             return;
         }
-        auto state = jsThis.Get("readyState");
-        if (!state.IsNumber() || state.As<Napi::Number>().Int32Value() != LOADING)
+        if (m_readyState != LOADING)
         {
             return;
         }
@@ -471,13 +521,13 @@ namespace Babylon::Polyfills::Internal
 
         if (error.IsUndefined() || error.IsNull())
         {
-            jsThis.Set("error", Napi::Error::New(env, "FileReader: unknown error").Value());
+            StoreError(Napi::Error::New(env, "FileReader: unknown error").Value());
         }
         else
         {
-            jsThis.Set("error", error);
+            StoreError(error);
         }
-        jsThis.Set("readyState", Napi::Number::New(env, DONE));
+        m_readyState = DONE;
         Dispatch(env, jsThis, "error");
         Dispatch(env, jsThis, "loadend");
         m_selfRef.Reset();
