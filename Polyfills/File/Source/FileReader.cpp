@@ -102,9 +102,14 @@ namespace Babylon::Polyfills::Internal
     FileReader::FileReader(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<FileReader>{info}
     {
-        // readyState/result/error and the on* handler slots are backed by C++
-        // members (default-initialized) and surfaced through prototype
-        // accessors, so there is nothing to stamp onto the instance here.
+        // readyState and the on* handler slots are backed by plain C++ members.
+        // result/error are boxed on a persistent holder object so the getters
+        // can surface primitive (string) results without napi_create_reference
+        // rejecting them on the real N-API backends.
+        auto env = info.Env();
+        m_state = Napi::Persistent(Napi::Object::New(env));
+        m_state.Value().Set("result", env.Null());
+        m_state.Value().Set("error", env.Null());
     }
 
     void FileReader::ReadAsArrayBuffer(const Napi::CallbackInfo& info)
@@ -138,7 +143,7 @@ namespace Babylon::Polyfills::Internal
         m_readId++;
 
         m_readyState = DONE;
-        m_result.Reset();
+        m_state.Value().Set("result", env.Null());
         StoreError(Napi::Error::New(env, "FileReader aborted").Value());
 
         Dispatch(env, jsThis, "abort");
@@ -269,8 +274,8 @@ namespace Babylon::Polyfills::Internal
         }
 
         m_readyState = LOADING;
-        m_result.Reset();
-        m_error.Reset();
+        m_state.Value().Set("result", env.Null());
+        m_state.Value().Set("error", env.Null());
 
         ++m_readId;
         const uint64_t myReadId = m_readId;
@@ -427,14 +432,14 @@ namespace Babylon::Polyfills::Internal
         return Napi::Number::New(info.Env(), m_readyState);
     }
 
-    Napi::Value FileReader::GetResult(const Napi::CallbackInfo& info)
+    Napi::Value FileReader::GetResult(const Napi::CallbackInfo&)
     {
-        return m_result.IsEmpty() ? info.Env().Null() : m_result.Value();
+        return m_state.Value().Get("result");
     }
 
-    Napi::Value FileReader::GetError(const Napi::CallbackInfo& info)
+    Napi::Value FileReader::GetError(const Napi::CallbackInfo&)
     {
-        return m_error.IsEmpty() ? info.Env().Null() : m_error.Value();
+        return m_state.Value().Get("error");
     }
 
     Napi::Value FileReader::GetOnHandler(const Napi::CallbackInfo& info)
@@ -465,26 +470,12 @@ namespace Babylon::Polyfills::Internal
 
     void FileReader::StoreResult(const Napi::Value& value)
     {
-        if (value.IsNull() || value.IsUndefined())
-        {
-            m_result.Reset();
-        }
-        else
-        {
-            m_result = Napi::Persistent(value);
-        }
+        m_state.Value().Set("result", value.IsEmpty() ? value.Env().Null() : value);
     }
 
     void FileReader::StoreError(const Napi::Value& value)
     {
-        if (value.IsNull() || value.IsUndefined())
-        {
-            m_error.Reset();
-        }
-        else
-        {
-            m_error = Napi::Persistent(value);
-        }
+        m_state.Value().Set("error", value.IsEmpty() ? value.Env().Null() : value);
     }
 
     void FileReader::HandleReadError(uint64_t myReadId, Napi::Object jsThis, const Napi::Value& error)

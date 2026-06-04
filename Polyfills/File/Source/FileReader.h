@@ -63,8 +63,15 @@ namespace Babylon::Polyfills::Internal
 
         // readonly attribute state, surfaced through the getters above.
         int32_t m_readyState{EMPTY};
-        Napi::Reference<Napi::Value> m_result;
-        Napi::Reference<Napi::Value> m_error;
+
+        // result/error live as properties on this persistent holder object
+        // rather than in Napi::Reference<Value> slots: napi_create_reference
+        // only accepts heap values (object/function/symbol) on the real N-API
+        // backends (V8/JSC), so referencing a primitive string result (from
+        // readAsText/readAsDataURL) throws there. Boxing inside a held object
+        // keeps the state C++-owned and tamper-proof while remaining valid for
+        // every value type.
+        Napi::ObjectReference m_state;
 
         // on* EventHandler slots, keyed by event type ("load", "error", ...).
         std::unordered_map<std::string, Napi::FunctionReference> m_onHandlers;
