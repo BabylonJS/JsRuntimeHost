@@ -15,12 +15,19 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     # (test_reference_double_free/test_wrap.js is quarantined in test_main.cpp -- a JSC remove_wrap
     #  edge case that returns napi_invalid_arg; tracked as a separate fix, not a v5 blocker.)
     test_reference_double_free
-    # v6
-    test_instance_data
-    test_bigint
-    # NOTE: detach (v7) is implemented + manually verified, but its conformance test (test_typedarray)
-    # and get_all_property_names (test_object) use v9 APIs (node_api_basic_env); they enable at the v9 bump.
 )
+
+# v6/v7 conformance addons. The JSI backend (Core/Node-API-JSI) does not implement the v6/v7 C surface,
+# so its addons are omitted (its build links only the v1-v5 set). V8 + JavaScriptCore execute these for
+# real; Chakra links them (instance_data works; BigInt throws ENOTSUP via feature-detection).
+# NOTE: detach (v7, test_typedarray) + get_all_property_names (v6, test_object) use v9 APIs
+# (node_api_basic_env) and enable at the v9 bump.
+if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
+    list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS
+        test_instance_data
+        test_bigint
+    )
+endif()
 
 function(node_api_copy_test_sources TARGET_NAME)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
