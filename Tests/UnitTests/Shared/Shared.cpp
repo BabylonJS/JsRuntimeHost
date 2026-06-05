@@ -188,7 +188,16 @@ namespace
                     callbacks.stderr_callback = [](const std::string& message) {
                         __android_log_write(ANDROID_LOG_ERROR, "NodeApiTests", message.c_str());
                     };
-                    return node_api_tests::RunNodeLiteScript(baseDir, script, std::move(callbacks));
+                    auto result = node_api_tests::RunNodeLiteScript(baseDir, script, std::move(callbacks));
+                    // Surface the in-process failure detail to logcat. The runner keeps the assertion /
+                    // exception message + stack in result.std_error; without this it never reaches the
+                    // device log, making on-device conformance failures undebuggable.
+                    if (result.status != 0) {
+                        std::string detail = result.std_error.empty() ? "(no std_error captured)" : result.std_error;
+                        __android_log_write(ANDROID_LOG_ERROR, "NodeApiTests",
+                            ("[node_lite status=" + std::to_string(result.status) + "] " + detail).c_str());
+                    }
+                    return result;
                 };
                 config.enabled_native_suites = ParseNativeSuiteList();
 
