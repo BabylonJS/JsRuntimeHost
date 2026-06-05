@@ -7,7 +7,7 @@
 
 #include <v8-inspector.h>
 #include <v8-platform.h>
-#if __has_include(<v8-version.h>)
+#if defined(__has_include) && __has_include(<v8-version.h>)
 #include <v8-version.h>
 #endif
 
