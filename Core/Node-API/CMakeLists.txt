@@ -261,7 +261,15 @@ Make sure Hermes was fetched at the top-level CMakeLists.txt and NAPI_JAVASCRIPT
     message(STATUS "Selected ${NAPI_JAVASCRIPT_ENGINE}")
 endif()
 
-add_library(napi ${SOURCES})
+# On Android, build napi as a shared library (libnapi.so) so that native addons can be dlopen'd as
+# standalone .node modules and resolve their napi_* imports via a real DT_NEEDED -- bionic will not
+# surface a statically-linked host's napi to a dlopen'd module. The host and every addon then share a
+# single napi instance (one libnapi.so). Elsewhere napi remains a static library.
+if(ANDROID)
+    add_library(napi SHARED ${SOURCES})
+else()
+    add_library(napi ${SOURCES})
+endif()
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
