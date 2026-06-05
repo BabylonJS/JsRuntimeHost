@@ -17,6 +17,7 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     test_reference_double_free
     # v6
     test_instance_data
+    test_bigint
 )
 
 function(node_api_copy_test_sources TARGET_NAME)
