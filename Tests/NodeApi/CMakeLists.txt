@@ -18,6 +18,8 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     # v6
     test_instance_data
     test_bigint
+    # NOTE: detach (v7) is implemented + manually verified, but its conformance test (test_typedarray)
+    # and get_all_property_names (test_object) use v9 APIs (node_api_basic_env); they enable at the v9 bump.
 )
 
 function(node_api_copy_test_sources TARGET_NAME)
