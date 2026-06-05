@@ -15,6 +15,8 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     # (test_reference_double_free/test_wrap.js is quarantined in test_main.cpp -- a JSC remove_wrap
     #  edge case that returns napi_invalid_arg; tracked as a separate fix, not a v5 blocker.)
     test_reference_double_free
+    # v6
+    test_instance_data
 )
 
 function(node_api_copy_test_sources TARGET_NAME)
