@@ -20,6 +20,7 @@ struct napi_env__ {
   JSValueRef function_info_symbol{};
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
+  JSValueRef function_prototype_call{};
 
   const std::thread::id thread_id{std::this_thread::get_id()};
 
@@ -30,11 +31,13 @@ struct napi_env__ {
     init_symbol(function_info_symbol, "BabylonNative_FunctionInfo");
     init_symbol(reference_info_symbol, "BabylonNative_ReferenceInfo");
     init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
+    init_function_prototype_call();
   }
 
   ~napi_env__() {
     shutting_down = true;
     deinit_refs();
+    deinit_symbol(function_prototype_call);
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
     deinit_symbol(function_info_symbol);
@@ -57,6 +60,7 @@ struct napi_env__ {
 
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);
+  void init_function_prototype_call();
   void deinit_symbol(JSValueRef symbol);
 };
 
