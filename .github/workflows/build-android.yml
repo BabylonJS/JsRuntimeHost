@@ -58,13 +58,7 @@ jobs:
           target: google_apis
           arch: x86_64
           emulator-options: -no-snapshot -no-window -no-boot-anim -no-audio
-          script: |
-            chmod +x Tests/UnitTests/Android/gradlew
-            EXTRA_ARGS=""
-            if [ "${{ inputs.js-engine }}" = "Hermes" ]; then
-              EXTRA_ARGS="-PimportHostCompilers=${{ github.workspace }}/Build/HermesHost/ImportHostCompilers.cmake"
-            fi
-            Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs.js-engine }} -PndkVersion=${{ env.NDK_VERSION }} ${EXTRA_ARGS}
+          script: chmod +x Tests/UnitTests/Android/gradlew && Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs.js-engine }} -PndkVersion=${{ env.NDK_VERSION }} ${{ inputs.js-engine == 'Hermes' && format('-PimportHostCompilers={0}/Build/HermesHost/ImportHostCompilers.cmake', github.workspace) || '' }}
 
       - name: Dump Test Results
         if: always()
