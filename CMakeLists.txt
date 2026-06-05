@@ -58,6 +58,14 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# A newer MSVC (windows-latest) emits C4875 ("a non-string literal argument to [[gsl::suppress]] is
+# deprecated") from the vendored GSL headers, which several targets compile with warnings-as-error.
+# Suppress this dependency-side deprecation so the Windows build isn't broken by toolchain drift. Must
+# be set before arcana.cpp / Core / Polyfills are added below so they inherit it.
+if(MSVC)
+    add_compile_options(/wd4875)
+endif()
+
 # --------------------------------------------------
 # Options
 # --------------------------------------------------
