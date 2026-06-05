@@ -30,28 +30,18 @@ else()
     set(NODE_LITE_CHILD_PROCESS_SRC ${TESTS_DIR}/NodeApi/child_process_posix.cpp)
 endif()
 
-# The in-process Node-API conformance harness only builds against engines that export the full C
-# napi_* surface it uses. Hermes supplies napi through its own hermesNapi library, which does not
-# export e.g. napi_create_external / napi_get_value_external, so linking it fails; QuickJS is likewise
-# not validated on-device yet. Opt an engine in here once its harness run is green.
-set(JSR_NODE_API_HARNESS_ENGINES V8 JavaScriptCore)
-if(NAPI_JAVASCRIPT_ENGINE IN_LIST JSR_NODE_API_HARNESS_ENGINES)
-    set(JSR_NODE_API_HARNESS_SRC
-        ${TESTS_DIR}/NodeApi/node_lite.cpp
-        ${NODE_LITE_PLATFORM_SRC}
-        ${NODE_LITE_CHILD_PROCESS_SRC}
-        ${TESTS_DIR}/NodeApi/node_lite_jsruntimehost.cpp
-        ${TESTS_DIR}/NodeApi/js_runtime_api.cpp
-        ${TESTS_DIR}/NodeApi/string_utils.cpp
-        ${TESTS_DIR}/NodeApi/test_main.cpp)
-endif()
-
 add_library(UnitTestsJNI SHARED
     JNI.cpp
     ${UNIT_TESTS_DIR}/Shared/StandardStreamLogger.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
     ${UNIT_TESTS_DIR}/Shared/Shared.cpp
-    ${JSR_NODE_API_HARNESS_SRC})
+    ${TESTS_DIR}/NodeApi/node_lite.cpp
+    ${NODE_LITE_PLATFORM_SRC}
+    ${NODE_LITE_CHILD_PROCESS_SRC}
+    ${TESTS_DIR}/NodeApi/node_lite_jsruntimehost.cpp
+    ${TESTS_DIR}/NodeApi/js_runtime_api.cpp
+    ${TESTS_DIR}/NodeApi/string_utils.cpp
+    ${TESTS_DIR}/NodeApi/test_main.cpp)
 
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
@@ -86,19 +76,21 @@ target_link_libraries(UnitTestsJNI
 if(ANDROID)
     target_link_libraries(UnitTestsJNI PRIVATE dl)
 endif()
-if(JSR_NODE_API_HARNESS_SRC)
-    # The v1-v5 suite + v6 instance_data run on both Android engines. BigInt runs for real on V8; on
-    # jsc-android (~2020) the eval-based BigInt shim isn't green yet on-device (the in-process runner gives
-    # no error detail; macOS JSC + V8 both pass test_bigint), so it's gated to V8 here and tracked as a
-    # follow-up. Keep in sync with JSR_NODE_API_NATIVE_TEST_DIRS in Tests/NodeApi/CMakeLists.txt.
-    set(_jsr_node_api_tests
-        "2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data")
-    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-        string(APPEND _jsr_node_api_tests ",test_bigint")
-    endif()
-    target_compile_definitions(UnitTestsJNI
-        PRIVATE NODE_API_AVAILABLE_NATIVE_TESTS="${_jsr_node_api_tests}")
+# The v1-v5 suite + v6 instance_data run on both Android engines. BigInt runs for real on V8; on
+# jsc-android (~2020) the eval-based BigInt shim isn't green yet on-device (the in-process runner gives
+# no error detail; macOS JSC + V8 both pass test_bigint), so it's gated to V8 here and tracked as a
+# follow-up. Keep in sync with JSR_NODE_API_NATIVE_TEST_DIRS in Tests/NodeApi/CMakeLists.txt.
+set(_jsr_node_api_tests
+    "2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data")
+# BigInt runs for real on V8. jsc-android (~2020) has no BigInt (its parser rejects `0n`), so it runs
+# the ENOTSUP feature-detection fallback (test_bigint_unsupported) instead.
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+    string(APPEND _jsr_node_api_tests ",test_bigint")
+else()
+    string(APPEND _jsr_node_api_tests ",test_bigint_unsupported")
 endif()
+target_compile_definitions(UnitTestsJNI
+    PRIVATE NODE_API_AVAILABLE_NATIVE_TESTS="${_jsr_node_api_tests}")
 
 # The conformance addons are built as standalone SHARED lib<name>.so by Tests/NodeApi/CMakeLists.txt,
 # packaged by AGP into nativeLibraryDir, and dlopen'd in-process by node_lite_android. Both they and

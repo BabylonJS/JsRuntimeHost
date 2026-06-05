@@ -23,10 +23,16 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
 # NOTE: detach (v7, test_typedarray) + get_all_property_names (v6, test_object) use v9 APIs
 # (node_api_basic_env) and enable at the v9 bump.
 if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
-    list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS
-        test_instance_data
-        test_bigint
-    )
+    list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_instance_data)
+    # BigInt: the real conformance test where the engine has BigInt; an ENOTSUP feature-detection
+    # fallback where it doesn't -- the Win10 OS Chakra, and jsc-android (~2020), whose parser rejects
+    # `0n` literals so the standard test_bigint can't even be parsed there.
+    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra" OR
+       (NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore" AND ANDROID))
+        list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_bigint_unsupported)
+    else()
+        list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_bigint)
+    endif()
 endif()
 
 function(node_api_copy_test_sources TARGET_NAME)
