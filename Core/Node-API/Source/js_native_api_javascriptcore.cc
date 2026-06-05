@@ -872,6 +872,19 @@ void napi_env__::init_is_bigint_function() {
   }
 }
 
+void napi_env__::init_bigint_supported() {
+  // Detect BigInt once at env init. jsc-android (~2020) ships without BigInt -- its parser even rejects
+  // `0n` literals -- so the eval/C-API BigInt paths must feature-detect-fail there. `typeof BigInt`
+  // parses on every JSC (no literal syntax), and BigInt(1) confirms the global is actually functional.
+  JSStringRef script = JSStringCreateWithUTF8CString(
+      "(function () { try { return typeof BigInt === 'function' && typeof BigInt(1) === 'bigint'; }"
+      " catch (e) { return false; } })()");
+  JSValueRef exception = nullptr;
+  JSValueRef result = JSEvaluateScript(context, script, nullptr, nullptr, 0, &exception);
+  JSStringRelease(script);
+  bigint_supported = (exception == nullptr) && (result != nullptr) && JSValueToBoolean(context, result);
+}
+
 // Warning: Keep in-sync with napi_status enum
 static const char* error_messages[] = {
   nullptr,
@@ -1765,7 +1778,18 @@ napi_status napi_get_instance_data(napi_env env, void** data) {
 namespace {
 
 // Call BigInt.asIntN(64, value) / BigInt.asUintN(64, value); yields the low 64 bits as a BigInt.
+// Reported when the underlying JSC build has no BigInt (e.g. jsc-android ~2020). Matches the Chakra
+// backend: a JS-catchable ENOTSUP error per the Node-API feature-detection pattern.
+napi_status napi_bigint_unsupported(napi_env env) {
+  CHECK_NAPI(napi_throw_error(env, "ENOTSUP",
+      "BigInt is not supported by the underlying JavaScript engine."));
+  return napi_set_last_error(env, napi_pending_exception);
+}
+
 napi_status BigIntLow64(napi_env env, napi_value value, const char* method, JSValueRef* low) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
   JSObjectRef global = JSContextGetGlobalObject(env->context);
   JSValueRef exception{};
   JSValueRef bigIntCtor = JSObjectGetProperty(env->context, global, JSString("BigInt"), &exception);
@@ -1784,6 +1808,9 @@ napi_status BigIntLow64(napi_env env, napi_value value, const char* method, JSVa
 
 // value.toString(radix) for a BigInt primitive (boxes the primitive, then calls toString).
 napi_status BigIntToString(napi_env env, napi_value value, int radix, std::string* out) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
   JSValueRef exception{};
   JSObjectRef boxed = JSValueToObject(env->context, ToJSValue(value), &exception);
   CHECK_JSC(env, exception);
@@ -1807,6 +1834,9 @@ napi_status BigIntToString(napi_env env, napi_value value, int radix, std::strin
 // Construct a BigInt from a (controlled) JS source expression; used as the create path where the C
 // API is unavailable. Only embeds numeric/hex literals -> no injection surface.
 napi_status BigIntFromExpr(napi_env env, const std::string& expr, napi_value* result) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
   JSStringRef src = JSStringCreateWithUTF8CString(expr.c_str());
   JSValueRef exception{};
   JSValueRef big = JSEvaluateScript(env->context, src, nullptr, nullptr, 0, &exception);
