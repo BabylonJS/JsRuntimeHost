@@ -120,7 +120,7 @@ jobs:
       runs-on: macos-26
       enable-thread-sanitizer: true
 
-  # iOS (no Apple + Hermes until the upstream shutdown crash is fixed)
+  # ── iOS ───────────────────────────────────────────────────────
   iOS_Xcode164:
     uses: ./.github/workflows/build-ios.yml
     with:

@@ -18,83 +18,29 @@ on:
         required: false
         type: boolean
         default: false
-      js-engine:
-        # When unset we let Core/Node-API/CMakeLists.txt pick the per-platform
-        # default (JavaScriptCore on macOS).  Pass "Hermes" to fetch and link
-        # against facebook/hermes (static_h branch); pass "V8"/"Chakra"/etc.
-        # to override.
-        required: false
-        type: string
-        default: ''
 
 jobs:
   build:
     runs-on: ${{ inputs.runs-on }}
-    # Hermes builds take roughly 4x as long as a JSC build because the
-    # umbrella `hermesvm_a` static lib drags in the full Hermes compiler
-    # pipeline.  Allow a wider window when Hermes is selected.
-    timeout-minutes: ${{ inputs.js-engine == 'Hermes' && 60 || 15 }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
       - name: Select Xcode ${{ inputs.xcode-version }}
         run: sudo xcode-select --switch /Applications/Xcode_${{ inputs.xcode-version }}.app/Contents/Developer
 
-      # Generator selection:
-      #   - Default: `Xcode` to keep parity with the rest of the macOS matrix.
-      #   - Hermes:  `Ninja`. Hermes's `lib/InternalJavaScript/CMakeLists.txt`
-      #     wires a single generated file (`InternalBytecode.js`) into two
-      #     downstream targets (`hermesInternalUnit_obj` and
-      #     `InternalBytecodeInclude`) with no common ancestor, which the
-      #     Xcode "new build system" rejects (a generated file may only be
-      #     attached to one target).  Ninja has no such restriction.
-      #     `xcode-select` above still pins clang/SDK to the chosen Xcode.
       - name: Configure CMake
         run: |
-          cmake -B Build/macOS \
-            -G "${{ inputs.js-engine == 'Hermes' && 'Ninja' || 'Xcode' }}" \
-            ${{ inputs.js-engine == 'Hermes' && '-D CMAKE_BUILD_TYPE=RelWithDebInfo' || '' }} \
+          cmake -B Build/macOS -G Xcode \
             -D ENABLE_SANITIZERS=${{ inputs.enable-sanitizers && 'ON' || 'OFF' }} \
-            -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }} \
-            ${{ inputs.js-engine != '' && format('-D NAPI_JAVASCRIPT_ENGINE={0}', inputs.js-engine) || '' }}
+            -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }}
 
       - name: Build
-        # `--config` is required for the multi-config Xcode generator and
-        # a harmless no-op for the single-config Ninja path.
         run: cmake --build Build/macOS --target UnitTests --config RelWithDebInfo
 
       - name: Run Tests
-        # Single-config Ninja drops binaries directly under the target dir;
-        # the multi-config Xcode generator nests them in a `RelWithDebInfo/`
-        # subdir.
-        #
-        # For the Hermes path we wrap UnitTests in `lldb` so any abort/crash
-        # leaves a full backtrace in the CI log rather than just `Abort
-        # trap: 6`.  We use lldb's `-k`/`--one-line-on-crash` so the
-        # diagnostic commands fire automatically when the inferior crashes
-        # (in batch mode, queued `-o` commands aren't run after a fatal
-        # signal — only `-k` is).
-        #
-        # We force the exit code to match the inferior's so the job still
-        # fails on real test failures.
-        working-directory: ${{ inputs.js-engine == 'Hermes' && 'Build/macOS/Tests/UnitTests' || 'Build/macOS/Tests/UnitTests/RelWithDebInfo' }}
-        run: |
-          if [ "${{ inputs.js-engine }}" = "Hermes" ]; then
-            lldb -b \
-              -k 'bt all' \
-              -k 'process status --verbose' \
-              -k 'quit 1' \
-              -o 'run' \
-              ./UnitTests \
-              | tee /tmp/lldb.log
-            if grep -q 'exited with status = 0' /tmp/lldb.log; then
-              exit 0
-            else
-              exit 1
-            fi
-          else
-            ./UnitTests
-          fi
+        working-directory: Build/macOS/Tests/UnitTests/RelWithDebInfo
+        run: ./UnitTests
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
 
