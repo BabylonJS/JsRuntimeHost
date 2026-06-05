@@ -859,6 +859,19 @@ void napi_env__::init_function_prototype_call() {
   JSValueProtect(context, function_prototype_call);
 }
 
+void napi_env__::init_is_bigint_function() {
+  // Cache a `typeof v === 'bigint'` predicate so napi_typeof can detect BigInt on JSC builds whose C
+  // API does not expose kJSTypeBigInt (e.g. jsc-android). On macOS 15+/iOS 18+ napi_typeof uses the
+  // kJSTypeBigInt fast path and this predicate is unused.
+  JSStringRef script = JSStringCreateWithUTF8CString("(function (v) { return typeof v === 'bigint'; })");
+  JSValueRef exception = nullptr;
+  is_bigint_function = JSEvaluateScript(context, script, nullptr, nullptr, 0, &exception);
+  JSStringRelease(script);
+  if (is_bigint_function != nullptr) {
+    JSValueProtect(context, is_bigint_function);
+  }
+}
+
 // Warning: Keep in-sync with napi_status enum
 static const char* error_messages[] = {
   nullptr,
@@ -1567,7 +1580,23 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
     // default branch; a typeof-based fallback is added with the Android bring-up.
     case kJSTypeBigInt: *result = napi_bigint; break;
 #endif
-    default:
+    default: {
+#if !(defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000)
+      // Older JSC (e.g. jsc-android) does not report kJSTypeBigInt through JSValueGetType, so detect
+      // BigInt with the cached `typeof v === 'bigint'` predicate before treating value as an object.
+      if (env->is_bigint_function != nullptr) {
+        JSValueRef arg = ToJSValue(value);
+        JSValueRef exception = nullptr;
+        JSObjectRef predicate = JSValueToObject(env->context, env->is_bigint_function, &exception);
+        if (exception == nullptr && predicate != nullptr) {
+          JSValueRef matched = JSObjectCallAsFunction(env->context, predicate, nullptr, 1, &arg, &exception);
+          if (exception == nullptr && JSValueToBoolean(env->context, matched)) {
+            *result = napi_bigint;
+            break;
+          }
+        }
+      }
+#endif
       JSObjectRef object{ToJSObject(env, value)};
       if (JSObjectIsFunction(env->context, object)) {
         *result = napi_function;
@@ -1580,6 +1609,7 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
         }
       }
       break;
+    }
   }
 
   return napi_ok;

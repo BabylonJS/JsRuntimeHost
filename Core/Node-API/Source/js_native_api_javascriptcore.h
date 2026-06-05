@@ -26,6 +26,7 @@ struct napi_env__ {
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
   JSValueRef function_prototype_call{};
+  JSValueRef is_bigint_function{};
 
   const std::thread::id thread_id{std::this_thread::get_id()};
 
@@ -37,6 +38,7 @@ struct napi_env__ {
     init_symbol(reference_info_symbol, "BabylonNative_ReferenceInfo");
     init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
     init_function_prototype_call();
+    init_is_bigint_function();
   }
 
   ~napi_env__() {
@@ -45,6 +47,7 @@ struct napi_env__ {
       instance_data_finalize_cb(this, instance_data, instance_data_finalize_hint);
     }
     deinit_refs();
+    deinit_symbol(is_bigint_function);
     deinit_symbol(function_prototype_call);
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
@@ -69,6 +72,7 @@ struct napi_env__ {
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);
   void init_function_prototype_call();
+  void init_is_bigint_function();
   void deinit_symbol(JSValueRef symbol);
 };
 
