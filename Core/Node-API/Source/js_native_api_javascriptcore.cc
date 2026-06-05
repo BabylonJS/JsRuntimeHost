@@ -1694,6 +1694,26 @@ napi_status napi_get_global(napi_env env, napi_value* result) {
   return napi_ok;
 }
 
+// N-API v6: per-environment instance data. The finalizer (if any) runs when the env is torn down
+// (see ~napi_env__).
+napi_status napi_set_instance_data(napi_env env,
+                                   void* data,
+                                   napi_finalize finalize_cb,
+                                   void* finalize_hint) {
+  CHECK_ENV(env);
+  env->instance_data = data;
+  env->instance_data_finalize_cb = finalize_cb;
+  env->instance_data_finalize_hint = finalize_hint;
+  return napi_ok;
+}
+
+napi_status napi_get_instance_data(napi_env env, void** data) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, data);
+  *data = env->instance_data;
+  return napi_ok;
+}
+
 napi_status napi_throw(napi_env env, napi_value error) {
   CHECK_ENV(env);
   napi_status status{napi_set_exception(env, ToJSValue(error))};
