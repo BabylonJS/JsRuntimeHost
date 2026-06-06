@@ -7,6 +7,7 @@
 #include <UrlLib/UrlLib.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -235,8 +236,12 @@ namespace Babylon::Polyfills::Internal
                 Napi::Env env = info.Env();
                 const auto deferred = Napi::Promise::Deferred::New(env);
 
+                // Use IsUndefined()/IsNull() rather than IsFunction() to detect the Blob
+                // polyfill: some JavaScriptCore/JSI builds classify constructor functions as
+                // typeof 'object', so napi_typeof reports napi_object and IsFunction() would
+                // incorrectly reject even when the Blob polyfill is installed.
                 const auto blobConstructor = env.Global().Get("Blob");
-                if (!blobConstructor.IsFunction())
+                if (blobConstructor.IsUndefined() || blobConstructor.IsNull())
                 {
                     deferred.Reject(Napi::Error::New(env, "fetch: Blob is not available in this environment").Value());
                     return deferred.Promise();
