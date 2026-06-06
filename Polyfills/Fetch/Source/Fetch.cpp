@@ -342,10 +342,13 @@ namespace Babylon::Polyfills::Internal
                         request->SetRequestBody(std::move(*body));
                     }
 
-                    // arcana::task::then binds the scheduler and cancellation by non-const reference, so they must be lvalues.
-                    JsRuntimeScheduler scheduler{JsRuntime::GetFromJavaScript(env)};
-                    request->SendAsync().then(scheduler, arcana::cancellation::none(),
-                        [deferred, request, env](const arcana::expected<void, std::exception_ptr>& result) {
+                    // arcana::task::then captures the scheduler by reference (see arcana task.h) and
+                    // invokes it on the worker thread when the request completes -- after this fetch()
+                    // call has returned. A stack-local scheduler would therefore dangle. Heap-allocate
+                    // it and co-own it from the continuation so it stays alive until the request finishes.
+                    auto scheduler = std::make_shared<JsRuntimeScheduler>(JsRuntime::GetFromJavaScript(env));
+                    request->SendAsync().then(*scheduler, arcana::cancellation::none(),
+                        [deferred, request, env, scheduler](const arcana::expected<void, std::exception_ptr>& result) {
                             const int status = static_cast<int>(request->StatusCode());
 
                             // Per the WHATWG fetch spec, only transport-level failures reject. A completed
