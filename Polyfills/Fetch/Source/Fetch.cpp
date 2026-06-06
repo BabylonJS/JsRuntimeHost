@@ -254,10 +254,10 @@ namespace Babylon::Polyfills::Internal
                 }
                 const auto bytes = Napi::Uint8Array::New(env, data->body->size(), arrayBuffer, 0);
 
-                const auto parts = Napi::Array::New(env, 1);
+                Napi::Array parts = Napi::Array::New(env, 1);
                 parts.Set(0u, bytes);
 
-                const auto options = Napi::Object::New(env);
+                Napi::Object options = Napi::Object::New(env);
                 const auto contentType = FindHeader(*data, "content-type");
                 options.Set("type", Napi::String::New(env, contentType.value_or("")));
 
