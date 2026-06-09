@@ -198,6 +198,19 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     # 134 right after `145 passing`, before any gtest [OK] line, with no
     # diagnostic in stderr).  Embedders don't need them.
     set(HERMES_SLOW_DEBUG OFF CACHE BOOL "" FORCE)
+    # Hermes vendors Boost.Context (external/boost/boost_1_86_0/libs/context).
+    # The default fcontext implementation needs the platform-native assembler
+    # for context switching.  On Windows + MSBuild, MASM picks up CXX compile
+    # flags like /Zc:__cplusplus from the surrounding scope, emits A4018
+    # warnings for every prefix substring, eventually bails out before writing
+    # boost_context_obj.dir\Release\make_x86_64_ms_pe_masm.obj, and the link
+    # step fails with LNK1181.  Switch to the Win32 Fiber-based implementation
+    # (winfib) — no assembler needed, no MASM problem.  Hermes only uses the
+    # fiber API (per a comment in the bundled boost CMakeLists), so winfib is
+    # functionally equivalent for this embedder.
+    if(WIN32)
+        set(BOOST_CONTEXT_IMPLEMENTATION "winfib" CACHE STRING "" FORCE)
+    endif()
     # Hermes ships its own bundled gtest as `llvh-gtest` (a different
     # CMake target name from googletest's `gtest`), so the two coexist
     # without clashing.  We never link llvh-gtest into our UnitTests
