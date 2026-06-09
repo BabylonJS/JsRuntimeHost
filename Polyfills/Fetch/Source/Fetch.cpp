@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -25,29 +26,24 @@ namespace Babylon::Polyfills::Internal
             int statusCode{};
             std::string url;
             std::vector<std::pair<std::string, std::string>> headers;
-            std::shared_ptr<std::vector<std::byte>> body;
+            std::vector<std::byte> body;
         };
 
-        std::string ToLower(std::string value)
+        bool EqualsIgnoreCase(std::string_view a, std::string_view b)
         {
-            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return value;
+            return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](unsigned char l, unsigned char r) {
+                return std::tolower(l) == std::tolower(r);
+            });
         }
 
         // fetch only resolves for GET and POST because the underlying UrlLib transport supports nothing else.
         UrlLib::UrlMethod ParseMethod(const std::string& method)
         {
-            const std::string upper = [&]() {
-                std::string result = method;
-                std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-                return result;
-            }();
-
-            if (upper == "GET")
+            if (EqualsIgnoreCase(method, "GET"))
             {
                 return UrlLib::UrlMethod::Get;
             }
-            if (upper == "POST")
+            if (EqualsIgnoreCase(method, "POST"))
             {
                 return UrlLib::UrlMethod::Post;
             }
@@ -85,12 +81,11 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        std::optional<std::string> FindHeader(const ResponseData& data, const std::string& name)
+        std::optional<std::string> FindHeader(const ResponseData& data, std::string_view name)
         {
-            const std::string lowerName = ToLower(name);
             for (const auto& header : data.headers)
             {
-                if (ToLower(header.first) == lowerName)
+                if (EqualsIgnoreCase(header.first, name))
                 {
                     return header.second;
                 }
@@ -151,8 +146,6 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        Napi::Object BuildResponse(Napi::Env env, const std::shared_ptr<ResponseData>& data);
-
         Napi::Object BuildHeaders(Napi::Env env, const std::shared_ptr<ResponseData>& data)
         {
             Napi::Object headers = Napi::Object::New(env);
@@ -198,7 +191,7 @@ namespace Babylon::Polyfills::Internal
             response.Set("text", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
                 Napi::Env env = info.Env();
                 const auto deferred = Napi::Promise::Deferred::New(env);
-                std::string text{reinterpret_cast<const char*>(data->body->data()), data->body->size()};
+                std::string text{reinterpret_cast<const char*>(data->body.data()), data->body.size()};
                 deferred.Resolve(Napi::String::New(env, text));
                 return deferred.Promise();
             }, "text"));
@@ -206,10 +199,10 @@ namespace Babylon::Polyfills::Internal
             response.Set("arrayBuffer", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
                 Napi::Env env = info.Env();
                 const auto deferred = Napi::Promise::Deferred::New(env);
-                const auto arrayBuffer = Napi::ArrayBuffer::New(env, data->body->size());
-                if (!data->body->empty())
+                const auto arrayBuffer = Napi::ArrayBuffer::New(env, data->body.size());
+                if (!data->body.empty())
                 {
-                    std::memcpy(arrayBuffer.Data(), data->body->data(), data->body->size());
+                    std::memcpy(arrayBuffer.Data(), data->body.data(), data->body.size());
                 }
                 deferred.Resolve(arrayBuffer);
                 return deferred.Promise();
@@ -218,7 +211,7 @@ namespace Babylon::Polyfills::Internal
             response.Set("json", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
                 Napi::Env env = info.Env();
                 const auto deferred = Napi::Promise::Deferred::New(env);
-                std::string text{reinterpret_cast<const char*>(data->body->data()), data->body->size()};
+                std::string text{reinterpret_cast<const char*>(data->body.data()), data->body.size()};
                 const auto json = env.Global().Get("JSON").As<Napi::Object>();
                 const auto parse = json.Get("parse").As<Napi::Function>();
                 try
@@ -247,12 +240,12 @@ namespace Babylon::Polyfills::Internal
                     return deferred.Promise();
                 }
 
-                const auto arrayBuffer = Napi::ArrayBuffer::New(env, data->body->size());
-                if (!data->body->empty())
+                const auto arrayBuffer = Napi::ArrayBuffer::New(env, data->body.size());
+                if (!data->body.empty())
                 {
-                    std::memcpy(arrayBuffer.Data(), data->body->data(), data->body->size());
+                    std::memcpy(arrayBuffer.Data(), data->body.data(), data->body.size());
                 }
-                const auto bytes = Napi::Uint8Array::New(env, data->body->size(), arrayBuffer, 0);
+                const auto bytes = Napi::Uint8Array::New(env, data->body.size(), arrayBuffer, 0);
 
                 Napi::Array parts = Napi::Array::New(env, 1);
                 parts.Set(0u, bytes);
@@ -347,39 +340,46 @@ namespace Babylon::Polyfills::Internal
                     // call has returned. A stack-local scheduler would therefore dangle. Heap-allocate
                     // it and co-own it from the continuation so it stays alive until the request finishes.
                     auto scheduler = std::make_shared<JsRuntimeScheduler>(JsRuntime::GetFromJavaScript(env));
-                    request->SendAsync().then(*scheduler, arcana::cancellation::none(),
-                        [deferred, request, env, scheduler](const arcana::expected<void, std::exception_ptr>& result) {
-                            const int status = static_cast<int>(request->StatusCode());
+                    request->SendAsync()
+                        .then(*scheduler, arcana::cancellation::none(),
+                            [deferred, request, env](const arcana::expected<void, std::exception_ptr>& result) {
+                                const int status = static_cast<int>(request->StatusCode());
 
-                            // Per the WHATWG fetch spec, only transport-level failures reject. A completed
-                            // request with a non-2xx status (e.g. 404) still resolves with response.ok === false.
-                            // A status of 0 indicates the transport never produced a response (network error).
-                            if (result.has_error() || status == 0)
-                            {
-                                deferred.Reject(Napi::Error::New(env, "fetch: network request failed").Value());
-                                return;
-                            }
+                                // Per the WHATWG fetch spec, only transport-level failures reject. A completed
+                                // request with a non-2xx status (e.g. 404) still resolves with response.ok === false.
+                                // A status of 0 indicates the transport never produced a response (network error).
+                                if (result.has_error() || status == 0)
+                                {
+                                    throw std::runtime_error{"fetch: network request failed"};
+                                }
 
-                            auto data = std::make_shared<ResponseData>();
-                            data->statusCode = status;
-                            data->url = std::string{request->ResponseUrl()};
-                            for (const auto& header : request->GetAllResponseHeaders())
-                            {
-                                data->headers.emplace_back(header.first, header.second);
-                            }
-                            const auto responseBuffer = request->ResponseBuffer();
-                            data->body = std::make_shared<std::vector<std::byte>>(responseBuffer.begin(), responseBuffer.end());
+                                auto data = std::make_shared<ResponseData>();
+                                data->statusCode = status;
+                                data->url = std::string{request->ResponseUrl()};
+                                for (const auto& header : request->GetAllResponseHeaders())
+                                {
+                                    data->headers.emplace_back(header.first, header.second);
+                                }
+                                const auto responseBuffer = request->ResponseBuffer();
+                                data->body.assign(responseBuffer.begin(), responseBuffer.end());
 
-                            deferred.Resolve(BuildResponse(env, data));
-                        });
+                                deferred.Resolve(BuildResponse(env, data));
+                            })
+                        .then(*scheduler, arcana::cancellation::none(),
+                            [deferred, env, scheduler](const arcana::expected<void, std::exception_ptr>& result) {
+                                // A throw from the continuation above (e.g. a network failure or a JS
+                                // exception while building the response) lands here as an error result;
+                                // surface it as a promise rejection so await fetch(...) settles. The
+                                // scheduler is co-owned here so it outlives the in-flight request.
+                                if (result.has_error())
+                                {
+                                    deferred.Reject(Napi::Error::New(env, result.error()).Value());
+                                }
+                            });
                 }
-                catch (const Napi::Error& error)
+                catch (...)
                 {
-                    deferred.Reject(error.Value());
-                }
-                catch (const std::exception& error)
-                {
-                    deferred.Reject(Napi::Error::New(env, std::string{"fetch: "} + error.what()).Value());
+                    deferred.Reject(Napi::Error::New(env, std::current_exception()).Value());
                 }
 
                 return deferred.Promise();
