@@ -7,7 +7,10 @@ elseif(ANDROID)
     set(NAPI_JAVASCRIPT_ENGINE "V8" CACHE STRING "JavaScript engine for Node-API")
 elseif(UNIX)
     set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
-    set(JAVASCRIPTCORE_LIBRARY "/usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so" CACHE STRING "Path to the JavaScriptCore shared library")
+    find_library(JAVASCRIPTCORE_LIBRARY javascriptcoregtk-4.1)
+    if(NOT JAVASCRIPTCORE_LIBRARY)
+        message(FATAL_ERROR "JavaScriptCore library not found. Please install libwebkit2gtk-4.1-dev")
+    endif()
 else()
     message(FATAL_ERROR "Unable to select Node-API JavaScript engine for platform")
 endif()
@@ -152,7 +155,24 @@ if(NAPI_BUILD_ABI)
     message(STATUS "Selected ${NAPI_JAVASCRIPT_ENGINE}")
 endif()
 
-add_library(napi ${SOURCES})
+# On Android, native addons are dlopen'd as standalone .node modules and resolve their napi_* imports
+# from a shared napi at load time -- bionic will not surface a statically-linked host's napi to a
+# dlopen'd module, so the host and every addon must share a single libnapi.so. Default napi to a
+# shared library on Android so that model works out of the box; an integrator who wants a static napi
+# (e.g. for size/packaging) can override with -DJSR_NAPI_SHARED=OFF. The option defaults OFF on other
+# platforms, where napi keeps following the project's default library type (i.e. honors
+# BUILD_SHARED_LIBS).
+set(JSR_NAPI_SHARED_DEFAULT OFF)
+if(ANDROID)
+    set(JSR_NAPI_SHARED_DEFAULT ON)
+endif()
+option(JSR_NAPI_SHARED "Build napi as a shared library (libnapi.so)" ${JSR_NAPI_SHARED_DEFAULT})
+
+if(JSR_NAPI_SHARED)
+    add_library(napi SHARED ${SOURCES})
+else()
+    add_library(napi ${SOURCES})
+endif()
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
