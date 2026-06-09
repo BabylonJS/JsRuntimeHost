@@ -59,8 +59,10 @@ target_link_libraries(UnitTests
     PRIVATE gtest_main
     PRIVATE Foundation
     PRIVATE Blob
+    PRIVATE File
     PRIVATE Performance
     PRIVATE TextDecoder
+    PRIVATE TextEncoder
     ${ADDITIONAL_LIBRARIES})
 
 # See https://gitlab.kitware.com/cmake/cmake/-/issues/23543

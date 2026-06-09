@@ -26,10 +26,18 @@ if(JSRUNTIMEHOST_POLYFILL_BLOB)
     add_subdirectory(Blob)
 endif()
 
+if(JSRUNTIMEHOST_POLYFILL_FILE)
+    add_subdirectory(File)
+endif()
+
 if(JSRUNTIMEHOST_POLYFILL_PERFORMANCE)
     add_subdirectory(Performance)
 endif()
 
 if(JSRUNTIMEHOST_POLYFILL_TEXTDECODER)
     add_subdirectory(TextDecoder)
+endif()
+
+if(JSRUNTIMEHOST_POLYFILL_TEXTENCODER)
+    add_subdirectory(TextEncoder)
 endif()
