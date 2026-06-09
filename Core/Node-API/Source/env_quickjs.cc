@@ -1,6 +1,13 @@
 #include <napi/env.h>
 #include "js_native_api_quickjs.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 #include <quickjs.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace Napi
 {

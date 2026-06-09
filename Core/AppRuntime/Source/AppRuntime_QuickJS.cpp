@@ -6,7 +6,14 @@
 // cast from int64 to int32
 #pragma warning(disable : 4244)
 #endif
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 #include <quickjs.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #ifdef _WIN32
 #pragma warning(pop)
 #endif
