@@ -62,6 +62,14 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# C4875 : a non-string literal argument to [[gsl::suppress]] is deprecated.
+# This originates inside the GSL headers (pulled in transitively via arcana.cpp),
+# not from our code, and surfaces only on newer MSVC toolsets. Suppress it so the
+# /WX builds aren't broken by a deprecation we can't fix in third-party headers.
+if(MSVC)
+    add_compile_options(/wd4875)
+endif()
+
 # --------------------------------------------------
 # Options
 # --------------------------------------------------
