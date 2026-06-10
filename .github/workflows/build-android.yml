@@ -17,6 +17,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Hermes for Android builds the full LLVH/BCGen/Boost.Context/VM chain
+      # twice (once as host tools, once for x86_64 NDK) plus an emulator image.
+      # Default ubuntu-latest runners only ship ~14 GB free on /, which the
+      # combined output exhausts during `:app:buildCMakeDebug[x86_64]` (gradle
+      # then aborts with `java.io.IOException: No space left on device`).
+      # Reclaim space *before* anything is downloaded.
+      - name: Free up disk space (Hermes only)
+        if: inputs.js-engine == 'Hermes'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
