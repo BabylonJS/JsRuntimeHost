@@ -12,9 +12,9 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     # Hermes pulls in a large LLVH/Boost.Context/BCGen chain through
-    # `hermesvm_a`; on `windows-latest` the full configure+build comfortably
+    # `hermesvm_a`; on `windows-2022` the full configure+build comfortably
     # exceeds the standard 15-minute window.  Keep other engines snappy.
     timeout-minutes: ${{ inputs.js-engine == 'Hermes' && 60 || 15 }}
     steps:

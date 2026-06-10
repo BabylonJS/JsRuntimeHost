@@ -70,19 +70,6 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Cap MSVC's warning surface to compiler version 18 (VS 2013 era).  The
-# vendored GSL headers use `[[gsl::suppress(<non-string-literal>)]]`, which
-# newer MSVC (shipped with the `windows-latest` runner upgrade to Windows
-# 2025 / VS 17.latest) flags as `C4875 (deprecated)`.  Combined with `/WX`
-# this turns every translation unit that pulls in `<gsl/...>` (XMLHttpRequest,
-# ScriptLoader, AppRuntime, WebSocket, ...) into a hard `C2220` build error.
-# `/Wv:18` is the temporary mitigation suggested by MSVC itself in the
-# diagnostic.  Drop it once the bundled GSL is bumped to a release that uses
-# string-literal `[[gsl::suppress]]` arguments.
-if(MSVC)
-    add_compile_options(/Wv:18)
-endif()
-
 # --------------------------------------------------
 # Options
 # --------------------------------------------------
