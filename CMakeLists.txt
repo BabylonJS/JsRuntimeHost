@@ -165,6 +165,17 @@ if(BABYLON_DEBUG_TRACE)
 endif()
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    # Hermes is currently an experimental engine for JsRuntimeHost and is not
+    # supported on Apple platforms (iOS or macOS).  Bail out early with a
+    # clear error rather than letting the build fail deep inside Hermes's
+    # Apple framework / toolchain machinery.
+    if(APPLE OR IOS)
+        message(FATAL_ERROR
+            "NAPI_JAVASCRIPT_ENGINE=Hermes is not supported on Apple platforms "
+            "(iOS or macOS).  Hermes support in JsRuntimeHost is experimental "
+            "and currently limited to Windows, Android, and Linux.")
+    endif()
+
     # Configure Hermes static_h options BEFORE making it available so that
     # cache variables take effect.  We disable the parts of Hermes we don't
     # need (the unit-test suite, debugger) to keep build time reasonable and
