@@ -33,7 +33,26 @@ namespace
             if (info.Length() > 0 && info[0].IsString())
             {
                 auto encoding = info[0].As<Napi::String>().Utf8Value();
-                if (encoding != "utf-8" && encoding != "UTF-8")
+
+                // Normalize to lowercase to compare against the
+                // WHATWG Encoding spec aliases for utf-8.
+                // https://encoding.spec.whatwg.org/#names-and-labels
+                // All of these labels resolve to "utf-8" per the spec:
+                std::string normalized = encoding;
+                for (auto& c : normalized)
+                {
+                    if (c >= 'A' && c <= 'Z')
+                    {
+                        c = static_cast<char>(c - 'A' + 'a');
+                    }
+                }
+
+                if (normalized != "utf-8" &&
+                    normalized != "utf8" &&
+                    normalized != "unicode-1-1-utf-8" &&
+                    normalized != "unicode11utf8" &&
+                    normalized != "unicode20utf8" &&
+                    normalized != "x-unicode20utf8")
                 {
                     throw Napi::Error::New(Env(), "TextDecoder: unsupported encoding '" + encoding + "', only 'utf-8' is supported");
                 }

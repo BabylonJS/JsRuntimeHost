@@ -9,7 +9,8 @@ set(SOURCES
     "Include/Babylon/AppRuntime.h"
     "Source/AppRuntime.cpp"
     "Source/AppRuntime_${NAPI_JAVASCRIPT_ENGINE}.cpp"
-    "Source/AppRuntime_${JSRUNTIMEHOST_PLATFORM}.${IMPL_EXT}")
+    "Source/AppRuntime_${JSRUNTIMEHOST_PLATFORM}.${IMPL_EXT}"
+    "Source/PostTickHook.h")
 
 add_library(AppRuntime ${SOURCES})
 warnings_as_errors(AppRuntime)

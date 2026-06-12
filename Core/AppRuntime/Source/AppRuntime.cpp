@@ -1,9 +1,11 @@
 #include "AppRuntime.h"
+#include "PostTickHook.h"
 
 #include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
 
 #include <cassert>
+#include <chrono>
 #include <optional>
 #include <mutex>
 #include <thread>
@@ -11,6 +13,18 @@
 
 namespace Babylon
 {
+    namespace internal
+    {
+        // Storage for the per-thread post-tick hook declared in PostTickHook.h.
+        // See that header for the rationale.
+        thread_local std::function<void()> g_postTickHook;
+
+        void SetPostTickHook(std::function<void()> hook)
+        {
+            g_postTickHook = std::move(hook);
+        }
+    }
+
     class AppRuntime::Impl
     {
     public:
@@ -82,9 +96,26 @@ namespace Babylon
 
         m_impl->m_dispatcher.set_affinity(std::this_thread::get_id());
 
+        // The loop uses non-blocking tick + brief sleep instead of
+        // blocking_tick so we can periodically pump the engine's own
+        // task queue (see internal::g_postTickHook). A blocking_tick
+        // would only wake on AppRuntime-side dispatches, missing V8
+        // platform tasks (e.g. async WebAssembly compile completions
+        // posted from V8 worker threads) and freezing any code that
+        // awaits them.
         while (!m_impl->m_cancelSource.cancelled())
         {
-            m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
+            const bool ranWork = m_impl->m_dispatcher.tick(m_impl->m_cancelSource);
+
+            if (internal::g_postTickHook)
+            {
+                internal::g_postTickHook();
+            }
+
+            if (!ranWork)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
 
         // The dispatcher can be non-empty if something is dispatched after cancellation.

@@ -1,4 +1,5 @@
 #include "AppRuntime.h"
+#include "PostTickHook.h"
 #include <napi/env.h>
 
 #include <libplatform/libplatform.h>
@@ -81,6 +82,21 @@ namespace Babylon
 
             Napi::Env env = Napi::Attach(context);
 
+            // Install the post-tick hook so the dispatcher loop drains V8's
+            // foreground task runner (which holds async WebAssembly compile
+            // continuations and other deferred Platform-scheduled work)
+            // and any pending microtasks after each AppRuntime dispatch.
+            // Without this, async WASM-using code (Draco glTF extension,
+            // Basis, KTX2, ...) freezes because its resolving Promise
+            // continuation is never invoked.
+            v8::Platform* platformPtr = &Module::Instance().Platform();
+            internal::SetPostTickHook([platformPtr, isolate]() {
+                while (v8::platform::PumpMessageLoop(
+                    platformPtr, isolate,
+                    v8::platform::MessageLoopBehavior::kDoNotWait)) {}
+                isolate->PerformMicrotaskCheckpoint();
+            });
+
 #ifdef ENABLE_V8_INSPECTOR
             std::optional<V8InspectorAgent> agent;
             if (m_options.EnableDebugger)
@@ -105,6 +121,12 @@ namespace Babylon
 #endif
 
             Napi::Detach(env);
+
+            // Clear the hook before this scope ends so the captured
+            // isolate (which is about to be destroyed at scope exit
+            // via isolate->Dispose() below) cannot be invoked through
+            // a stale function object during teardown.
+            internal::SetPostTickHook(nullptr);
         }
 
         // Destroy the isolate.
