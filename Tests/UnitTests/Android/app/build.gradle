@@ -7,6 +7,15 @@ if (project.hasProperty("jsEngine")) {
     jsEngine = project.property("jsEngine")
 }
 
+def cmakeArguments = [
+    "-DANDROID_STL=c++_shared",
+    "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
+    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
+]
+if (project.hasProperty("importHostCompilers")) {
+    cmakeArguments.add("-DIMPORT_HOST_COMPILERS=${project.property('importHostCompilers')}")
+}
+
 android {
     namespace 'com.jsruntimehost.unittests'
     compileSdk 33
@@ -26,11 +35,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments (
-                    "-DANDROID_STL=c++_shared",
-                    "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
-                    "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
-                )
+                arguments(*cmakeArguments)
             }
         }
 
