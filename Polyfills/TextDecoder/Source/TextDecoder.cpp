@@ -33,7 +33,39 @@ namespace
             if (info.Length() > 0 && info[0].IsString())
             {
                 auto encoding = info[0].As<Napi::String>().Utf8Value();
-                if (encoding != "utf-8" && encoding != "UTF-8")
+
+                // Normalize per the WHATWG Encoding Standard "get an encoding" algorithm:
+                // strip leading/trailing ASCII whitespace and lowercase before matching the
+                // label. Several labels (e.g. "utf8", "unicode-1-1-utf-8") all map to UTF-8;
+                // callers such as the glTF/Draco loader pass "utf8".
+                const auto isAsciiWhitespace = [](char c) {
+                    return c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == ' ';
+                };
+                size_t begin = 0;
+                size_t end = encoding.size();
+                while (begin < end && isAsciiWhitespace(encoding[begin]))
+                {
+                    ++begin;
+                }
+                while (end > begin && isAsciiWhitespace(encoding[end - 1]))
+                {
+                    --end;
+                }
+                std::string label = encoding.substr(begin, end - begin);
+                for (auto& c : label)
+                {
+                    if (c >= 'A' && c <= 'Z')
+                    {
+                        c = static_cast<char>(c - 'A' + 'a');
+                    }
+                }
+
+                if (label != "utf-8" &&
+                    label != "utf8" &&
+                    label != "unicode-1-1-utf-8" &&
+                    label != "unicode11utf8" &&
+                    label != "unicode20utf8" &&
+                    label != "x-unicode20utf8")
                 {
                     throw Napi::Error::New(Env(), "TextDecoder: unsupported encoding '" + encoding + "', only 'utf-8' is supported");
                 }
