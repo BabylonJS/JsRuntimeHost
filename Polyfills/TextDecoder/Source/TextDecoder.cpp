@@ -67,7 +67,7 @@ namespace
                     label != "unicode20utf8" &&
                     label != "x-unicode20utf8")
                 {
-                    throw Napi::Error::New(Env(), "TextDecoder: unsupported encoding '" + encoding + "', only 'utf-8' is supported");
+                    throw Napi::Error::New(Env(), "TextDecoder: unsupported encoding '" + encoding + "', only UTF-8 is supported");
                 }
             }
         }
