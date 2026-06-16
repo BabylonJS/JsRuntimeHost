@@ -64,6 +64,37 @@ describe("AbortController", function () {
 
         expect(controller.signal.aborted).to.equal(true);
     });
+
+    it("AbortSignal.abort() returns a signal already aborted with an AbortError reason", function () {
+        const signal = (AbortSignal as any).abort();
+        expect(signal.aborted).to.equal(true);
+        expect(signal.reason).to.be.an.instanceof(Error);
+        expect(signal.reason.name).to.equal("AbortError");
+    });
+
+    it("throwIfAborted() throws the reason only once aborted", function () {
+        const controller = new AbortController();
+        // Not aborted yet: must not throw.
+        (controller.signal as any).throwIfAborted();
+
+        controller.abort();
+        expect(() => (controller.signal as any).throwIfAborted()).to.throw();
+    });
+
+    it("abort(reason) records the provided reason", function () {
+        const controller = new AbortController();
+        const reason = new Error("custom reason");
+        controller.abort(reason);
+        expect((controller.signal as any).reason).to.equal(reason);
+    });
+
+    it("abort() with no reason defaults to an AbortError", function () {
+        const controller = new AbortController();
+        controller.abort();
+        const reason = (controller.signal as any).reason;
+        expect(reason).to.be.an.instanceof(Error);
+        expect(reason.name).to.equal("AbortError");
+    });
 });
 
 describe("XMLHTTPRequest", function () {
@@ -330,6 +361,37 @@ describe("fetch", function () {
             rejected = true;
         }
         expect(rejected).to.equal(true);
+    });
+
+    it("should reject immediately with an AbortError when the signal is already aborted", async function () {
+        const controller = new AbortController();
+        controller.abort();
+
+        let error: any;
+        try {
+            await fetch("https://github.com/", { signal: controller.signal } as any);
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error.name).to.equal("AbortError");
+    });
+
+    it("should reject with an AbortError when aborted in-flight", async function () {
+        this.timeout(30000);
+        const controller = new AbortController();
+        const promise = fetch("https://github.com/", { signal: controller.signal } as any);
+        // Abort before the response can arrive.
+        controller.abort();
+
+        let error: any;
+        try {
+            await promise;
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error.name).to.equal("AbortError");
     });
 });
 
