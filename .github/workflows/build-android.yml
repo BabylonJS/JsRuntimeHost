@@ -47,21 +47,11 @@ jobs:
         working-directory: Tests
         run: npm install
 
-      - name: Install Hermes host build tools
+      - name: Install Ninja (Hermes host-compiler bootstrap)
         if: inputs.js-engine == 'Hermes'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
-
-      - name: Build Hermes host compilers
-        if: inputs.js-engine == 'Hermes'
-        run: |
-          cmake -B Build/HermesHost -G Ninja \
-            -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-            -D NAPI_JAVASCRIPT_ENGINE=Hermes \
-            -D HERMES_UNICODE_LITE=ON \
-            -D JSRUNTIMEHOST_TESTS=OFF
-          cmake --build Build/HermesHost --target hermesc shermes --config RelWithDebInfo
 
       - name: Enable KVM
         run: |
@@ -76,7 +66,7 @@ jobs:
           target: google_apis
           arch: x86_64
           emulator-options: -no-snapshot -no-window -no-boot-anim -no-audio
-          script: chmod +x Tests/UnitTests/Android/gradlew && Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs.js-engine }} -PndkVersion=${{ env.NDK_VERSION }} ${{ inputs.js-engine == 'Hermes' && format('-PimportHostCompilers={0}/Build/HermesHost/ImportHostCompilers.cmake', github.workspace) || '' }}
+          script: chmod +x Tests/UnitTests/Android/gradlew && Tests/UnitTests/Android/gradlew -p Tests/UnitTests/Android connectedAndroidTest -PabiFilters=x86_64 -PjsEngine=${{ inputs.js-engine }} -PndkVersion=${{ env.NDK_VERSION }}
 
       - name: Dump Test Results
         if: always()
