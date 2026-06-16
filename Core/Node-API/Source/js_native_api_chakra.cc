@@ -1405,6 +1405,14 @@ napi_status napi_get_value_string_latin1(napi_env env,
     CHECK_JSRT_EXPECTED(env,
       JsCopyString(jsValue, nullptr, 0, result, CP_LATIN1),
       napi_string_expected);
+  } else if (bufsize == 0) {
+    // A non-null buffer with bufsize == 0 has no room for the null terminator;
+    // report zero and write nothing. The slow path below would otherwise run a
+    // needless allocation and store the terminator at buf[0], one byte past the
+    // zero-length buffer.
+    if (result != nullptr) {
+      *result = 0;
+    }
   } else {
     size_t count = 0;
     CHECK_JSRT_EXPECTED(env,
@@ -1489,6 +1497,14 @@ napi_status napi_get_value_string_utf8(napi_env env,
     CHECK_JSRT_EXPECTED(env,
       JsCopyString(jsValue, nullptr, 0, result),
       napi_string_expected);
+  } else if (bufsize == 0) {
+    // A non-null buffer with bufsize == 0 has no room for the null terminator;
+    // report zero and write nothing. The slow path below would otherwise run a
+    // needless allocation and store the terminator at buf[0], one byte past the
+    // zero-length buffer.
+    if (result != nullptr) {
+      *result = 0;
+    }
   } else {
     size_t count = 0;
     CHECK_JSRT_EXPECTED(env,
@@ -1574,7 +1590,7 @@ napi_status napi_get_value_string_utf16(napi_env env,
     CHECK_JSRT_EXPECTED(env,
       JsCopyStringUtf16(jsValue, nullptr, 0, result),
       napi_string_expected);
-  } else {
+  } else if (bufsize != 0) {
     size_t copied = 0;
     CHECK_JSRT_EXPECTED(env,
       JsCopyStringUtf16(
@@ -1593,6 +1609,12 @@ napi_status napi_get_value_string_utf16(napi_env env,
     if (result != nullptr) {
       *result = copied;
     }
+  } else if (result != nullptr) {
+    // A non-null buffer with bufsize == 0 has no room for any character or the
+    // null terminator. Report zero copied and write nothing, instead of letting
+    // bufsize - 1 underflow to SIZE_MAX (which would copy the whole string into
+    // the zero-length buffer and store the terminator at buf[SIZE_MAX]).
+    *result = 0;
   }
 
   return napi_ok;
@@ -2244,7 +2266,13 @@ napi_status napi_create_dataview(napi_env env,
     &unused,
     &bufferLength));
 
-  if (byte_length + byte_offset > bufferLength) {
+  // bufferLength is 32-bit; byte_offset and byte_length are caller-supplied
+  // size_t values. Validate each against the buffer size without adding them
+  // (byte_offset + byte_length could overflow size_t and wrap past the check,
+  // after which the values would be truncated to 32-bit for JsCreateDataView
+  // while the original 64-bit values get stored in DataViewInfo and later
+  // handed back by napi_get_dataview_info, enabling an out-of-bounds access).
+  if (byte_offset > bufferLength || byte_length > bufferLength - byte_offset) {
     napi_throw_range_error(
       env,
       "ERR_NAPI_INVALID_DATAVIEW_ARGS",

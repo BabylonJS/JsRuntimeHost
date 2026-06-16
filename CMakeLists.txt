@@ -49,7 +49,7 @@ FetchContent_Declare(llhttp
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG 16c7dfd88cb5e7121cb5b037b44b796b737955d4
+    GIT_TAG 74985214bd4f83a4906b2c62134ac2f9ab89e1ae
     EXCLUDE_FROM_ALL)
 # --------------------------------------------------
 
@@ -88,6 +88,7 @@ option(JSRUNTIMEHOST_CORE_SCRIPTLOADER "Include JsRuntimeHost Core ScriptLoader"
 option(JSRUNTIMEHOST_POLYFILL_CONSOLE "Include JsRuntimeHost Polyfill Console." ON)
 option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include JsRuntimeHost Polyfill Scheduling." ON)
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include JsRuntimeHost Polyfill XMLHttpRequest." ON)
+option(JSRUNTIMEHOST_POLYFILL_FETCH "Include JsRuntimeHost Polyfill fetch." ON)
 option(JSRUNTIMEHOST_POLYFILL_URL "Include JsRuntimeHost Polyfill URL and URLSearchParams." ON)
 option(JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER "Include JsRuntimeHost Polyfills AbortController and AbortSignal." ON)
 option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include JsRuntimeHost Polyfill WebSocket." ON)
@@ -148,7 +149,7 @@ endif()
 FetchContent_MakeAvailable_With_Message(arcana.cpp)
 set_property(TARGET arcana PROPERTY FOLDER Dependencies)
 
-if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
+if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST OR JSRUNTIMEHOST_POLYFILL_FETCH)
     FetchContent_MakeAvailable_With_Message(UrlLib)
     set_property(TARGET UrlLib PROPERTY FOLDER Dependencies)
 endif()
