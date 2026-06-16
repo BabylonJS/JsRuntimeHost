@@ -12,6 +12,12 @@ def cmakeArguments = [
     "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
     "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
 ]
+// When building Hermes for Android, hermesc/shermes are host tools that emit
+// Hermes bytecode at build time and must run on the build host (NDK-built
+// binaries can't execute on the runner). CI builds them once and passes the
+// resulting ImportHostCompilers.cmake path via -PimportHostCompilers so the
+// per-ABI NDK builds import the prebuilt host compilers instead of rebuilding
+// (and failing to run) them.
 if (project.hasProperty("importHostCompilers")) {
     cmakeArguments.add("-DIMPORT_HOST_COMPILERS=${project.property("importHostCompilers")}")
 }

@@ -236,6 +236,18 @@ Make sure Hermes was fetched at the top-level CMakeLists.txt and NAPI_JAVASCRIPT
         else()
             set(NAPI_HERMES_COMPILE_OPTIONS "")
         endif()
+
+        # Maximum GC heap size, in MiB, for the Hermes Runtime created by
+        # `Napi::Attach` (see Source/env_hermes.cc).  This is the GC's upper
+        # bound -- a ceiling, not an up-front reservation.  The 512 MiB default
+        # gives the unit-test Mocha suite generous headroom over Hermes's tiny
+        # built-in default; embedders running heavier workloads (large Babylon
+        # scenes, big typed-array buffers) can raise it at configure time with:
+        #     -DNAPI_HERMES_MAX_HEAP_SIZE_MB=<value>
+        # The value is forwarded to env_hermes.cc as a compile definition of the
+        # same name.
+        set(NAPI_HERMES_MAX_HEAP_SIZE_MB 512 CACHE STRING
+            "Maximum Hermes GC heap size in MiB for the Napi::Attach runtime (default 512)")
     else()
         message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
     endif()
@@ -253,6 +265,10 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     # they don't relax the rules for the rest of the napi sources.
     set_source_files_properties("Source/env_hermes.cc"
         PROPERTIES COMPILE_OPTIONS "${NAPI_HERMES_COMPILE_OPTIONS}")
+
+    # Forward the configurable Hermes GC max heap size to env_hermes.cc.
+    target_compile_definitions(napi PRIVATE
+        NAPI_HERMES_MAX_HEAP_SIZE_MB=${NAPI_HERMES_MAX_HEAP_SIZE_MB})
 endif()
 
 set_property(TARGET napi PROPERTY FOLDER Dependencies)

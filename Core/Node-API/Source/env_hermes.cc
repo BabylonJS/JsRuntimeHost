@@ -58,6 +58,14 @@ typedef napi_finalize node_api_basic_finalize;
 #include <string>
 #include <unordered_map>
 
+// Maximum GC heap size (in MiB) for the Hermes Runtime created by
+// `Napi::Attach`.  Overridable at CMake configure time via
+// `-DNAPI_HERMES_MAX_HEAP_SIZE_MB=<value>` (see Core/Node-API/CMakeLists.txt);
+// falls back to 512 MiB when the definition isn't supplied.
+#ifndef NAPI_HERMES_MAX_HEAP_SIZE_MB
+#define NAPI_HERMES_MAX_HEAP_SIZE_MB 512
+#endif
+
 namespace
 {
     struct HermesEnvState
@@ -97,10 +105,12 @@ namespace Napi
         // ES6 Proxy + generators are on, Intl is on, EnableEval is on.
         // We bump the max GC heap to something reasonable for running our
         // Mocha test suite (the unit-test default of 512 KiB is too small).
+        // The ceiling is configurable via NAPI_HERMES_MAX_HEAP_SIZE_MB
+        // (defaults to 512 MiB).
         auto config = hermes::vm::RuntimeConfig::Builder()
                           .withGCConfig(hermes::vm::GCConfig::Builder()
                                             .withInitHeapSize(1u << 20)        //   1 MiB
-                                            .withMaxHeapSize(512u << 20)       // 512 MiB
+                                            .withMaxHeapSize(static_cast<unsigned>(NAPI_HERMES_MAX_HEAP_SIZE_MB) << 20)
                                             .build())
                           .build();
 
@@ -138,10 +148,6 @@ namespace Napi
             state = std::move(it->second);
             StateMap().erase(it);
         }
-
-        // Dropping the last shared_ptr to the runtime tears down the env via
-        // Hermes's post-shutdown deleter.
-        state.runtime.reset();
     }
 
     void DrainJobs(Napi::Env env)
