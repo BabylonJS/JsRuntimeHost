@@ -53,8 +53,13 @@ namespace Babylon::Polyfills::Internal
         // when an error is thrown) -- in that case the rejection simply carries no synthetic frames.
         std::string CaptureCallSiteStack(Napi::Env env)
         {
+            // Detect the global Error constructor with IsUndefined()/IsNull() rather than
+            // IsFunction(): some JavaScriptCore/JSI builds classify constructor functions as
+            // typeof 'object', so napi_typeof reports napi_object and IsFunction() would
+            // incorrectly skip stack capture even though Error is callable (see the Blob check
+            // below for the same rationale). Error is always present, so this guard is defensive.
             const Napi::Value errorCtor = env.Global().Get("Error");
-            if (!errorCtor.IsFunction())
+            if (errorCtor.IsUndefined() || errorCtor.IsNull())
             {
                 return {};
             }

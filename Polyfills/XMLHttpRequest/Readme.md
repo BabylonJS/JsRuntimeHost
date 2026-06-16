@@ -5,6 +5,7 @@ Minimal implementation of XMLHttpRequest required to support the Babylon.js Requ
 We do not support `onload`-style event listeners. Instead, you should listen to events using `addEventListener`. At the moment, we only support the following events:
 * `loadend`
 * `readystatechange`
+* `error` (fired on a transport failure or a non-`2xx` HTTP response, before `loadend`)
 
 ## Local files
 Unlike the web, XMLHttpRequest supports loading local files using two schemes:
