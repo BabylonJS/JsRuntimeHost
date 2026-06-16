@@ -8,6 +8,8 @@
 #endif
 
 #include <optional>
+#include <unordered_map>
+#include <utility>
 
 namespace Babylon
 {
@@ -61,6 +63,93 @@ namespace Babylon
         };
 
         std::unique_ptr<Module> Module::s_module;
+
+        // Tracks promises rejected without a handler so they can be reported once the current turn
+        // settles. V8 fires kPromiseRejectWithNoHandler when a promise is rejected with no handler
+        // and kPromiseHandlerAddedAfterReject if one is attached afterwards; reporting is deferred
+        // (via AppRuntime::Dispatch) so a synchronous `Promise.reject(e); ...; p.catch(...)` is
+        // removed before it is ever reported. Keyed by promise identity hash; the promise and reason
+        // are held in v8::Global handles so they survive until the deferred flush runs.
+        struct V8RejectionTracker
+        {
+            AppRuntime* runtime{};
+            v8::Isolate* isolate{};
+            std::unordered_map<int, std::pair<v8::Global<v8::Promise>, v8::Global<v8::Value>>> unhandled{};
+            bool flushScheduled{false};
+        };
+
+        // The promise-rejection callback is a bare function pointer with no user-data argument. Each
+        // AppRuntime owns a dedicated isolate running on its own thread, and V8 invokes the callback
+        // on that thread, so a thread_local pointer associates the callback with the right tracker
+        // without risking isolate-data-slot collisions with the Node-API shim.
+        thread_local V8RejectionTracker* t_rejectionTracker{nullptr};
+
+        // Mirrors v8impl::JsValueFromV8LocalValue (js_native_api_v8.h), which is internal to the
+        // Node-API V8 shim and not on the public include path.
+        static_assert(sizeof(v8::Local<v8::Value>) == sizeof(napi_value),
+            "Cannot convert between v8::Local<v8::Value> and napi_value");
+        napi_value JsValueFromV8LocalValue(v8::Local<v8::Value> local)
+        {
+            return reinterpret_cast<napi_value>(*local);
+        }
+
+        void FlushUnhandledRejections(V8RejectionTracker& tracker)
+        {
+            tracker.flushScheduled = false;
+
+            v8::Isolate::Scope isolateScope{tracker.isolate};
+            v8::HandleScope handleScope{tracker.isolate};
+            for (auto& [hash, entry] : tracker.unhandled)
+            {
+                const v8::Local<v8::Value> reason = entry.second.Get(tracker.isolate);
+                tracker.runtime->OnUnhandledPromiseRejection(JsValueFromV8LocalValue(reason));
+            }
+            tracker.unhandled.clear();
+        }
+
+        void OnPromiseReject(v8::PromiseRejectMessage message)
+        {
+            V8RejectionTracker* tracker{t_rejectionTracker};
+            if (tracker == nullptr)
+            {
+                return;
+            }
+
+            v8::HandleScope handleScope{tracker->isolate};
+            const v8::Local<v8::Promise> promise{message.GetPromise()};
+            const int hash{promise->GetIdentityHash()};
+
+            switch (message.GetEvent())
+            {
+                case v8::kPromiseRejectWithNoHandler:
+                {
+                    const v8::Local<v8::Value> reason{message.GetValue()};
+                    tracker->unhandled[hash] = {
+                        v8::Global<v8::Promise>{tracker->isolate, promise},
+                        v8::Global<v8::Value>{tracker->isolate, reason}};
+
+                    if (!tracker->flushScheduled)
+                    {
+                        tracker->flushScheduled = true;
+                        tracker->runtime->Dispatch([tracker](Napi::Env) {
+                            FlushUnhandledRejections(*tracker);
+                        });
+                    }
+                    break;
+                }
+                case v8::kPromiseHandlerAddedAfterReject:
+                {
+                    tracker->unhandled.erase(hash);
+                    break;
+                }
+                default:
+                {
+                    // kPromiseRejectAfterResolved / kPromiseResolveAfterResolved carry no actionable
+                    // unhandled-rejection signal.
+                    break;
+                }
+            }
+        }
     }
 
     void AppRuntime::RunEnvironmentTier(const char* executablePath)
@@ -80,6 +169,13 @@ namespace Babylon
             v8::Context::Scope context_scope{context};
 
             Napi::Env env = Napi::Attach(context);
+
+            V8RejectionTracker rejectionTracker{this, isolate, {}, false};
+            if (m_options.EnableUnhandledPromiseRejectionTracking)
+            {
+                t_rejectionTracker = &rejectionTracker;
+                isolate->SetPromiseRejectCallback(OnPromiseReject);
+            }
 
 #ifdef ENABLE_V8_INSPECTOR
             std::optional<V8InspectorAgent> agent;
@@ -103,6 +199,12 @@ namespace Babylon
                 agent->Stop();
             }
 #endif
+
+            if (m_options.EnableUnhandledPromiseRejectionTracking)
+            {
+                isolate->SetPromiseRejectCallback(nullptr);
+                t_rejectionTracker = nullptr;
+            }
 
             Napi::Detach(env);
         }
