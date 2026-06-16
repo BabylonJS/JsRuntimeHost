@@ -30,6 +30,32 @@ namespace Babylon::Polyfills::Internal
             std::vector<std::byte> body;
         };
 
+        // Shared state for honoring an AbortSignal passed via init.signal. Co-owned by the "abort"
+        // listener (which sets the flag, captures the reason, and cancels the transport) and the
+        // completion continuation (which reports the AbortError and tears the listener down).
+        struct AbortState
+        {
+            bool aborted{false};
+            Napi::Reference<Napi::Value> reason;
+            Napi::ObjectReference signal;
+            Napi::FunctionReference listener;
+        };
+
+        // The reason a fetch was aborted: the signal's `reason` (per the modern AbortSignal), or a
+        // fresh AbortError if the signal does not expose one.
+        Napi::Value GetAbortReason(Napi::Env env, const Napi::Object& signal)
+        {
+            const Napi::Value reason = signal.Get("reason");
+            if (!reason.IsUndefined() && !reason.IsNull())
+            {
+                return reason;
+            }
+
+            Napi::Error error = Napi::Error::New(env, "The operation was aborted.");
+            error.Set("name", Napi::String::New(env, "AbortError"));
+            return error.Value();
+        }
+
         bool EqualsIgnoreCase(std::string_view a, std::string_view b)
         {
             return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](unsigned char l, unsigned char r) {
@@ -352,6 +378,7 @@ namespace Babylon::Polyfills::Internal
                     UrlLib::UrlMethod method = UrlLib::UrlMethod::Get;
                     std::optional<std::string> body;
                     Napi::Value headers = env.Undefined();
+                    Napi::Value signal = env.Undefined();
 
                     if (info.Length() > 1 && info[1].IsObject())
                     {
@@ -374,6 +401,7 @@ namespace Babylon::Polyfills::Internal
                         }
 
                         headers = init.Get("headers");
+                        signal = init.Get("signal");
                     }
 
                     auto request = std::make_shared<UrlLib::UrlRequest>();
@@ -390,6 +418,39 @@ namespace Babylon::Polyfills::Internal
                     // site rather than to an empty scheduler tick.
                     const std::string capturedStack = CaptureCallSiteStack(env);
 
+                    // Honor an AbortSignal passed via init.signal (WHATWG fetch). The signal is used
+                    // through its JS interface (aborted / reason / add/removeEventListener) so fetch
+                    // stays decoupled from the AbortController polyfill's C++ types.
+                    std::shared_ptr<AbortState> abortState;
+                    if (signal.IsObject())
+                    {
+                        const Napi::Object signalObject = signal.As<Napi::Object>();
+
+                        // Already aborted: reject synchronously with the signal's reason, never
+                        // touching the transport.
+                        if (signalObject.Get("aborted").ToBoolean().Value())
+                        {
+                            deferred.Reject(GetAbortReason(env, signalObject));
+                            return deferred.Promise();
+                        }
+
+                        abortState = std::make_shared<AbortState>();
+                        abortState->signal = Napi::Persistent(signalObject);
+
+                        Napi::Function listener = Napi::Function::New(env, [abortState, request, env](const Napi::CallbackInfo&) {
+                            if (!abortState->aborted)
+                            {
+                                abortState->aborted = true;
+                                abortState->reason = Napi::Persistent(GetAbortReason(env, abortState->signal.Value()));
+                                // Cancel the in-flight transport; the completion continuation then
+                                // rejects with the AbortError instead of a transport TypeError.
+                                request->Abort();
+                            }
+                        });
+                        abortState->listener = Napi::Persistent(listener);
+                        signalObject.Get("addEventListener").As<Napi::Function>().Call(signalObject, {Napi::String::New(env, "abort"), listener});
+                    }
+
                     // arcana::task::then captures the scheduler by reference (see arcana task.h) and
                     // invokes it on the worker thread when the request completes -- after this fetch()
                     // call has returned. A stack-local scheduler would therefore dangle. Heap-allocate
@@ -397,7 +458,28 @@ namespace Babylon::Polyfills::Internal
                     auto scheduler = std::make_shared<JsRuntimeScheduler>(JsRuntime::GetFromJavaScript(env));
                     request->SendAsync()
                         .then(*scheduler, arcana::cancellation::none(),
-                            [deferred, request, env, url, capturedStack](const arcana::expected<void, std::exception_ptr>& result) {
+                            [deferred, request, env, url, capturedStack, abortState](const arcana::expected<void, std::exception_ptr>& result) {
+                                // The request has settled: stop listening for aborts (breaking the
+                                // listener <-> abortState ownership cycle) before deciding the outcome.
+                                if (abortState)
+                                {
+                                    if (!abortState->signal.IsEmpty() && !abortState->listener.IsEmpty())
+                                    {
+                                        Napi::Object signalObject = abortState->signal.Value();
+                                        signalObject.Get("removeEventListener").As<Napi::Function>().Call(signalObject, {Napi::String::New(env, "abort"), abortState->listener.Value()});
+                                    }
+                                    abortState->listener.Reset();
+                                    abortState->signal.Reset();
+
+                                    if (abortState->aborted)
+                                    {
+                                        // Per the fetch spec, an aborted request rejects with the
+                                        // signal's reason (an AbortError), not a network error.
+                                        deferred.Reject(abortState->reason.Value());
+                                        return;
+                                    }
+                                }
+
                                 const int status = static_cast<int>(request->StatusCode());
 
                                 // Per the WHATWG fetch spec, only transport-level failures reject. A completed
