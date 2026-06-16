@@ -37,6 +37,80 @@ namespace Babylon::Polyfills::Internal
             });
         }
 
+        // Stable message used for every transport-failure rejection. Browsers and Node both keep
+        // this constant (the variable detail rides on `cause`) so crash-report grouping stays
+        // intact; we follow Node/undici's "fetch failed" spelling.
+        constexpr const char* FETCH_FAILED_MESSAGE = "fetch failed";
+
+        // Snapshot the JS call-site stack synchronously, inside fetch(), before SendAsync() hands
+        // the request to a worker thread. The transport-failure rejection is otherwise built in a
+        // continuation that runs after fetch() has returned, where an Error would capture zero user
+        // frames. We go through the global JS `Error` constructor (rather than napi_create_error) so
+        // engines that materialize `.stack` from the JS constructor path capture the live caller
+        // frames. The result is a plain std::string, safe to carry across the thread hop (unlike a
+        // Napi::Reference, which must be created and destroyed on the JS thread). Empty if the engine
+        // does not expose a stack at construction time (e.g. Chakra, which only populates `.stack`
+        // when an error is thrown) -- in that case the rejection simply carries no synthetic frames.
+        std::string CaptureCallSiteStack(Napi::Env env)
+        {
+            const Napi::Value errorCtor = env.Global().Get("Error");
+            if (!errorCtor.IsFunction())
+            {
+                return {};
+            }
+            const Napi::Object error = errorCtor.As<Napi::Function>().New({});
+            const Napi::Value stack = error.Get("stack");
+            return stack.IsString() ? stack.As<Napi::String>().Utf8Value() : std::string{};
+        }
+
+        // Reattach the synchronously-captured frames to the rejection's Error, replacing the captured
+        // header line (e.g. "Error\n    at ...") with one matching the TypeError we actually reject
+        // with, so the stack reads correctly while preserving the user's call site.
+        std::string ComposeRejectionStack(const std::string& capturedStack)
+        {
+            std::string header{"TypeError: "};
+            header += FETCH_FAILED_MESSAGE;
+
+            const auto firstNewline = capturedStack.find('\n');
+            if (firstNewline == std::string::npos)
+            {
+                return header;
+            }
+            return header + capturedStack.substr(firstNewline);
+        }
+
+        // Build the transport-failure rejection: a TypeError with a stable message, carrying the
+        // variable detail under `cause` (Node/undici shape) rather than as top-level own-properties.
+        // `code`/`detail` come from UrlLib's normalized accessors and may be empty on backends that
+        // do not yet populate them (Windows/Android today) -- in that case the standard observable
+        // shape (TypeError + stable message + url) is preserved and only the extra detail is absent.
+        Napi::Error BuildTransportError(Napi::Env env, const UrlLib::UrlRequest& request, const std::string& url, const std::string& capturedStack)
+        {
+            Napi::Error error = Napi::TypeError::New(env, FETCH_FAILED_MESSAGE);
+
+            Napi::Object cause = Napi::Object::New(env);
+            const std::string code{request.ErrorSymbol()};
+            const std::string detail{request.ErrorString()};
+            if (!code.empty())
+            {
+                cause.Set("code", Napi::String::New(env, code));
+            }
+            if (!detail.empty())
+            {
+                cause.Set("detail", Napi::String::New(env, detail));
+            }
+            cause.Set("url", Napi::String::New(env, url));
+            cause.Set("status", Napi::Number::New(env, static_cast<double>(static_cast<int>(request.StatusCode()))));
+            error.Set("cause", cause);
+
+            if (!capturedStack.empty())
+            {
+                error.Set("stack", Napi::String::New(env, ComposeRejectionStack(capturedStack)));
+            }
+
+            return error;
+        }
+
         // fetch only resolves for GET and POST because the underlying UrlLib transport supports nothing else.
         UrlLib::UrlMethod ParseMethod(const std::string& method)
         {
@@ -306,6 +380,11 @@ namespace Babylon::Polyfills::Internal
                         request->SetRequestBody(std::move(*body));
                     }
 
+                    // Snapshot the caller's stack now -- before SendAsync() moves work onto a worker
+                    // thread -- so a transport-failure rejection can be attributed to the fetch() call
+                    // site rather than to an empty scheduler tick.
+                    const std::string capturedStack = CaptureCallSiteStack(env);
+
                     // arcana::task::then captures the scheduler by reference (see arcana task.h) and
                     // invokes it on the worker thread when the request completes -- after this fetch()
                     // call has returned. A stack-local scheduler would therefore dangle. Heap-allocate
@@ -313,7 +392,7 @@ namespace Babylon::Polyfills::Internal
                     auto scheduler = std::make_shared<JsRuntimeScheduler>(JsRuntime::GetFromJavaScript(env));
                     request->SendAsync()
                         .then(*scheduler, arcana::cancellation::none(),
-                            [deferred, request, env](const arcana::expected<void, std::exception_ptr>& result) {
+                            [deferred, request, env, url, capturedStack](const arcana::expected<void, std::exception_ptr>& result) {
                                 const int status = static_cast<int>(request->StatusCode());
 
                                 // Per the WHATWG fetch spec, only transport-level failures reject. A completed
@@ -321,7 +400,11 @@ namespace Babylon::Polyfills::Internal
                                 // A status of 0 indicates the transport never produced a response (network error).
                                 if (result.has_error() || status == 0)
                                 {
-                                    throw std::runtime_error{"fetch: network request failed"};
+                                    // Reject with a TypeError carrying the normalized transport detail on `cause`
+                                    // (built here, where the UrlRequest's ErrorString()/ErrorSymbol() are still in
+                                    // scope) instead of throwing a constant string that discards them.
+                                    deferred.Reject(BuildTransportError(env, *request, url, capturedStack).Value());
+                                    return;
                                 }
 
                                 auto data = std::make_shared<ResponseData>();
@@ -339,10 +422,11 @@ namespace Babylon::Polyfills::Internal
                             })
                         .then(*scheduler, arcana::cancellation::none(),
                             [deferred, env, scheduler](const arcana::expected<void, std::exception_ptr>& result) {
-                                // A throw from the continuation above (e.g. a network failure or a JS
-                                // exception while building the response) lands here as an error result;
-                                // surface it as a promise rejection so await fetch(...) settles. The
-                                // scheduler is co-owned here so it outlives the in-flight request.
+                                // A throw from the continuation above (e.g. a JS exception while building the
+                                // response) lands here as an error result; surface it as a promise rejection so
+                                // await fetch(...) settles. Transport failures are already rejected above, so this
+                                // only handles unexpected exceptions. The scheduler is co-owned here so it
+                                // outlives the in-flight request.
                                 if (result.has_error())
                                 {
                                     deferred.Reject(Napi::Error::New(env, result.error()).Value());
