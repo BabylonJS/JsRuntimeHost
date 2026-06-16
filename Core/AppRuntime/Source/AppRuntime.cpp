@@ -126,18 +126,10 @@ namespace Babylon
         });
     }
 
-    void AppRuntime::OnUnhandledPromiseRejection(napi_value reason)
+    void AppRuntime::OnUnhandledPromiseRejection(const Napi::Error& error)
     {
-        Napi::Env env = m_impl->m_env.value();
-        const Napi::Value reasonValue{env, reason};
-
-        // A promise can be rejected with any value. If it is an Error-like object, forward it as-is
-        // (preserving its message/stack/cause); otherwise wrap its string form so the handler always
-        // receives a Napi::Error.
-        const Napi::Error error = reasonValue.IsObject()
-            ? Napi::Error{env, reason}
-            : Napi::Error::New(env, reasonValue.ToString().Utf8Value());
-
+        // The reason is wrapped into a Napi::Error by the engine implementation (the napi_value ->
+        // Napi::Value bridge is shim-specific), so this just forwards to the embedder's handler.
         m_options.UnhandledExceptionHandler(error);
     }
 }

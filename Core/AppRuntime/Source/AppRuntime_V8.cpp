@@ -93,16 +93,28 @@ namespace Babylon
             return reinterpret_cast<napi_value>(*local);
         }
 
-        void FlushUnhandledRejections(V8RejectionTracker& tracker)
+        // Wrap a rejection reason as a Napi::Error. An Error-like object is forwarded as-is
+        // (preserving message/stack/cause); any other value is stringified so the embedder's handler
+        // always receives a Napi::Error. Done here (not in shared code) because the napi_value ->
+        // Napi::Value bridge is specific to the V8/standard Node-API shim.
+        Napi::Error ToError(Napi::Env env, napi_value reason)
+        {
+            const Napi::Value reasonValue{env, reason};
+            return reasonValue.IsObject()
+                ? Napi::Error{env, reason}
+                : Napi::Error::New(env, reasonValue.ToString().Utf8Value());
+        }
+
+        void FlushUnhandledRejections(V8RejectionTracker& tracker, Napi::Env env)
         {
             tracker.flushScheduled = false;
 
             v8::Isolate::Scope isolateScope{tracker.isolate};
             v8::HandleScope handleScope{tracker.isolate};
-            for (auto& [hash, entry] : tracker.unhandled)
+            for (auto& entry : tracker.unhandled)
             {
-                const v8::Local<v8::Value> reason = entry.second.Get(tracker.isolate);
-                tracker.runtime->OnUnhandledPromiseRejection(JsValueFromV8LocalValue(reason));
+                const v8::Local<v8::Value> reason = entry.second.second.Get(tracker.isolate);
+                tracker.runtime->OnUnhandledPromiseRejection(ToError(env, JsValueFromV8LocalValue(reason)));
             }
             tracker.unhandled.clear();
         }
@@ -131,8 +143,8 @@ namespace Babylon
                     if (!tracker->flushScheduled)
                     {
                         tracker->flushScheduled = true;
-                        tracker->runtime->Dispatch([tracker](Napi::Env) {
-                            FlushUnhandledRejections(*tracker);
+                        tracker->runtime->Dispatch([tracker](Napi::Env env) {
+                            FlushUnhandledRejections(*tracker, env);
                         });
                     }
                     break;

@@ -56,9 +56,9 @@ namespace Babylon
 
         // Routes an unhandled promise rejection to the embedder's UnhandledExceptionHandler. Called
         // by the per-engine promise-rejection tracker installed in RunEnvironmentTier when
-        // Options::EnableUnhandledPromiseRejectionTracking is set. `reason` is the rejection value as
-        // a napi_value. Intended for internal (engine-implementation) use.
-        void OnUnhandledPromiseRejection(napi_value reason);
+        // Options::EnableUnhandledPromiseRejectionTracking is set. Intended for internal
+        // (engine-implementation) use.
+        void OnUnhandledPromiseRejection(const Napi::Error& error);
 
         // Default unhandled exception handler that outputs the error message to the program output.
         static void BABYLON_API DefaultUnhandledExceptionHandler(const Napi::Error& error);
