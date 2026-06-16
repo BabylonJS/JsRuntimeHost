@@ -6,6 +6,36 @@
 
 namespace
 {
+    // Normalize an encoding label per the WHATWG Encoding Standard "get an encoding"
+    // algorithm: strip leading/trailing ASCII whitespace and ASCII-lowercase the result.
+    std::string NormalizeEncodingLabel(const std::string& encoding)
+    {
+        const auto isAsciiWhitespace = [](char c) {
+            return c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == ' ';
+        };
+
+        size_t begin = 0;
+        size_t end = encoding.size();
+        while (begin < end && isAsciiWhitespace(encoding[begin]))
+        {
+            ++begin;
+        }
+        while (end > begin && isAsciiWhitespace(encoding[end - 1]))
+        {
+            --end;
+        }
+
+        std::string label = encoding.substr(begin, end - begin);
+        for (auto& c : label)
+        {
+            if (c >= 'A' && c <= 'Z')
+            {
+                c = static_cast<char>(c - 'A' + 'a');
+            }
+        }
+        return label;
+    }
+
     class TextDecoder final : public Napi::ObjectWrap<TextDecoder>
     {
     public:
@@ -34,32 +64,9 @@ namespace
             {
                 auto encoding = info[0].As<Napi::String>().Utf8Value();
 
-                // Normalize per the WHATWG Encoding Standard "get an encoding" algorithm:
-                // strip leading/trailing ASCII whitespace and lowercase before matching the
-                // label. Several labels (e.g. "utf8", "unicode-1-1-utf-8") all map to UTF-8;
-                // callers such as the glTF/Draco loader pass "utf8".
-                const auto isAsciiWhitespace = [](char c) {
-                    return c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == ' ';
-                };
-                size_t begin = 0;
-                size_t end = encoding.size();
-                while (begin < end && isAsciiWhitespace(encoding[begin]))
-                {
-                    ++begin;
-                }
-                while (end > begin && isAsciiWhitespace(encoding[end - 1]))
-                {
-                    --end;
-                }
-                std::string label = encoding.substr(begin, end - begin);
-                for (auto& c : label)
-                {
-                    if (c >= 'A' && c <= 'Z')
-                    {
-                        c = static_cast<char>(c - 'A' + 'a');
-                    }
-                }
-
+                // Several labels (e.g. "utf8", "unicode-1-1-utf-8") all map to UTF-8 after
+                // normalization; callers such as the glTF/Draco loader pass "utf8".
+                const std::string label = NormalizeEncodingLabel(encoding);
                 if (label != "utf-8" &&
                     label != "utf8" &&
                     label != "unicode-1-1-utf-8" &&
