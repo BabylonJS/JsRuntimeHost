@@ -19,7 +19,7 @@ def cmakeArguments = [
 // per-ABI NDK builds import the prebuilt host compilers instead of rebuilding
 // (and failing to run) them.
 if (project.hasProperty("importHostCompilers")) {
-    cmakeArguments.add("-DIMPORT_HOST_COMPILERS=${project.property("importHostCompilers")}")
+    cmakeArguments.add("-DIMPORT_HOST_COMPILERS=${project.property('importHostCompilers')}")
 }
 
 android {
