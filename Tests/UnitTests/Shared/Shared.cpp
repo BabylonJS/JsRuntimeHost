@@ -282,12 +282,13 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
 TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)
 {
-    // EnableUnhandledPromiseRejectionTracking is only honored on engines that expose a host
-    // promise-rejection hook. The OS EdgeMode Chakra runtime does not, so skip there.
+    // EnableUnhandledPromiseRejectionTracking is only implemented on the V8 backend so far (the OS
+    // EdgeMode Chakra runtime exposes no host promise-rejection hook; JavaScriptCore/JSI are
+    // follow-ups). Skip elsewhere so the test doesn't hang waiting for a report that never comes.
 #if defined(JSRUNTIMEHOST_NAPI_ENGINE)
-    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} == "Chakra")
+    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} != "V8")
     {
-        GTEST_SKIP() << "EdgeMode Chakra does not expose a host promise-rejection tracker";
+        GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 backend";
     }
 #endif
 
@@ -314,10 +315,11 @@ TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)
 
 TEST(AppRuntime, SynchronouslyHandledRejectionDoesNotReachHandler)
 {
+    // Only the V8 backend implements unhandled promise rejection tracking (see the note above).
 #if defined(JSRUNTIMEHOST_NAPI_ENGINE)
-    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} == "Chakra")
+    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} != "V8")
     {
-        GTEST_SKIP() << "EdgeMode Chakra does not expose a host promise-rejection tracker";
+        GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 backend";
     }
 #endif
 
