@@ -1492,7 +1492,7 @@ describe("TextDecoder", function () {
     });
 
     it("throwing from the constructor repeatedly does not corrupt native state", function () {
-        // Regression for a ChakraCore N-API ObjectWrap bug: when a wrapped
+        // Regression for a Chakra N-API ObjectWrap bug: when a wrapped
         // constructor throws, the native instance is destroyed during stack
         // unwinding but the wrap finalizer stayed attached to `this`, so a
         // later GC ran the finalizer on freed memory (heap corruption). Throw
