@@ -21,15 +21,6 @@ namespace Babylon
             // Optional handler for unhandled exceptions.
             std::function<void(const Napi::Error&)> UnhandledExceptionHandler{DefaultUnhandledExceptionHandler};
 
-            // When true, unhandled promise rejections are routed to UnhandledExceptionHandler so
-            // the embedder's crash/telemetry pipeline can observe fire-and-forget failures (e.g. an
-            // un-awaited fetch() that rejects). Defaults to false to preserve existing behavior --
-            // when false, no per-engine rejection tracker is installed. Reporting is deferred to the
-            // end of the current turn, so a rejection that is handled synchronously (e.g.
-            // `const p = Promise.reject(e); p.catch(...)`) does not reach the handler. Implemented for
-            // the Chakra and V8 engines.
-            bool EnableUnhandledPromiseRejectionTracking{false};
-
             // Defines whether to enable the debugger. Only implemented for V8 and Chakra.
             bool EnableDebugger{false};
 
@@ -54,10 +45,20 @@ namespace Babylon
 
         void Dispatch(Dispatchable<void(Napi::Env)> callback);
 
-        // Routes an unhandled promise rejection to the embedder's UnhandledExceptionHandler. Called
-        // by the per-engine promise-rejection tracker installed in RunEnvironmentTier when
-        // Options::EnableUnhandledPromiseRejectionTracking is set. Intended for internal
-        // (engine-implementation) use.
+        // Routes an unhandled promise rejection to the embedder's UnhandledExceptionHandler (which
+        // defaults to a benign logger), so an embedder's crash/telemetry pipeline can observe
+        // fire-and-forget failures (e.g. an un-awaited fetch() that rejects) -- matching the browser
+        // `unhandledrejection` behavior. Reporting is deferred to the end of the turn, so a rejection
+        // handled synchronously (e.g. `const p = Promise.reject(e); p.catch(...)`) is not reported.
+        //
+        // Coverage is determined by whether the engine exposes a host promise-rejection hook:
+        //   * V8 (Isolate::SetPromiseRejectCallback) and JavaScriptCore
+        //     (JSGlobalContextSetUnhandledRejectionCallback) -- supported.
+        //   * Chakra (in-box/EdgeMode) and JSI -- no-op: neither exposes such a hook
+        //     (JsSetHostPromiseRejectionTracker is ChakraCore-only, and neither jsi::Runtime nor
+        //     V8JSI surfaces the V8 callback).
+        //
+        // Intended for internal (engine-implementation) use.
         void OnUnhandledPromiseRejection(const Napi::Error& error);
 
         // Default unhandled exception handler that outputs the error message to the program output.

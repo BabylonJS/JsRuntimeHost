@@ -282,20 +282,16 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
 TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)
 {
-    // EnableUnhandledPromiseRejectionTracking is only implemented on the V8 backend so far (the OS
-    // EdgeMode Chakra runtime exposes no host promise-rejection hook; JavaScriptCore/JSI are
-    // follow-ups). Skip elsewhere so the test doesn't hang waiting for a report that never comes.
-#if defined(JSRUNTIMEHOST_NAPI_ENGINE)
-    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} != "V8")
-    {
-        GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 backend";
-    }
-#endif
-
+    // Unhandled promise rejection tracking is implemented on the engines that expose a host
+    // promise-rejection hook: V8 (Isolate::SetPromiseRejectCallback) and JavaScriptCore
+    // (JSGlobalContextSetUnhandledRejectionCallback). The OS EdgeMode Chakra runtime and the V8JSI
+    // (JSI) shim expose no such hook, so the body is compiled out there and the test is skipped.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) && !defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore)
+    GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 and JavaScriptCore backends";
+#else
     // A fire-and-forget rejected promise (no handler ever attached) must reach the embedder's
-    // UnhandledExceptionHandler when EnableUnhandledPromiseRejectionTracking is set.
+    // UnhandledExceptionHandler.
     Babylon::AppRuntime::Options options{};
-    options.EnableUnhandledPromiseRejectionTracking = true;
 
     std::promise<std::string> rejectionMessage;
     options.UnhandledExceptionHandler = [&rejectionMessage](const Napi::Error& error) {
@@ -311,22 +307,18 @@ TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)
     ASSERT_EQ(future.wait_for(std::chrono::seconds(30)), std::future_status::ready)
         << "unhandled rejection did not reach the host handler";
     EXPECT_NE(future.get().find("boom from fire-and-forget"), std::string::npos);
+#endif
 }
 
 TEST(AppRuntime, SynchronouslyHandledRejectionDoesNotReachHandler)
 {
-    // Only the V8 backend implements unhandled promise rejection tracking (see the note above).
-#if defined(JSRUNTIMEHOST_NAPI_ENGINE)
-    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} != "V8")
-    {
-        GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 backend";
-    }
-#endif
-
+    // Only engines with a host promise-rejection hook implement this tracking (see the note above).
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) && !defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore)
+    GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 and JavaScriptCore backends";
+#else
     // A rejection that is handled synchronously in the same turn must NOT reach the handler --
     // reporting is deferred to the end of the turn, by which point the .catch has been attached.
     Babylon::AppRuntime::Options options{};
-    options.EnableUnhandledPromiseRejectionTracking = true;
 
     std::atomic<bool> handlerFired{false};
     options.UnhandledExceptionHandler = [&handlerFired](const Napi::Error&) {
@@ -344,6 +336,7 @@ TEST(AppRuntime, SynchronouslyHandledRejectionDoesNotReachHandler)
     drained.get_future().wait();
 
     EXPECT_FALSE(handlerFired.load()) << "a synchronously-handled rejection must not reach the host handler";
+#endif
 }
 
 // The V8JSI Node-API shim does not implement napi_create_dataview /

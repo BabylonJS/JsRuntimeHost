@@ -51,10 +51,9 @@ namespace Babylon
             },
             &dispatchFunction));
 
-        // Options::EnableUnhandledPromiseRejectionTracking is not honored on this backend: the OS
-        // EdgeMode Chakra runtime (chakrart.h) does not expose a host promise-rejection tracker
-        // (JsSetHostPromiseRejectionTracker is ChakraCore-only), so there is no hook to route
-        // unhandled rejections from. The option is implemented for the V8 backend.
+        // Unhandled promise rejection tracking (OnUnhandledPromiseRejection) is a no-op on this
+        // backend: the OS EdgeMode Chakra runtime (chakrart.h) exposes no host promise-rejection
+        // hook (JsSetHostPromiseRejectionTracker is ChakraCore-only). See AppRuntime.h.
 
         ThrowIfFailed(JsProjectWinRTNamespace(L"Windows"));
 
