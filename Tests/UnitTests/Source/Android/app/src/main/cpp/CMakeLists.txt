@@ -37,10 +37,9 @@ endif()
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+# Engine-specific compile-time gate (e.g. JSRUNTIMEHOST_NAPI_ENGINE_V8), matching Tests/UnitTests/CMakeLists.txt.
+target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_${NAPI_JAVASCRIPT_ENGINE})
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
-if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
-    target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_JSI)
-endif()
 
 target_include_directories(UnitTestsJNI
     PRIVATE ${UNIT_TESTS_DIR})
