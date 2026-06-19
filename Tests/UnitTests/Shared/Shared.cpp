@@ -283,11 +283,12 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)
 {
     // Unhandled promise rejection tracking is implemented on the engines that expose a host
-    // promise-rejection hook: V8 (Isolate::SetPromiseRejectCallback) and JavaScriptCore
-    // (JSGlobalContextSetUnhandledRejectionCallback). The OS EdgeMode Chakra runtime and the V8JSI
-    // (JSI) shim expose no such hook, so the body is compiled out there and the test is skipped.
-#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) && !defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore)
-    GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 and JavaScriptCore backends";
+    // promise-rejection hook: V8 (Isolate::SetPromiseRejectCallback) and Apple JavaScriptCore
+    // (JSGlobalContextSetUnhandledRejectionCallback, an SPI absent from WebKitGTK/Linux JSC). The OS
+    // EdgeMode Chakra runtime and the V8JSI (JSI) shim expose no such hook, so the body is compiled
+    // out there (and on non-Apple JSC) and the test is skipped.
+#if !(defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) || (defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore) && defined(__APPLE__)))
+    GTEST_SKIP() << "unhandled promise rejection tracking requires the V8 or Apple JavaScriptCore backend";
 #else
     // A fire-and-forget rejected promise (no handler ever attached) must reach the embedder's
     // UnhandledExceptionHandler.
@@ -313,8 +314,8 @@ TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)
 TEST(AppRuntime, SynchronouslyHandledRejectionDoesNotReachHandler)
 {
     // Only engines with a host promise-rejection hook implement this tracking (see the note above).
-#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) && !defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore)
-    GTEST_SKIP() << "unhandled promise rejection tracking is only implemented for the V8 and JavaScriptCore backends";
+#if !(defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) || (defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore) && defined(__APPLE__)))
+    GTEST_SKIP() << "unhandled promise rejection tracking requires the V8 or Apple JavaScriptCore backend";
 #else
     // A rejection that is handled synchronously in the same turn must NOT reach the handler --
     // reporting is deferred to the end of the turn, by which point the .catch has been attached.

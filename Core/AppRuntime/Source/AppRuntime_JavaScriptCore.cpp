@@ -1,6 +1,8 @@
 #include "AppRuntime.h"
-#include "AppRuntime_PromiseRejection.h"
 #include <napi/env.h>
+
+#if __APPLE__
+#include "AppRuntime_PromiseRejection.h"
 
 // JSGlobalContextSetUnhandledRejectionCallback is declared in the private JavaScriptCore header
 // <JavaScriptCore/JSContextRefPrivate.h>, which is not part of the public macOS/iOS SDK. The symbol
@@ -8,10 +10,14 @@
 // guarded with __builtin_available (it is JSC_API_AVAILABLE(macos(10.15.4), ios(13.4))). It registers
 // a JS function invoked at the microtask checkpoint with (promise, reason) for each promise that is
 // still unhandled at that point, so -- unlike V8 -- no deferral or candidate bookkeeping is needed.
+// This is Apple-only: the WebKitGTK JavaScriptCore used on Linux exposes neither this SPI nor
+// __builtin_available, so unhandled-rejection tracking is a no-op there (see AppRuntime.h).
 extern "C" void JSGlobalContextSetUnhandledRejectionCallback(JSGlobalContextRef ctx, JSObjectRef function, JSValueRef* exception);
+#endif
 
 namespace Babylon
 {
+#if __APPLE__
     namespace
     {
         // JSObjectMakeFunctionWithCallback takes no user-data argument; each AppRuntime owns its JSC
@@ -43,6 +49,7 @@ namespace Babylon
             return JSValueMakeUndefined(ctx);
         }
     }
+#endif
 
     void AppRuntime::RunEnvironmentTier(const char*)
     {
@@ -57,6 +64,7 @@ namespace Babylon
 
         Napi::Env env = Napi::Attach(globalContext);
 
+#if __APPLE__
         // Always track unhandled promise rejections (routed to the host UnhandledExceptionHandler).
         JSCRejectionContext rejectionContext{this, env};
         t_rejectionContext = &rejectionContext;
@@ -67,10 +75,13 @@ namespace Babylon
             JSStringRelease(callbackName);
             JSGlobalContextSetUnhandledRejectionCallback(globalContext, callback, nullptr);
         }
+#endif
 
         Run(env);
 
+#if __APPLE__
         t_rejectionContext = nullptr;
+#endif
 
         JSGlobalContextRelease(globalContext);
 

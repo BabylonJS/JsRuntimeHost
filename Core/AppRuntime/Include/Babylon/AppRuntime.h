@@ -52,8 +52,10 @@ namespace Babylon
         // handled synchronously (e.g. `const p = Promise.reject(e); p.catch(...)`) is not reported.
         //
         // Coverage is determined by whether the engine exposes a host promise-rejection hook:
-        //   * V8 (Isolate::SetPromiseRejectCallback) and JavaScriptCore
-        //     (JSGlobalContextSetUnhandledRejectionCallback) -- supported.
+        //   * V8 (Isolate::SetPromiseRejectCallback) -- supported on all platforms.
+        //   * Apple JavaScriptCore (JSGlobalContextSetUnhandledRejectionCallback) -- supported. This
+        //     is an SPI present only in Apple's JSC; the WebKitGTK JSC used on Linux does not expose
+        //     it, so tracking is a no-op there.
         //   * Chakra (in-box/EdgeMode) and JSI -- no-op: neither exposes such a hook
         //     (JsSetHostPromiseRejectionTracker is ChakraCore-only, and neither jsi::Runtime nor
         //     V8JSI surfaces the V8 callback).
