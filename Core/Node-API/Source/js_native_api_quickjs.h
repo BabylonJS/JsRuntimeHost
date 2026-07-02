@@ -45,6 +45,29 @@ struct napi_env__ {
   // cascade) must not touch the context or the (already emptied)
   // refs_list.
   bool detached = false;
+
+  // Reference count that keeps the env alive until BOTH Detach has run and
+  // every outstanding native finalizer that may still call back into the env
+  // has completed. This mirrors the V8 backend's refcounted napi_env__.
+  //
+  // On QuickJS the wrap/external finalizers are not all driven by Detach: some
+  // are deferred to the engine's JS_FreeContext/JS_FreeRuntime teardown cascade
+  // which runs *after* Detach returns. Those deferred finalizers (ExternalData)
+  // still touch the env (e.g. an ObjectWrap destructor calling
+  // napi_delete_reference). Each ExternalData holds one count for its whole
+  // lifetime; Detach drops the initial owner count. Whoever drops the last
+  // count deletes the env, so it always outlives its final use without leaking.
+  int ref_count = 1;
+
+  void Ref() { ++ref_count; }
+
+  void Unref()
+  {
+    if (--ref_count == 0)
+    {
+      delete this;
+    }
+  }
 };
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \

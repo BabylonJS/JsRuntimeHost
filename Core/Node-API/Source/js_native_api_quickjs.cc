@@ -29,7 +29,22 @@ static bool class_ids_allocated = false;
 class ExternalData {
  public:
   ExternalData(napi_env env, void* data, napi_finalize finalize_cb, void* hint)
-    : _env(env), _data(data), _cb(finalize_cb), _hint(hint) {}
+    : _env(env), _data(data), _cb(finalize_cb), _hint(hint) {
+    // Keep the env alive for as long as this adapter exists. The adapter may be
+    // finalized during the engine's teardown cascade (JS_FreeContext), i.e.
+    // after Napi::Detach has run, and RunCallback() then reaches back into the
+    // env (e.g. an ObjectWrap destructor calling napi_delete_reference). This
+    // ref guarantees the env outlives that final use.
+    if (_env != nullptr) {
+      _env->Ref();
+    }
+  }
+
+  ~ExternalData() {
+    if (_env != nullptr) {
+      _env->Unref();
+    }
+  }
 
   void* Data() { return _data; }
 

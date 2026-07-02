@@ -114,14 +114,17 @@ namespace Napi
             JS_RunGC(rt);
             JS_RunGC(rt);
 
-            // NOTE: we intentionally do NOT `delete env_ptr` here. Some
-            // native objects (e.g. ObjectWrap instances) have their
-            // destructors run as a side effect of JS_FreeContext's
-            // teardown cascade (via napi_wrap finalizers) which happens
-            // *after* Detach returns. Those destructors reach
-            // napi_delete_reference on an env pointer that must remain
-            // valid. The env is leaked, but this is bounded (one per
-            // AppRuntime environment tier).
+            // Drop the initial owner reference taken in Attach. If every
+            // ExternalData finalizer already ran during the GC passes above,
+            // this deletes the env now. If some are deferred to the engine's
+            // JS_FreeContext/JS_FreeRuntime teardown cascade (the common case),
+            // each still holds a count, so the env survives until the last such
+            // finalizer completes and drops the final count - deleting the env
+            // exactly once, after its last use, with no leak.
+            //
+            // NOTE: env_ptr must not be touched after this point; it may have
+            // already been deleted.
+            env_ptr->Unref();
         }
     }
 
