@@ -63,24 +63,34 @@ namespace Napi
             // from running and triggers list_empty(gc_obj_list) assert in
             // JS_FreeRuntime.
             //
-            // We only release the JS side here. The RefInfo allocations
-            // themselves are owned by their C++ holders (e.g. an
-            // Napi::FunctionReference embedded in a polyfill object) and
-            // will be freed later when those holders are destroyed. We
-            // zero-out count/value so the subsequent napi_delete_reference
-            // is a no-op and does not touch the already freed context.
+            // Freeing a value can synchronously run a napi_wrap finalizer
+            // whose C++ destructor releases *other* embedded napi_refs (e.g.
+            // an AbortController destroying its AbortSignal ObjectReference).
+            // Those nested napi_delete_reference calls must not perform a real
+            // JS_FreeValue - otherwise a value can be freed twice - and must
+            // not mutate refs_list while we iterate it. So we first neutralize
+            // every ref (count/value zeroed, list cleared) and only then free
+            // the snapshotted values. Any finalizer-driven
+            // napi_delete_reference then sees count == 0 and is a safe no-op.
+            std::vector<JSValue> strongValues;
+            strongValues.reserve(env_ptr->refs_list.size());
             for (void* p : env_ptr->refs_list)
             {
                 auto* info = reinterpret_cast<RefInfo*>(p);
                 if (info->count > 0)
                 {
-                    JS_FreeValue(env_ptr->context, info->value);
+                    strongValues.push_back(info->value);
                 }
                 info->count = 0;
                 info->value = JS_UNDEFINED;
             }
             env_ptr->refs_list.clear();
             env_ptr->detached = true;
+
+            for (JSValue value : strongValues)
+            {
+                JS_FreeValue(env_ptr->context, value);
+            }
 
             if (!JS_IsUndefined(env_ptr->has_own_property_function))
             {

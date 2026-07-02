@@ -179,7 +179,17 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
   JSValue returnValue;
   
   if (callbackResult == nullptr) {
-    returnValue = isConstructCall ? actualThis : JS_UNDEFINED;
+    if (isConstructCall) {
+      // Constructor with no explicit return: the freshly created instance is
+      // the result (ownership transfers to returnValue).
+      returnValue = actualThis;
+    } else {
+      // Plain function returning void: actualThis was only a dup of `this_val`
+      // used to build the CallbackInfo. Release it so `this` is not leaked on
+      // every call (e.g. console.log, which pins the console object otherwise).
+      returnValue = JS_UNDEFINED;
+      JS_FreeValue(ctx, actualThis);
+    }
   } else {
     JSValue cbResultValue = *reinterpret_cast<JSValue*>(callbackResult);
     

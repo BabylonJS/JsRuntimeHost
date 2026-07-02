@@ -43,6 +43,15 @@ namespace Babylon::Polyfills::Internal
         , m_url(info[0].As<Napi::String>())
         , m_cancellationSource{std::make_shared<arcana::cancellation_source>()}
     {
+        // Keep the JS wrapper alive for the lifetime of the connection. The
+        // socket's open/message/error/close callbacks arrive asynchronously
+        // (often after the script has dropped its last reference to the
+        // socket). Without this strong self-reference the wrapper - and this
+        // native object - would be garbage collected before those callbacks
+        // fire, so they would observe a cancelled cancellation source and
+        // never run. The reference is released in CloseCallback, the socket's
+        // terminal event.
+        Ref();
         m_webSocket.Open();
     }
 
@@ -209,6 +218,15 @@ namespace Babylon::Polyfills::Internal
             {
                 return;
             }
+            // Hold a local strong reference to the wrapper for the duration of
+            // this callback. The connection keep-alive established in the
+            // constructor (Ref()) is released via Unref() below; this local
+            // reference ensures the wrapper is not finalized synchronously
+            // (and `this` deleted) while we are still executing - QuickJS frees
+            // objects the instant their refcount reaches zero. The wrapper is
+            // finalized safely when this local reference goes out of scope at
+            // the end of the callback.
+            Napi::ObjectReference selfRef = Napi::Persistent(Value());
             m_readyState = ReadyState::Closed;
             try
             {
@@ -230,6 +248,11 @@ namespace Babylon::Polyfills::Internal
             m_onclose.Reset();
             m_onmessage.Reset();
             m_onerror.Reset();
+
+            // Release the connection keep-alive taken in the constructor. Close
+            // is the socket's terminal event, so the wrapper may now be
+            // collected once this callback's local reference is released.
+            Unref();
         });
     }
 
