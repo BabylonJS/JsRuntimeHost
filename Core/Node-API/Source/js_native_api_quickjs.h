@@ -11,6 +11,7 @@
 #include <napi/js_native_api_types.h>
 #include <thread>
 #include <cassert>
+#include <memory>
 #include <vector>
 
 // Reference info for preventing GC. Defined in the header so that both

@@ -22,7 +22,12 @@ namespace Napi
         JSValue object = JS_GetPropertyStr(context, global, "Object");
         if (!JS_IsException(object) && JS_IsObject(object))
         {
-            JSValue prototype = JS_GetPrototype(context, object);
+            // Object.prototype.hasOwnProperty. Note: use the constructor's
+            // "prototype" property to get Object.prototype. JS_GetPrototype(object)
+            // would return the Object *constructor's* [[Prototype]]
+            // (Function.prototype), from which hasOwnProperty is only reachable by
+            // inheritance - correct by luck, but not by intent.
+            JSValue prototype = JS_GetPropertyStr(context, object, "prototype");
             if (!JS_IsException(prototype) && JS_IsObject(prototype))
             {
                 JSValue hasOwnProperty = JS_GetPropertyStr(context, prototype, "hasOwnProperty");

@@ -52,7 +52,7 @@ if(NAPI_BUILD_ABI)
             "Source/env_quickjs.cc"
             "Source/js_native_api_quickjs.cc"
             "Source/js_native_api_quickjs.h")
-        set(LINK_LIBRARIES ${LINK_LIBRARIES} PRIVATE qjs)
+        set(LINK_LIBRARIES ${LINK_LIBRARIES} PUBLIC qjs)
     elseif(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra")
         set(SOURCES ${SOURCES}
             "Source/env_chakra.cc"
