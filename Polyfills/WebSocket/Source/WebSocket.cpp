@@ -44,14 +44,17 @@ namespace Babylon::Polyfills::Internal
         , m_cancellationSource{std::make_shared<arcana::cancellation_source>()}
     {
         // Keep the JS wrapper alive for the lifetime of the connection. The
-        // socket's open/message/error/close callbacks arrive asynchronously
-        // (often after the script has dropped its last reference to the
-        // socket). Without this strong self-reference the wrapper - and this
+        // socket. Without this strong self-reference the wrapper - and this
         // native object - would be garbage collected before those callbacks
         // fire, so they would observe a cancelled cancellation source and
         // never run. The reference is released in CloseCallback, the socket's
         // terminal event.
-        Ref();
+        //
+        // A strong Napi::ObjectReference to the wrapper is used (rather than
+        // ObjectWrap::Ref()) so this compiles across every N-API backend,
+        // including the JSI backend whose ObjectWrap does not derive from
+        // Napi::Reference and therefore has no Ref()/Unref()/Value().
+        m_selfReference = Napi::Persistent(info.This().As<Napi::Object>());
         m_webSocket.Open();
     }
 
@@ -218,15 +221,16 @@ namespace Babylon::Polyfills::Internal
             {
                 return;
             }
-            // Hold a local strong reference to the wrapper for the duration of
-            // this callback. The connection keep-alive established in the
-            // constructor (Ref()) is released via Unref() below; this local
-            // reference ensures the wrapper is not finalized synchronously
+            // Move the connection keep-alive established in the constructor into
+            // a local strong reference for the duration of this callback. This
+            // both releases the keep-alive (Close is the socket's terminal
+            // event) and ensures the wrapper is not finalized synchronously
             // (and `this` deleted) while we are still executing - QuickJS frees
             // objects the instant their refcount reaches zero. The wrapper is
             // finalized safely when this local reference goes out of scope at
-            // the end of the callback.
-            Napi::ObjectReference selfRef = Napi::Persistent(Value());
+            // the end of the callback. A moved-from ObjectReference is left
+            // empty, so the member no longer keeps the wrapper alive.
+            Napi::ObjectReference selfRef = std::move(m_selfReference);
             m_readyState = ReadyState::Closed;
             try
             {
@@ -248,11 +252,6 @@ namespace Babylon::Polyfills::Internal
             m_onclose.Reset();
             m_onmessage.Reset();
             m_onerror.Reset();
-
-            // Release the connection keep-alive taken in the constructor. Close
-            // is the socket's terminal event, so the wrapper may now be
-            // collected once this callback's local reference is released.
-            Unref();
         });
     }
 

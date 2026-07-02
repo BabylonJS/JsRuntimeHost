@@ -55,5 +55,9 @@ namespace Babylon::Polyfills::Internal
         ReadyState m_readyState{ReadyState::Connecting};
 
         std::shared_ptr<arcana::cancellation_source> m_cancellationSource{};
+
+        // Strong reference to the JS wrapper object that keeps this instance
+        // alive for the duration of the connection. Released on close.
+        Napi::ObjectReference m_selfReference{};
     };
 }
