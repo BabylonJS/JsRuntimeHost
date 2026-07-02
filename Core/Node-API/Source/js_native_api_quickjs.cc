@@ -111,7 +111,13 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
       return JS_EXCEPTION;
     }
     
-    actualThis = JS_NewObjectProto(ctx, prototypeProperty);
+    // Create the instance with the wrap class id so it owns an opaque slot and
+    // the NapiWrap finalizer directly. napi_wrap() then stores the native
+    // pointer on the instance itself (via JS_SetOpaque) instead of inserting a
+    // separate wrapper object into the prototype chain. This keeps the native
+    // data completely invisible to JS: Object.getPrototypeOf(instance) is the
+    // class prototype and no extra own-property is added (regression #172).
+    actualThis = JS_NewObjectProtoClass(ctx, prototypeProperty, js_wrap_class_id);
     JS_FreeValue(ctx, prototypeProperty);
     
     if (JS_IsException(actualThis)) {
@@ -2411,6 +2417,15 @@ napi_status napi_run_script(napi_env env, napi_value script, const char* source_
 }
 
 // Wrap/Unwrap for native objects
+//
+// Instances created by a napi class constructor carry the js_wrap_class_id
+// class (see the constructor trampoline in ExternalCallback::Callback), which
+// gives them an opaque slot plus the NapiWrap finalizer. In that case (the only
+// one exercised in this codebase, since node-addon-api's ObjectWrap always
+// wraps the constructor's `this`) we store the native pointer directly on the
+// instance, so nothing is observable from JS: the prototype is untouched and no
+// own-property is added. The prototype-chain fallback below only runs for the
+// theoretical case of wrapping an object we did not construct.
 napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object, napi_finalize finalize_cb, void* finalize_hint, napi_ref* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, js_object);
@@ -2422,18 +2437,27 @@ napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object, n
   
   ExternalData* externalData = new ExternalData(env, native_object, finalize_cb, finalize_hint);
   
-  // Create wrapper object and insert into prototype chain
-  JSValue wrapper = JS_NewObjectClass(env->context, js_wrap_class_id);
-  JS_SetOpaque(wrapper, externalData);
-  
-  // Insert wrapper between object and its prototype
-  JSValue prototype = JS_GetPrototype(env->context, jsObject);
-  JS_SetPrototype(env->context, wrapper, prototype);
-  JS_SetPrototype(env->context, jsObject, wrapper);
-  
-  // Free our local reference - the wrapper is now held by jsObject's prototype chain
-  JS_FreeValue(env->context, wrapper);
-  JS_FreeValue(env->context, prototype);
+  if (JS_GetClassID(jsObject) == js_wrap_class_id) {
+    // Fast path: the instance itself owns the opaque slot. Reject a double wrap
+    // rather than leaking the previously stored ExternalData.
+    if (JS_GetOpaque(jsObject, js_wrap_class_id) != nullptr) {
+      delete externalData;
+      return napi_set_last_error(env, napi_invalid_arg);
+    }
+    JS_SetOpaque(jsObject, externalData);
+  } else {
+    // Fallback: create a wrapper object carrying the opaque slot and splice it
+    // into the prototype chain. Not reached by ObjectWrap-based classes.
+    JSValue wrapper = JS_NewObjectClass(env->context, js_wrap_class_id);
+    JS_SetOpaque(wrapper, externalData);
+
+    JSValue prototype = JS_GetPrototype(env->context, jsObject);
+    JS_SetPrototype(env->context, wrapper, prototype);
+    JS_SetPrototype(env->context, jsObject, wrapper);
+
+    JS_FreeValue(env->context, wrapper);
+    JS_FreeValue(env->context, prototype);
+  }
   
   if (result != nullptr) {
     CHECK_NAPI(napi_create_reference(env, js_object, 0, result));
@@ -2450,12 +2474,19 @@ napi_status napi_unwrap(napi_env env, napi_value js_object, void** result) {
   
   JSValue jsObject = ToJSValue(js_object);
   
-  // Search prototype chain for wrapper
-  JSValue current = JS_DupValue(env->context, jsObject);
+  // Fast path: native pointer stored on the instance itself.
+  if (JS_GetClassID(jsObject) == js_wrap_class_id) {
+    ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(jsObject, js_wrap_class_id));
+    *result = externalData ? externalData->Data() : nullptr;
+    napi_clear_last_error(env);
+    return napi_ok;
+  }
+
+  // Fallback: search the prototype chain for a legacy wrapper object.
+  JSValue current = JS_GetPrototype(env->context, jsObject);
   
   while (!JS_IsNull(current)) {
-    JSClassID class_id = JS_GetClassID(current);
-    if (class_id == js_wrap_class_id) {
+    if (JS_GetClassID(current) == js_wrap_class_id) {
       ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(current, js_wrap_class_id));
       *result = externalData ? externalData->Data() : nullptr;
       JS_FreeValue(env->context, current);
@@ -2479,9 +2510,25 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
 
   JSValue jsObject = ToJSValue(js_object);
 
-  // Walk the prototype chain looking for the wrapper object inserted by
-  // napi_wrap(). `parent` is the object whose prototype is `current`, so once
-  // the wrapper is found it can be spliced out of the chain.
+  // Fast path: the instance owns the opaque slot. Detach the finalizer by
+  // clearing the opaque and deleting the adapter directly (without running the
+  // user finalize callback) so a later GC does not run it on native memory that
+  // is being handed back or has already been freed (e.g. an ObjectWrap
+  // constructor that threw during stack unwinding).
+  if (JS_GetClassID(jsObject) == js_wrap_class_id) {
+    ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(jsObject, js_wrap_class_id));
+    if (result != nullptr) {
+      *result = externalData ? externalData->Data() : nullptr;
+    }
+    JS_SetOpaque(jsObject, nullptr);
+    delete externalData;
+    napi_clear_last_error(env);
+    return napi_ok;
+  }
+
+  // Fallback: walk the prototype chain looking for a legacy wrapper object.
+  // `parent` is the object whose prototype is `current`, so once the wrapper is
+  // found it can be spliced out of the chain.
   JSValue parent = JS_DupValue(env->context, jsObject);
   JSValue current = JS_GetPrototype(env->context, jsObject);
 
@@ -2492,13 +2539,8 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
         *result = externalData ? externalData->Data() : nullptr;
       }
 
-      // Detach the finalizer: clear the opaque so a later GC of the wrapper
-      // does not run the finalize callback (and delete) on native memory that
-      // is being handed back to the caller or that has already been freed
-      // (e.g. an ObjectWrap constructor that threw during stack unwinding).
       JS_SetOpaque(current, nullptr);
 
-      // Splice the wrapper out of the prototype chain.
       JSValue wrapperProto = JS_GetPrototype(env->context, current);
       JS_SetPrototype(env->context, parent, wrapperProto);
       JS_FreeValue(env->context, wrapperProto);

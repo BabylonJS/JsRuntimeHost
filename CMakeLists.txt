@@ -53,7 +53,7 @@ FetchContent_Declare(UrlLib
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
-    GIT_TAG c707cf5eda67a97bbff7a60cb2ef124fd4a77420
+    GIT_TAG 93d3f7df465027f487ed37e175a0bc3012fee79e
     EXCLUDE_FROM_ALL)
     
 # --------------------------------------------------
