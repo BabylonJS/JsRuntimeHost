@@ -142,6 +142,12 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     if (!JS_HasException(ctx)) {
       JS_ThrowInternalError(ctx, "Uncaught C++ exception: %s", e.what());
     }
+    // See the isConstructCall note below: detach any wrap finalizer so a
+    // throwing constructor does not leave a finalizer attached to the freed
+    // native instance.
+    if (isConstructCall) {
+      napi_remove_wrap(externalCallback->_env, reinterpret_cast<napi_value>(&actualThis), nullptr);
+    }
     JS_FreeValue(ctx, actualThis);
     externalCallback->_env->current_context = savedCtx;
     return JS_EXCEPTION;
@@ -149,6 +155,15 @@ static JSValue Callback(JSContext *ctx, JSValueConst this_val, int argc, JSValue
 
   // Check for exception in the CURRENT execution context
   if (JS_HasException(ctx)) {
+    // If a constructor left a pending exception, node-addon-api has already
+    // destroyed the C++ ObjectWrap instance during stack unwinding, but the
+    // wrap finalizer registered by napi_wrap() is still attached to
+    // `actualThis`. Detach it now so a later GC does not run the finalizer on
+    // the freed native instance (use-after-free / heap corruption). The
+    // pending JS exception is preserved across this cleanup.
+    if (isConstructCall) {
+      napi_remove_wrap(externalCallback->_env, reinterpret_cast<napi_value>(&actualThis), nullptr);
+    }
     JS_FreeValue(ctx, actualThis);
     externalCallback->_env->current_context = savedCtx; // RESTORE
     return JS_EXCEPTION;
@@ -663,6 +678,11 @@ napi_status napi_get_value_string_utf8(napi_env env, napi_value value, char* buf
     if (result != nullptr) {
       *result = copy_len;
     }
+  } else if (result != nullptr) {
+    // buf != nullptr but bufsize == 0: no room for the null terminator. Report
+    // zero copied and write nothing, instead of evaluating bufsize - 1 (which
+    // would underflow to SIZE_MAX).
+    *result = 0;
   }
 
   JS_FreeCString(env->context, str);
@@ -746,6 +766,12 @@ napi_status napi_get_value_string_utf16(napi_env env, napi_value value, char16_t
     if (result != nullptr) {
       *result = copy_len;
     }
+  } else if (result != nullptr) {
+    // buf != nullptr but bufsize == 0: no room for any character or the null
+    // terminator. Report zero copied and write nothing, instead of evaluating
+    // bufsize - 1 (which would underflow to SIZE_MAX and copy the whole string
+    // into the zero-length buffer).
+    *result = 0;
   }
 
   napi_clear_last_error(env);
@@ -2450,14 +2476,52 @@ napi_status napi_unwrap(napi_env env, napi_value js_object, void** result) {
 napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) {
   CHECK_ENV(env);
   CHECK_ARG(env, js_object);
-  
-  // For now, just unwrap - full removal would require tracking the parent
-  if (result != nullptr) {
-    return napi_unwrap(env, js_object, result);
+
+  JSValue jsObject = ToJSValue(js_object);
+
+  // Walk the prototype chain looking for the wrapper object inserted by
+  // napi_wrap(). `parent` is the object whose prototype is `current`, so once
+  // the wrapper is found it can be spliced out of the chain.
+  JSValue parent = JS_DupValue(env->context, jsObject);
+  JSValue current = JS_GetPrototype(env->context, jsObject);
+
+  while (!JS_IsNull(current)) {
+    if (JS_GetClassID(current) == js_wrap_class_id) {
+      ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(current, js_wrap_class_id));
+      if (result != nullptr) {
+        *result = externalData ? externalData->Data() : nullptr;
+      }
+
+      // Detach the finalizer: clear the opaque so a later GC of the wrapper
+      // does not run the finalize callback (and delete) on native memory that
+      // is being handed back to the caller or that has already been freed
+      // (e.g. an ObjectWrap constructor that threw during stack unwinding).
+      JS_SetOpaque(current, nullptr);
+
+      // Splice the wrapper out of the prototype chain.
+      JSValue wrapperProto = JS_GetPrototype(env->context, current);
+      JS_SetPrototype(env->context, parent, wrapperProto);
+      JS_FreeValue(env->context, wrapperProto);
+
+      delete externalData;
+
+      JS_FreeValue(env->context, current);
+      JS_FreeValue(env->context, parent);
+      napi_clear_last_error(env);
+      return napi_ok;
+    }
+
+    JS_FreeValue(env->context, parent);
+    parent = current; // transfer ownership
+    current = JS_GetPrototype(env->context, parent);
   }
-  
-  napi_clear_last_error(env);
-  return napi_ok;
+
+  JS_FreeValue(env->context, parent);
+  JS_FreeValue(env->context, current); // Free the final JS_NULL value
+  if (result != nullptr) {
+    *result = nullptr;
+  }
+  return napi_set_last_error(env, napi_invalid_arg);
 }
 
 // External values

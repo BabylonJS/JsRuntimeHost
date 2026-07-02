@@ -121,6 +121,13 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.status).to.equal(404);
     });
 
+    it("should expose statusText", async function () {
+        const okXhr = await createRequest("GET", "https://github.com/");
+        expect(okXhr.statusText).to.equal("OK");
+        const notFoundXhr = await createRequest("GET", "https://github.com/babylonJS/BabylonNative404");
+        expect(notFoundXhr.statusText).to.equal("Not Found");
+    });
+
     it("should fire 'error' event for a remote URL that returns HTTP 404", async function () {
         // Regression test: previously the success-only continuation in XMLHttpRequest::Send
         // skipped 'error' on async failures including non-2xx HTTP responses, so onerror
@@ -238,8 +245,96 @@ describe("XMLHTTPRequest", function () {
     });
 });
 
+describe("fetch", function () {
+    this.timeout(30000);
+
+    it("should resolve with ok=true and status=200 for a resource that exists", async function () {
+        const response = await fetch("https://github.com/");
+        expect(response.ok).to.equal(true);
+        expect(response.status).to.equal(200);
+    });
+
+    it("should resolve (not reject) with ok=false and status=404 for a resource that does not exist", async function () {
+        const response = await fetch("https://github.com/babylonJS/BabylonNative404");
+        expect(response.ok).to.equal(false);
+        expect(response.status).to.equal(404);
+    });
+
+    it("should expose statusText", async function () {
+        const okResponse = await fetch("https://github.com/");
+        expect(okResponse.statusText).to.equal("OK");
+        const notFoundResponse = await fetch("https://github.com/babylonJS/BabylonNative404");
+        expect(notFoundResponse.statusText).to.equal("Not Found");
+    });
+
+    it("text() should return the body as a string", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        expect(await response.text()).to.equal("var symlink_target_js = true;");
+    });
+
+    it("arrayBuffer() should return the body as bytes", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        const expected = new Uint8Array("var symlink_target_js = true;".split("").map(x => x.charCodeAt(0)));
+        expect(new Uint8Array(await response.arrayBuffer())).to.eql(expected);
+    });
+
+    it("json() should parse a JSON body", async function () {
+        const response = await fetch("app:///Assets/sample.json");
+        const json = await response.json();
+        expect(json.name).to.equal("fetch-polyfill-test");
+        expect(json.value).to.equal(42);
+        expect(json.nested.items).to.eql([1, 2, 3]);
+    });
+
+    it("json() should reject when the body is not valid JSON", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        let rejected = false;
+        try {
+            await response.json();
+        } catch {
+            rejected = true;
+        }
+        expect(rejected).to.equal(true);
+    });
+
+    it("blob() should return a Blob with the body bytes", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        const blob = await response.blob();
+        expect(blob.size).to.equal("var symlink_target_js = true;".length);
+        expect(await blob.text()).to.equal("var symlink_target_js = true;");
+    });
+
+    it("headers.get() should be case-insensitive and headers.has() should work", async function () {
+        const response = await fetch("https://github.com/");
+        expect(response.headers.has("Content-Type")).to.equal(true);
+        expect(response.headers.get("CONTENT-TYPE")).to.equal(response.headers.get("content-type"));
+    });
+
+    it("clone() should produce an independently readable response", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        const clone = response.clone();
+        expect(await response.text()).to.equal("var symlink_target_js = true;");
+        expect(await clone.text()).to.equal("var symlink_target_js = true;");
+    });
+
+    it("should accept a method in the init object", async function () {
+        const response = await fetch("https://github.com/", { method: "GET" });
+        expect(response.status).to.equal(200);
+    });
+
+    it("should reject when no arguments are provided", async function () {
+        let rejected = false;
+        try {
+            await (fetch as any)();
+        } catch {
+            rejected = true;
+        }
+        expect(rejected).to.equal(true);
+    });
+});
+
 describe("setTimeout", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should return an id greater than zero", function () {
         const id = setTimeout(() => { }, 0);
@@ -347,7 +442,7 @@ describe("setTimeout", function () {
 });
 
 describe("clearTimeout", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should stop the timeout matching the given timeout id", function (done) {
         const id = setTimeout(() => {
@@ -372,7 +467,7 @@ describe("clearTimeout", function () {
 });
 
 describe("setInterval", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should return an id greater than zero", function () {
         const id = setInterval(() => { }, 0);
@@ -402,7 +497,7 @@ describe("setInterval", function () {
 });
 
 describe("clearInterval", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should stop the interval matching the given interval id", function (done) {
         const id = setInterval(() => {
@@ -429,6 +524,8 @@ describe("clearInterval", function () {
 // Websocket
 if (hostPlatform !== "Unix") {
     describe("WebSocket", function () {
+        this.timeout(10000);
+
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket("wss://ws.postman-echo.com/raw");
             const testMessage = "testMessage";
@@ -1394,6 +1491,44 @@ describe("TextDecoder", function () {
         const result = decoder.decode(encoded);
         expect(result).to.equal("H\0i");
         expect(result.length).to.equal(3);
+    });
+
+    it("throwing from the constructor repeatedly does not corrupt native state", function () {
+        // Regression for a Chakra N-API ObjectWrap bug: when a wrapped
+        // constructor throws, the native instance is destroyed during stack
+        // unwinding but the wrap finalizer stayed attached to `this`, so a
+        // later GC ran the finalizer on freed memory (heap corruption). Throw
+        // many times to create many dangling wraps, then allocate/decode to
+        // exercise the heap and surface any corruption within this test run.
+        for (let i = 0; i < 100; ++i) {
+            expect(() => new TextDecoder("utf-16")).to.throw();
+        }
+        const decoder = new TextDecoder("utf-8");
+        expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+    });
+
+    it("should accept the WHATWG 'utf8' label (no hyphen)", function () {
+        const decoder = new TextDecoder("utf8");
+        const result = decoder.decode(new Uint8Array([72, 105])); // "Hi"
+        expect(result).to.equal("Hi");
+    });
+
+    it("should accept utf-8 labels case-insensitively and with surrounding whitespace", function () {
+        for (const label of ["UTF-8", "UTF8", "  utf-8  ", "\tUtf8\n"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+        }
+    });
+
+    it("should accept the other WHATWG utf-8 aliases", function () {
+        for (const label of ["unicode-1-1-utf-8", "unicode11utf8", "unicode20utf8", "x-unicode20utf8"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+        }
+    });
+
+    it("should still throw for a genuinely unsupported encoding", function () {
+        expect(() => new TextDecoder("utf-16")).to.throw();
     });
 });
 

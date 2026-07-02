@@ -80,6 +80,7 @@ namespace Babylon::Polyfills::Internal
                 InstanceAccessor("responseType", &XMLHttpRequest::GetResponseType, &XMLHttpRequest::SetResponseType),
                 InstanceAccessor("responseURL", &XMLHttpRequest::GetResponseURL, nullptr),
                 InstanceAccessor("status", &XMLHttpRequest::GetStatus, nullptr),
+                InstanceAccessor("statusText", &XMLHttpRequest::GetStatusText, nullptr),
                 InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
                 InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
                 InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
@@ -147,6 +148,18 @@ namespace Babylon::Polyfills::Internal
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
         return Napi::Value::From(Env(), arcana::underlying_cast(m_request.StatusCode()));
+    }
+
+    Napi::Value XMLHttpRequest::GetStatusText(const Napi::CallbackInfo&)
+    {
+        // Per the XHR spec, statusText is the empty string until a response is available
+        // (status 0 means UNSENT/OPENED or a network error).
+        if (arcana::underlying_cast(m_request.StatusCode()) == 0)
+        {
+            return Napi::String::New(Env(), "");
+        }
+
+        return Napi::String::New(Env(), std::string{m_request.StatusText()});
     }
 
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
@@ -259,11 +272,23 @@ namespace Babylon::Polyfills::Internal
 
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::Send [" << m_url << "]").str();
         auto sendRegion = std::make_optional<arcana::trace_region>(traceName.c_str());
+
+        // Keep the JS wrapper (and therefore this C++ object) alive for the
+        // duration of the asynchronous request. The continuation below captures
+        // `this` raw and dereferences members when the request settles; without
+        // an anchor, GC may collect the wrapper while the request is in flight
+        // (e.g. once the requesting script drops its reference) and the
+        // continuation would then run on a freed `this`. The anchor lives in a
+        // shared_ptr owned by the continuation lambda, so it is released
+        // automatically once the request settles and the lambda is destroyed --
+        // no member self-reference to clear. (Mirrors FileReader's anchor.)
+        auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
+
         m_request.SendAsync()
             .then(arcana::inline_scheduler, arcana::cancellation::none(), [sendRegion{std::move(sendRegion)}]() mutable {
                 sendRegion.reset();
             })
-            .then(m_runtimeScheduler, arcana::cancellation::none(), [this](const arcana::expected<void, std::exception_ptr>& result) {
+            .then(m_runtimeScheduler, arcana::cancellation::none(), [this, anchor{std::move(anchor)}](const arcana::expected<void, std::exception_ptr>& result) {
                 // Run on every outcome -- transport exception OR underlying request succeeded but ended in a non-2xx
                 // status (e.g. a missing local file on UWP, where UrlLib silently retains status 0). The previous
                 // success-only continuation here skipped readyState=Done / loadend / error and let the JS observer

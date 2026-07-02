@@ -59,4 +59,12 @@ namespace Babylon
         JS_FreeContext(context);
         JS_FreeRuntime(runtime);
     }
+
+    void AppRuntime::DrainMicrotasks(Napi::Env)
+    {
+        // QuickJS drains its pending job queue (Promise continuations,
+        // queueMicrotask, etc.) through the post-tick callback installed in
+        // RunEnvironmentTier, which runs after every dispatcher tick. No
+        // explicit pump is needed here.
+    }
 }
