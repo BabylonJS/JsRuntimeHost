@@ -1,5 +1,6 @@
 #include <napi/env.h>
 #include "js_native_api_quickjs.h"
+#include <stdexcept>
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshorten-64-to-32"
@@ -15,43 +16,46 @@ namespace Napi
     {
         napi_env env_ptr{new napi_env__};
         env_ptr->context = context;
-        env_ptr->current_context = env_ptr->context; 
+        env_ptr->current_context = env_ptr->context;
 
-        // Get Object.prototype.hasOwnProperty
+        // Cache Object.prototype.hasOwnProperty for napi_has_own_property's
+        // fast path. These lookups are fundamental to any valid context, so a
+        // failure here signals a broken context: throw rather than silently
+        // leaving has_own_property_function undefined (matching how the other
+        // engines fail Attach loudly).
         JSValue global = JS_GetGlobalObject(context);
         JSValue object = JS_GetPropertyStr(context, global, "Object");
-        if (!JS_IsException(object) && JS_IsObject(object))
-        {
-            // Object.prototype.hasOwnProperty. Note: use the constructor's
-            // "prototype" property to get Object.prototype. JS_GetPrototype(object)
-            // would return the Object *constructor's* [[Prototype]]
-            // (Function.prototype), from which hasOwnProperty is only reachable by
-            // inheritance - correct by luck, but not by intent.
-            JSValue prototype = JS_GetPropertyStr(context, object, "prototype");
-            if (!JS_IsException(prototype) && JS_IsObject(prototype))
-            {
-                JSValue hasOwnProperty = JS_GetPropertyStr(context, prototype, "hasOwnProperty");
-                if (!JS_IsException(hasOwnProperty))
-                {
-                    env_ptr->has_own_property_function = hasOwnProperty;
-                }
-                else
-                {
-                    JS_FreeValue(context, hasOwnProperty);
-                }
-                JS_FreeValue(context, prototype);
-            }
-            else if (JS_IsException(prototype))
-            {
-                JS_FreeValue(context, prototype);
-            }
-            JS_FreeValue(context, object);
-        }
-        else if (JS_IsException(object))
-        {
-            JS_FreeValue(context, object);
-        }
         JS_FreeValue(context, global);
+        if (JS_IsException(object) || !JS_IsObject(object))
+        {
+            JS_FreeValue(context, object);
+            delete env_ptr;
+            throw std::runtime_error{"Napi::Attach: failed to resolve the global 'Object' constructor"};
+        }
+
+        // Use the constructor's "prototype" property to get Object.prototype.
+        // JS_GetPrototype(object) would return the Object *constructor's*
+        // [[Prototype]] (Function.prototype), from which hasOwnProperty is only
+        // reachable by inheritance - correct by luck, but not by intent.
+        JSValue prototype = JS_GetPropertyStr(context, object, "prototype");
+        JS_FreeValue(context, object);
+        if (JS_IsException(prototype) || !JS_IsObject(prototype))
+        {
+            JS_FreeValue(context, prototype);
+            delete env_ptr;
+            throw std::runtime_error{"Napi::Attach: failed to resolve Object.prototype"};
+        }
+
+        JSValue hasOwnProperty = JS_GetPropertyStr(context, prototype, "hasOwnProperty");
+        JS_FreeValue(context, prototype);
+        if (JS_IsException(hasOwnProperty) || !JS_IsFunction(context, hasOwnProperty))
+        {
+            JS_FreeValue(context, hasOwnProperty);
+            delete env_ptr;
+            throw std::runtime_error{"Napi::Attach: failed to resolve Object.prototype.hasOwnProperty"};
+        }
+
+        env_ptr->has_own_property_function = hasOwnProperty;
 
         return {env_ptr};
     }

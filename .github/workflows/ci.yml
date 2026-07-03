@@ -112,6 +112,13 @@ jobs:
       runs-on: macos-26
       enable-thread-sanitizer: true
 
+  macOS_Xcode264_QuickJS:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      xcode-version: '26.4'
+      runs-on: macos-26
+      js-engine: QuickJS
+
   # ── iOS ───────────────────────────────────────────────────────
   iOS_Xcode264:
     uses: ./.github/workflows/build-ios.yml

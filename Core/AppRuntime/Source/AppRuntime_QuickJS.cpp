@@ -41,17 +41,8 @@ namespace Babylon
         {
             Napi::Env env = Napi::Attach(context);
 
-            // Install microtask processing as a post-tick callback
-            SetPostTickCallback([runtime]() {
-                JSContext* pending_ctx;
-                while (JS_ExecutePendingJob(runtime, &pending_ctx) > 0)
-                {
-                }
-            });
-
             Run(env);
 
-            SetPostTickCallback(nullptr);
             Napi::Detach(env);
         }
 
@@ -60,11 +51,17 @@ namespace Babylon
         JS_FreeRuntime(runtime);
     }
 
-    void AppRuntime::DrainMicrotasks(Napi::Env)
+    void AppRuntime::DrainMicrotasks(Napi::Env env)
     {
-        // QuickJS drains its pending job queue (Promise continuations,
-        // queueMicrotask, etc.) through the post-tick callback installed in
-        // RunEnvironmentTier, which runs after every dispatcher tick. No
-        // explicit pump is needed here.
+        // QuickJS does not auto-drain its job queue. Promise continuations,
+        // queueMicrotask callbacks, etc. are queued as "pending jobs" and only
+        // run when explicitly pumped. We drain them here, after each user
+        // callback, so async code observes the same "between turns" semantics
+        // it gets on the auto-draining engines (V8/Chakra/JSC).
+        JSRuntime* runtime = JS_GetRuntime(Napi::GetContext(env));
+        JSContext* pending_ctx;
+        while (JS_ExecutePendingJob(runtime, &pending_ctx) > 0)
+        {
+        }
     }
 }
