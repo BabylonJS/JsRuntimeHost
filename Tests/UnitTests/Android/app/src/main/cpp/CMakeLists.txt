@@ -22,6 +22,9 @@ add_library(UnitTestsJNI SHARED
     ${UNIT_TESTS_DIR}/Shared/Shared.cpp)
 
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
+target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+# Engine-specific compile-time gate (e.g. JSRUNTIMEHOST_NAPI_ENGINE_V8), matching Tests/UnitTests/CMakeLists.txt.
+target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_${NAPI_JAVASCRIPT_ENGINE})
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
 
 target_include_directories(UnitTestsJNI

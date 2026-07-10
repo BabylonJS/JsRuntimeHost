@@ -139,4 +139,11 @@ namespace Babylon
             });
         });
     }
+
+    void AppRuntime::OnUnhandledPromiseRejection(const Napi::Error& error)
+    {
+        // The reason is wrapped into a Napi::Error by the engine implementation (the napi_value ->
+        // Napi::Value bridge is shim-specific), so this just forwards to the embedder's handler.
+        m_options.UnhandledExceptionHandler(error);
+    }
 }

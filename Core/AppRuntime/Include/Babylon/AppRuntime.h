@@ -45,6 +45,24 @@ namespace Babylon
 
         void Dispatch(Dispatchable<void(Napi::Env)> callback);
 
+        // Routes an unhandled promise rejection to the embedder's UnhandledExceptionHandler (which
+        // defaults to a benign logger), so an embedder's crash/telemetry pipeline can observe
+        // fire-and-forget failures (e.g. an un-awaited fetch() that rejects) -- matching the browser
+        // `unhandledrejection` behavior. Reporting is deferred to the end of the turn, so a rejection
+        // handled synchronously (e.g. `const p = Promise.reject(e); p.catch(...)`) is not reported.
+        //
+        // Coverage is determined by whether the engine exposes a host promise-rejection hook:
+        //   * V8 (Isolate::SetPromiseRejectCallback) -- supported on all platforms.
+        //   * Apple JavaScriptCore (JSGlobalContextSetUnhandledRejectionCallback) -- supported. This
+        //     is an SPI present only in Apple's JSC; the WebKitGTK JSC used on Linux does not expose
+        //     it, so tracking is a no-op there.
+        //   * Chakra (in-box/EdgeMode) and JSI -- no-op: neither exposes such a hook
+        //     (JsSetHostPromiseRejectionTracker is ChakraCore-only, and neither jsi::Runtime nor
+        //     V8JSI surfaces the V8 callback).
+        //
+        // Intended for internal (engine-implementation) use.
+        void OnUnhandledPromiseRejection(const Napi::Error& error);
+
         // Default unhandled exception handler that outputs the error message to the program output.
         static void BABYLON_API DefaultUnhandledExceptionHandler(const Napi::Error& error);
 

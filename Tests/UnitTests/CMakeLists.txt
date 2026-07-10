@@ -45,12 +45,14 @@ endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
-
-# The V8JSI Node-API shim does not implement napi_create_dataview, so the
-# CreateDataViewRejectsOverflowingRange test is compiled out on that backend.
-if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
-    target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_JSI)
-endif()
+target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+# Engine-specific compile-time gate so tests can select behavior by the active Node-API engine
+# without a runtime string comparison, e.g.:
+#   JSRUNTIMEHOST_NAPI_ENGINE_V8, JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore,
+#   JSRUNTIMEHOST_NAPI_ENGINE_Chakra, JSRUNTIMEHOST_NAPI_ENGINE_JSI.
+# (JSI compiles out CreateDataViewRejectsOverflowingRange since the V8JSI shim lacks
+# napi_create_dataview; V8/JavaScriptCore gate the unhandled-rejection handler tests.)
+target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_${NAPI_JAVASCRIPT_ENGINE})
 
 target_link_libraries(UnitTests
     PRIVATE AppRuntime
