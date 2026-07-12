@@ -7,7 +7,7 @@
 # Bun's Linux JavaScriptCore is statically linked into the final executable, so
 # a called_from_lib suppression cannot identify it. Match the interceptor frames
 # previously observed on JSC's JIT worker threads instead.
-# Races manifest in TSan interceptors (free/malloc/memcpy/close) called from
+# Races manifest in TSan interceptors (free/memcpy/close) called from
 # JSC's JIT worker threads.
 race:free
 race:close
