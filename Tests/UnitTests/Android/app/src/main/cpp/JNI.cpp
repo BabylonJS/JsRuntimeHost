@@ -22,7 +22,11 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     android::global::Initialize(javaVM, context);
 
     Babylon::DebugTrace::EnableDebugTrace(true);
-    Babylon::DebugTrace::SetTraceOutput([](const char* trace) { printf("%s\n", trace); fflush(stdout); });
+    // Emit debug-trace lines straight to logcat under a dedicated "JsRuntimeHost" tag instead of
+    // routing them through AndroidExtensions' StdoutLogger (which forwards all stdout under a single
+    // tag, interleaved with the gtest output). The distinct tag keeps connected-test diagnostics
+    // filterable, e.g. `adb logcat -s JsRuntimeHost`.
+    Babylon::DebugTrace::SetTraceOutput([](const char* trace) { __android_log_print(ANDROID_LOG_INFO, "JsRuntimeHost", "%s", trace); });
 
     auto testResult = RunTests();
 
