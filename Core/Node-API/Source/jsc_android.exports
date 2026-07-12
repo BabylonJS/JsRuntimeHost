@@ -1,0 +1,8 @@
+{
+    global:
+        JS*;
+        JSCAndroid*;
+        kJS*;
+    local:
+        *;
+};

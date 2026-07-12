@@ -8,12 +8,55 @@
 #include <thread>
 #include <cassert>
 
+#if __ANDROID__
+extern "C" void* JSCAndroidAcquireContextLock(JSGlobalContextRef context);
+extern "C" void JSCAndroidReleaseContextLock(void* opaqueLock);
+extern "C" bool JSCAndroidLockContext(JSGlobalContextRef context);
+extern "C" void JSCAndroidUnlockContext(JSGlobalContextRef context);
+
+class JSCAndroidContextLock final {
+ public:
+  explicit JSCAndroidContextLock(JSGlobalContextRef context)
+      : lock{JSCAndroidAcquireContextLock(context)} {}
+
+  ~JSCAndroidContextLock() {
+    JSCAndroidReleaseContextLock(lock);
+  }
+
+  JSCAndroidContextLock(const JSCAndroidContextLock&) = delete;
+  JSCAndroidContextLock& operator=(const JSCAndroidContextLock&) = delete;
+
+ private:
+  void* lock{};
+};
+
+class JSCAndroidAPILock final {
+ public:
+  explicit JSCAndroidAPILock(JSGlobalContextRef context)
+      : context{context}, locked{JSCAndroidLockContext(context)} {}
+
+  ~JSCAndroidAPILock() {
+    if (locked) {
+      JSCAndroidUnlockContext(context);
+    }
+  }
+
+  JSCAndroidAPILock(const JSCAndroidAPILock&) = delete;
+  JSCAndroidAPILock& operator=(const JSCAndroidAPILock&) = delete;
+
+ private:
+  JSGlobalContextRef context{};
+  bool locked{};
+};
+#endif
+
 struct napi_env__ {
   JSGlobalContextRef context{};
   JSValueRef last_exception{};
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
+  bool shutting_down{false};
 
   JSValueRef constructor_info_symbol{};
   JSValueRef function_info_symbol{};
@@ -23,6 +66,9 @@ struct napi_env__ {
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
+#if __ANDROID__
+    JSCAndroidContextLock contextLock{context};
+#endif
     napi_envs[context] = this;
     JSGlobalContextRetain(context);
     init_symbol(constructor_info_symbol, "BabylonNative_ConstructorInfo");
@@ -32,6 +78,10 @@ struct napi_env__ {
   }
 
   ~napi_env__() {
+#if __ANDROID__
+    JSCAndroidContextLock contextLock{context};
+#endif
+    shutting_down = true;
     deinit_refs();
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
@@ -65,13 +115,24 @@ struct napi_env__ {
     }                                                  \
   } while (0)
 
-#define CHECK_ENV(env)                                    \
-  do {                                                    \
-    if ((env) == nullptr) {                               \
-      return napi_invalid_arg;                            \
-    }                                                     \
-    assert(env->thread_id == std::this_thread::get_id()); \
+#if __ANDROID__
+#define CHECK_ENV(env)                                      \
+  do {                                                      \
+    if ((env) == nullptr) {                                 \
+      return napi_invalid_arg;                              \
+    }                                                       \
+  } while (0);                                              \
+  JSCAndroidAPILock jscAndroidAPILock{(env)->context};      \
+  assert((env)->thread_id == std::this_thread::get_id())
+#else
+#define CHECK_ENV(env)                                      \
+  do {                                                      \
+    if ((env) == nullptr) {                                 \
+      return napi_invalid_arg;                              \
+    }                                                       \
+    assert((env)->thread_id == std::this_thread::get_id()); \
   } while (0)
+#endif
 
 #define CHECK_ARG(env, arg) \
   RETURN_STATUS_IF_FALSE((env), ((arg) != nullptr), napi_invalid_arg)

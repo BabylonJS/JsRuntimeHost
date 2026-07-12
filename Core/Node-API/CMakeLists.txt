@@ -68,20 +68,109 @@ if(NAPI_BUILD_ABI)
             "Source/js_native_api_javascriptcore.h")
 
         if(ANDROID)
-            set(V8_PACKAGE_NAME "jsc-android")
-            set(JSC_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
-            napi_install_android_package(jsc "dist/org/webkit/android-jsc" ${JSC_ANDROID_DIR})
+            # Bun publishes the JavaScriptCore build used by each release as pinned Android static
+            # archives. Relink the selected archives into the libjsc.so boundary expected by napi,
+            # instead of installing an npm package only to unpack its embedded AAR.
+            set(JSR_JSC_BUN_WEBKIT_REVISION "5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b")
+            set(JSR_JSC_BUN_WEBKIT_RELEASE "autobuild-${JSR_JSC_BUN_WEBKIT_REVISION}")
+            set(JSR_JSC_ANDROID_ROOT "" CACHE PATH
+                "Path to an extracted Bun Android WebKit 'bun-webkit' directory; empty downloads the pinned release")
 
-            # Add `JavaScriptCore` prefix to the include path
-            file(RENAME "${JSC_ANDROID_DIR}/include" "${JSC_ANDROID_DIR}/JavaScriptCore")
-            file(MAKE_DIRECTORY "${JSC_ANDROID_DIR}/include")
-            file(RENAME "${JSC_ANDROID_DIR}/JavaScriptCore" "${JSC_ANDROID_DIR}/include/JavaScriptCore")
+            string(REGEX REPLACE "^android-" "" JSR_JSC_ANDROID_API_LEVEL "${ANDROID_PLATFORM}")
+            if(JSR_JSC_ANDROID_API_LEVEL LESS 28)
+                message(FATAL_ERROR
+                    "Bun's pinned Android WebKit archives target API 28; set Android minSdkVersion to 28 or newer")
+            endif()
+
+            if(ANDROID_ABI STREQUAL "arm64-v8a")
+                set(JSR_JSC_BUN_WEBKIT_ASSET "bun-webkit-linux-arm64-android.tar.gz")
+                set(JSR_JSC_BUN_WEBKIT_SHA256 "63c18a18c89dc3e1c0a93107f95290c27fbe310eb90e30dc197a7936804d034b")
+            elseif(ANDROID_ABI STREQUAL "x86_64")
+                set(JSR_JSC_BUN_WEBKIT_ASSET "bun-webkit-linux-amd64-android.tar.gz")
+                set(JSR_JSC_BUN_WEBKIT_SHA256 "c198efb68c17ae65ff66968f7d04bdab4845a5abaefb941b15e0e2b36aaab774")
+            else()
+                message(FATAL_ERROR
+                    "Bun Android JavaScriptCore supports only arm64-v8a and x86_64; got '${ANDROID_ABI}'")
+            endif()
+
+            if(JSR_JSC_ANDROID_ROOT)
+                set(JSC_ANDROID_DIR "${JSR_JSC_ANDROID_ROOT}")
+            else()
+                FetchContent_Declare(bun_webkit_android
+                    URL
+                        "https://github.com/oven-sh/WebKit/releases/download/${JSR_JSC_BUN_WEBKIT_RELEASE}/${JSR_JSC_BUN_WEBKIT_ASSET}"
+                    URL_HASH "SHA256=${JSR_JSC_BUN_WEBKIT_SHA256}")
+                FetchContent_GetProperties(bun_webkit_android)
+                if(NOT bun_webkit_android_POPULATED)
+                    message(STATUS
+                        "Downloading Bun WebKit ${JSR_JSC_BUN_WEBKIT_REVISION} for ${ANDROID_ABI}")
+                    FetchContent_Populate(bun_webkit_android)
+                endif()
+                # FetchContent strips the archive's single top-level bun-webkit directory.
+                set(JSC_ANDROID_DIR "${bun_webkit_android_SOURCE_DIR}")
+            endif()
+
+            set(JSC_ANDROID_STATIC_LIBRARIES
+                "${JSC_ANDROID_DIR}/lib/libJavaScriptCore.a"
+                "${JSC_ANDROID_DIR}/lib/libWTF.a"
+                "${JSC_ANDROID_DIR}/lib/libbmalloc.a"
+                "${JSC_ANDROID_DIR}/lib/libicui18n.a"
+                "${JSC_ANDROID_DIR}/lib/libicuuc.a"
+                "${JSC_ANDROID_DIR}/lib/libicudata.a")
+
+            foreach(JSC_ANDROID_FILE
+                    "${JSC_ANDROID_DIR}/include/JavaScriptCore/JavaScript.h"
+                    ${JSC_ANDROID_STATIC_LIBRARIES})
+                if(NOT EXISTS "${JSC_ANDROID_FILE}")
+                    message(FATAL_ERROR "Bun Android WebKit archive is missing '${JSC_ANDROID_FILE}'")
+                endif()
+            endforeach()
 
             set(INCLUDE_DIRECTORIES ${INCLUDE_DIRECTORIES}
                 PUBLIC "${JSC_ANDROID_DIR}/include")
 
+            add_library(jsc_android SHARED "Source/jsc_android.cpp")
+            set_target_properties(jsc_android PROPERTIES
+                OUTPUT_NAME jsc
+                CXX_STANDARD 23
+                CXX_STANDARD_REQUIRED ON
+                LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/jsc_android.exports")
+            target_compile_definitions(jsc_android PRIVATE
+                JSR_JSC_BUN_WEBKIT_REVISION="${JSR_JSC_BUN_WEBKIT_REVISION}"
+                BUILDING_JSCONLY__
+                BUILDING_JavaScriptCore
+                BUILDING_WEBKIT=1
+                BUILDING_WITH_CMAKE=1
+                HAVE_CONFIG_H=1
+                PAS_BMALLOC=1
+                STATICALLY_LINKED_WITH_WTF
+                STATICALLY_LINKED_WITH_bmalloc
+                U_STATIC_IMPLEMENTATION=1)
+            target_include_directories(jsc_android PUBLIC "${JSC_ANDROID_DIR}/include")
+            target_link_options(jsc_android PRIVATE
+                "-Wl,--no-undefined"
+                "-Wl,-Bsymbolic"
+                "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/Source/jsc_android.exports"
+                "-Wl,-z,max-page-size=16384"
+                "-Wl,-z,common-page-size=16384")
+            target_link_libraries(jsc_android PRIVATE
+                "-Wl,--whole-archive"
+                "${JSC_ANDROID_DIR}/lib/libJavaScriptCore.a"
+                "-Wl,--no-whole-archive"
+                "-Wl,--start-group"
+                "${JSC_ANDROID_DIR}/lib/libWTF.a"
+                "${JSC_ANDROID_DIR}/lib/libbmalloc.a"
+                "${JSC_ANDROID_DIR}/lib/libicui18n.a"
+                "${JSC_ANDROID_DIR}/lib/libicuuc.a"
+                "${JSC_ANDROID_DIR}/lib/libicudata.a"
+                "-Wl,--end-group"
+                log
+                dl
+                m)
+            set_property(TARGET jsc_android PROPERTY FOLDER Dependencies)
+
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
-                PUBLIC "${JSC_ANDROID_DIR}/jni/${ANDROID_ABI}/libjsc.so")
+                PUBLIC jsc_android)
         elseif(APPLE)
             find_library(JAVASCRIPTCORE_LIBRARY JavaScriptCore)
             set(LINK_LIBRARIES ${LINK_LIBRARIES}
