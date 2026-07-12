@@ -6,11 +6,11 @@ on:
       cc:
         required: false
         type: string
-        default: gcc
+        default: clang-21
       cxx:
         required: false
         type: string
-        default: g++
+        default: clang++-21
       js-engine:
         required: false
         type: string
@@ -26,8 +26,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Bun's JSC requires GLIBCXX_3.4.30. Building on 22.04 preserves that practical
+    # runtime floor instead of accidentally importing newer glibc symbols.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       CC: ${{ inputs.cc }}
       CXX: ${{ inputs.cxx }}
@@ -37,7 +39,22 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y libjavascriptcoregtk-4.1-dev libcurl4-openssl-dev ninja-build clang
+          sudo apt-get install -y --no-install-recommends ca-certificates gnupg libcurl4-openssl-dev libstdc++-12-dev ninja-build wget
+
+      - name: Install LLVM 21 for Bun JavaScriptCore LTO
+        if: inputs.cc == 'clang-21' || inputs.cxx == 'clang++-21'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg
+          echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-21 lld-21
+
+      - name: Install Clang sanitizer runtimes
+        if: (inputs.enable-sanitizers || inputs.enable-thread-sanitizer) && (inputs.cc == 'clang-21' || inputs.cxx == 'clang++-21')
+        run: sudo apt-get install -y --no-install-recommends libclang-rt-21-dev
+
+      - name: Reclaim package indexes
+        run: sudo rm -rf /var/lib/apt/lists/*
 
       - name: Configure CMake
         run: |
@@ -52,6 +69,32 @@ jobs:
       - name: Build
         run: ninja -C Build/ubuntu
 
+      - name: Audit statically linked Bun JavaScriptCore runtime
+        if: inputs.js-engine == '' || inputs.js-engine == 'JavaScriptCore'
+        run: |
+          jsc_archive=Build/ubuntu/Core/Node-API/libjsruntimehost-jsc.a
+          executable=Build/ubuntu/Tests/UnitTests/UnitTests
+          test -f "$jsc_archive"
+          test -x "$executable"
+          readelf --file-header "$executable" 2>/dev/null | grep 'DYN (Position-Independent Executable file)'
+          readelf --dynamic "$executable" 2>/dev/null | grep -E 'FLAGS_1.*PIE'
+          readelf --syms "$executable" 2>/dev/null | grep JSCBunInitialize
+
+          ldd_output="$(ldd -r "$executable" 2>&1)"
+          printf '%s\n' "$ldd_output"
+          if grep -q 'undefined symbol' <<<"$ldd_output"; then
+            exit 1
+          fi
+          if grep -q 'javascriptcore' <<<"${ldd_output,,}"; then
+            exit 1
+          fi
+
+          max_glibc="$(readelf --version-info "$executable" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n 1)"
+          max_glibcxx="$(readelf --version-info "$executable" 2>/dev/null | grep -o 'GLIBCXX_[0-9.]*' | sort -Vu | tail -n 1)"
+          echo "Maximum required symbol versions: $max_glibc, $max_glibcxx"
+          dpkg --compare-versions "${max_glibc#GLIBC_}" le 2.35
+          dpkg --compare-versions "${max_glibcxx#GLIBCXX_}" le 3.4.30
+
       - name: Run Tests
         working-directory: Build/ubuntu/Tests/UnitTests
         run: ./UnitTests
@@ -64,4 +107,3 @@ jobs:
           # on the mutator without cross-thread signals. macOS JSC uses Mach
           # thread_suspend() and is unaffected.
           JSC_useConcurrentGC: ${{ inputs.enable-thread-sanitizer && '0' || '' }}
-

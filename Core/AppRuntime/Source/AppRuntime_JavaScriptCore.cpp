@@ -1,16 +1,16 @@
 #include "AppRuntime.h"
 #include <napi/env.h>
 
-#if __ANDROID__
-extern "C" void JSCAndroidInitialize();
+#if defined(JSR_USE_BUN_JSC)
+extern "C" void JSCBunInitialize();
 #endif
 
 namespace Babylon
 {
     void AppRuntime::RunEnvironmentTier(const char*)
     {
-#if __ANDROID__
-        JSCAndroidInitialize();
+#if defined(JSR_USE_BUN_JSC)
+        JSCBunInitialize();
 #endif
         auto globalContext = JSGlobalContextCreateInGroup(nullptr, nullptr);
 
@@ -25,10 +25,17 @@ namespace Babylon
 
         Run(env);
 
-#if __ANDROID__
-        Napi::ContextLock contextLock{env};
+#if defined(JSR_USE_BUN_JSC)
+        {
+            // Scope this holder to the host's context reference. Keeping it alive across Detach
+            // delays VM destruction until after napi_env has been deleted, but JSC's last-chance
+            // finalizers are allowed to call Node-API with that environment.
+            Napi::ContextLock contextLock{env};
 #endif
-        JSGlobalContextRelease(globalContext);
+            JSGlobalContextRelease(globalContext);
+#if defined(JSR_USE_BUN_JSC)
+        }
+#endif
 
         // Detach must come after JSGlobalContextRelease since it triggers finalizers which require env.
         Napi::Detach(env);
