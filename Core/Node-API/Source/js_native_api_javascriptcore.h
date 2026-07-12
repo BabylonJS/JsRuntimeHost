@@ -8,12 +8,55 @@
 #include <thread>
 #include <cassert>
 
+#if defined(JSR_USE_BUN_JSC)
+extern "C" void* JSCBunAcquireContextLock(JSGlobalContextRef context);
+extern "C" void JSCBunReleaseContextLock(void* opaqueLock);
+extern "C" bool JSCBunLockContext(JSGlobalContextRef context);
+extern "C" void JSCBunUnlockContext(JSGlobalContextRef context);
+
+class JSCBunContextLock final {
+ public:
+  explicit JSCBunContextLock(JSGlobalContextRef context)
+      : lock{JSCBunAcquireContextLock(context)} {}
+
+  ~JSCBunContextLock() {
+    JSCBunReleaseContextLock(lock);
+  }
+
+  JSCBunContextLock(const JSCBunContextLock&) = delete;
+  JSCBunContextLock& operator=(const JSCBunContextLock&) = delete;
+
+ private:
+  void* lock{};
+};
+
+class JSCBunAPILock final {
+ public:
+  explicit JSCBunAPILock(JSGlobalContextRef context, bool acquire = true)
+      : context{context}, locked{acquire && JSCBunLockContext(context)} {}
+
+  ~JSCBunAPILock() {
+    if (locked) {
+      JSCBunUnlockContext(context);
+    }
+  }
+
+  JSCBunAPILock(const JSCBunAPILock&) = delete;
+  JSCBunAPILock& operator=(const JSCBunAPILock&) = delete;
+
+ private:
+  JSGlobalContextRef context{};
+  bool locked{};
+};
+#endif
+
 struct napi_env__ {
   JSGlobalContextRef context{};
   JSValueRef last_exception{};
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
+  bool shutting_down{false};
 
   JSValueRef constructor_info_symbol{};
   JSValueRef function_info_symbol{};
@@ -23,6 +66,9 @@ struct napi_env__ {
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
+#if defined(JSR_USE_BUN_JSC)
+    JSCBunContextLock contextLock{context};
+#endif
     napi_envs[context] = this;
     JSGlobalContextRetain(context);
     init_symbol(constructor_info_symbol, "BabylonNative_ConstructorInfo");
@@ -32,12 +78,22 @@ struct napi_env__ {
   }
 
   ~napi_env__() {
-    deinit_refs();
-    deinit_symbol(wrapper_info_symbol);
-    deinit_symbol(reference_info_symbol);
-    deinit_symbol(function_info_symbol);
-    deinit_symbol(constructor_info_symbol);
-    JSGlobalContextRelease(context);
+#if defined(JSR_USE_BUN_JSC)
+    {
+      // Releasing this holder may destroy the VM and run last-chance finalizers. Keep both this
+      // environment and its context lookup registered until those finalizers have completed.
+      JSCBunContextLock contextLock{context};
+#endif
+      shutting_down = true;
+      deinit_refs();
+      deinit_symbol(wrapper_info_symbol);
+      deinit_symbol(reference_info_symbol);
+      deinit_symbol(function_info_symbol);
+      deinit_symbol(constructor_info_symbol);
+      JSGlobalContextRelease(context);
+#if defined(JSR_USE_BUN_JSC)
+    }
+#endif
     napi_envs.erase(context);
   }
 
@@ -65,13 +121,25 @@ struct napi_env__ {
     }                                                  \
   } while (0)
 
-#define CHECK_ENV(env)                                    \
-  do {                                                    \
-    if ((env) == nullptr) {                               \
-      return napi_invalid_arg;                            \
-    }                                                     \
-    assert(env->thread_id == std::this_thread::get_id()); \
+#if defined(JSR_USE_BUN_JSC)
+#define CHECK_ENV(env)                                      \
+  do {                                                      \
+    if ((env) == nullptr) {                                 \
+      return napi_invalid_arg;                              \
+    }                                                       \
+  } while (0);                                              \
+  /* Last-chance finalizers hold JSC's API lock. Avoid context APIs after shutdown. */ \
+  JSCBunAPILock jscBunAPILock{(env)->context, !(env)->shutting_down};                  \
+  assert((env)->thread_id == std::this_thread::get_id())
+#else
+#define CHECK_ENV(env)                                      \
+  do {                                                      \
+    if ((env) == nullptr) {                                 \
+      return napi_invalid_arg;                              \
+    }                                                       \
+    assert((env)->thread_id == std::this_thread::get_id()); \
   } while (0)
+#endif
 
 #define CHECK_ARG(env, arg) \
   RETURN_STATUS_IF_FALSE((env), ((arg) != nullptr), napi_invalid_arg)

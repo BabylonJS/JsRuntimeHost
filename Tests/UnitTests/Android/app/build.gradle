@@ -7,11 +7,16 @@ if (project.hasProperty("jsEngine")) {
     jsEngine = project.property("jsEngine")
 }
 
+def appMinSdk = jsEngine == "JavaScriptCore" ? 28 : 21
+
 def cmakeArguments = [
     "-DANDROID_STL=c++_shared",
     "-DNAPI_JAVASCRIPT_ENGINE=${jsEngine}",
     "-DJSRUNTIMEHOST_CORE_APPRUNTIME_V8_INSPECTOR=ON"
 ]
+if (project.hasProperty("jscAndroidRoot")) {
+    cmakeArguments.add("-DJSR_BUN_JSC_ROOT=${project.property('jscAndroidRoot')}")
+}
 // Hermes for Android needs HOST hermesc/shermes (they emit bytecode at build
 // time and can't run as NDK-cross-compiled binaries). The JsRuntimeHost CMake
 // bootstraps these host compilers automatically when cross-compiling, so no
@@ -25,14 +30,16 @@ if (project.hasProperty("importHostCompilers")) {
 android {
     namespace 'com.jsruntimehost.unittests'
     compileSdk 33
-    ndkVersion = "23.1.7779620"
+    // Bun's current WebKit headers use the C++23 standard library. Keep the existing V8 default,
+    // but select the same modern NDK used in CI when the JavaScriptCore engine is requested.
+    ndkVersion = jsEngine == "JavaScriptCore" ? "28.2.13676358" : "23.1.7779620"
     if (project.hasProperty("ndkVersion")) {
         ndkVersion = project.property("ndkVersion")
     }
 
     defaultConfig {
         applicationId "com.jsruntimehost.unittests"
-        minSdk 21
+        minSdk appMinSdk
         targetSdk 33
         versionCode 1
         versionName "1.0"
