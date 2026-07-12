@@ -3,9 +3,9 @@
 #include <napi/napi.h>
 #include <JavaScriptCore/JavaScript.h>
 
-#if __ANDROID__
-extern "C" void* JSCAndroidAcquireContextLock(JSGlobalContextRef context);
-extern "C" void JSCAndroidReleaseContextLock(void* opaqueLock);
+#if defined(JSR_USE_BUN_JSC)
+extern "C" void* JSCBunAcquireContextLock(JSGlobalContextRef context);
+extern "C" void JSCBunReleaseContextLock(void* opaqueLock);
 #endif
 
 namespace Napi
@@ -18,18 +18,18 @@ namespace Napi
 
   JSGlobalContextRef GetContext(Napi::Env);
 
-#if __ANDROID__
+#if defined(JSR_USE_BUN_JSC)
   class ContextLock final
   {
   public:
     explicit ContextLock(Napi::Env env)
-      : m_opaqueLock{JSCAndroidAcquireContextLock(GetContext(env))}
+      : m_opaqueLock{JSCBunAcquireContextLock(GetContext(env))}
     {
     }
 
     ~ContextLock()
     {
-      JSCAndroidReleaseContextLock(m_opaqueLock);
+      JSCBunReleaseContextLock(m_opaqueLock);
     }
 
     ContextLock(const ContextLock&) = delete;
