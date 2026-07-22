@@ -1,0 +1,8 @@
+#pragma once
+
+namespace Babylon::Polyfills::Internal::FetchScripts
+{
+    inline constexpr char Polyfill[] = R"JSRHFETCH(
+@FETCH_POLYFILL_SOURCE@
+)JSRHFETCH";
+}
