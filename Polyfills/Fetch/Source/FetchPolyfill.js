@@ -3,8 +3,104 @@
 
     var headerStates = new WeakMap();
     var responseStates = new WeakMap();
+    var streamTrackers = new WeakMap();
+    var readerTrackers = new WeakMap();
+    var iteratorTrackers = new WeakMap();
     var headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
     var nullBodyStatuses = [204, 205, 304];
+
+    function wrapMethod(target, name, createWrapper) {
+        var descriptor = Object.getOwnPropertyDescriptor(target, name);
+        var original = descriptor ? descriptor.value : target[name];
+        if (typeof original !== "function") {
+            return;
+        }
+        if (!descriptor) {
+            descriptor = {
+                configurable: true,
+                enumerable: false,
+                writable: true
+            };
+        }
+        descriptor.value = createWrapper(original);
+        Object.defineProperty(target, name, descriptor);
+    }
+
+    function trackStream(stream) {
+        var tracker = streamTrackers.get(stream);
+        if (!tracker) {
+            tracker = { disturbed: false };
+            streamTrackers.set(stream, tracker);
+        }
+        return tracker;
+    }
+
+    function trackReader(reader, tracker) {
+        if (readerTrackers.has(reader)) {
+            return reader;
+        }
+        readerTrackers.set(reader, tracker);
+        for (var name of ["read", "cancel"]) {
+            wrapMethod(reader, name, function(original) {
+                return function() {
+                    tracker.disturbed = true;
+                    return original.apply(this, arguments);
+                };
+            });
+        }
+        return reader;
+    }
+
+    function trackIterator(iterator, tracker) {
+        if (iteratorTrackers.has(iterator)) {
+            return iterator;
+        }
+        iteratorTrackers.set(iterator, tracker);
+        for (var name of ["next", "return", "throw"]) {
+            wrapMethod(iterator, name, function(original) {
+                return function() {
+                    tracker.disturbed = true;
+                    return original.apply(this, arguments);
+                };
+            });
+        }
+        return iterator;
+    }
+
+    function instrumentReadableStreams() {
+        if (global.ReadableStream === undefined || global.ReadableStream === null) {
+            return;
+        }
+        var prototype = global.ReadableStream.prototype;
+        wrapMethod(prototype, "getReader", function(original) {
+            return function() {
+                return trackReader(original.apply(this, arguments), trackStream(this));
+            };
+        });
+        for (var name of ["cancel", "pipeTo", "pipeThrough", "tee"]) {
+            wrapMethod(prototype, name, function(original) {
+                return function() {
+                    var result = original.apply(this, arguments);
+                    trackStream(this).disturbed = true;
+                    return result;
+                };
+            });
+        }
+        wrapMethod(prototype, "values", function(original) {
+            return function() {
+                return trackIterator(original.apply(this, arguments), trackStream(this));
+            };
+        });
+        if (typeof Symbol.asyncIterator === "symbol") {
+            wrapMethod(prototype, Symbol.asyncIterator, function(original) {
+                return function() {
+                    return trackIterator(original.apply(this, arguments), trackStream(this));
+                };
+            });
+        }
+    }
+
+    instrumentReadableStreams();
 
     function requireHeaderState(value) {
         var state = headerStates.get(value);
@@ -315,7 +411,7 @@
             return { stream: null, contentType: null };
         }
         if (isReadableStream(body)) {
-            if (body.locked || body._disturbed) {
+            if (body.locked || trackStream(body).disturbed) {
                 throw new TypeError("Response body stream is already disturbed or locked");
             }
             return { stream: body, contentType: null };
@@ -343,7 +439,7 @@
     }
 
     function bodyIsUnusable(state) {
-        return state.used || (state.body !== null && (state.body.locked || state.body._disturbed));
+        return state.used || (state.body !== null && (state.body.locked || state.bodyTracker.disturbed));
     }
 
     async function readBodyChunks(state) {
@@ -458,6 +554,7 @@
 
         responseStates.set(response, {
             body: extracted.stream,
+            bodyTracker: extracted.stream === null ? null : trackStream(extracted.stream),
             headers: normalizedInit.headers,
             redirected: metadata && metadata.redirected === true,
             status: normalizedInit.status,
@@ -476,7 +573,7 @@
         get body() { return requireResponseState(this).body; }
         get bodyUsed() {
             var state = requireResponseState(this);
-            return state.used || (state.body !== null && state.body._disturbed === true);
+            return state.used || (state.body !== null && state.bodyTracker.disturbed);
         }
         get headers() { return requireResponseState(this).headers; }
         get ok() {
@@ -517,6 +614,7 @@
             if (state.body !== null) {
                 var branches = state.body.tee();
                 state.body = branches[0];
+                state.bodyTracker = trackStream(state.body);
                 cloneBody = branches[1];
             }
             var clone = new Response(cloneBody, {
