@@ -13,6 +13,8 @@
 #include <Babylon/Polyfills/File.h>
 #include <Babylon/Polyfills/TextDecoder.h>
 #include <Babylon/Polyfills/TextEncoder.h>
+#include <Babylon/Polyfills/Streams.h>
+#include <Babylon/Polyfills/Compression.h>
 #include <gtest/gtest.h>
 #include <arcana/threading/blocking_concurrent_queue.h>
 #include <atomic>
@@ -90,6 +92,8 @@ TEST(JavaScript, All)
         Babylon::Polyfills::File::Initialize(env);
         Babylon::Polyfills::TextDecoder::Initialize(env);
         Babylon::Polyfills::TextEncoder::Initialize(env);
+        Babylon::Polyfills::Streams::Initialize(env);
+        Babylon::Polyfills::Compression::Initialize(env);
 
         auto setExitCodeCallback = Napi::Function::New(
             env, [&exitCodePromise](const Napi::CallbackInfo& info) {
@@ -111,6 +115,75 @@ TEST(JavaScript, All)
     EXPECT_EQ(exitCode, 0);
 }
 
+TEST(Streams, ReplacesPartialHostSuiteAndIsIdempotent)
+{
+    std::promise<std::string> done;
+    std::atomic_bool completed{};
+    const auto complete = [&done, &completed](std::string result) {
+        if (!completed.exchange(true))
+        {
+            done.set_value(std::move(result));
+        }
+    };
+
+    Babylon::AppRuntime::Options options{};
+    options.UnhandledExceptionHandler = [&complete](const Napi::Error& error) {
+        complete(Napi::GetErrorString(error));
+    };
+    Babylon::AppRuntime runtime{options};
+
+    runtime.Dispatch([&complete](Napi::Env env) {
+        auto global = env.Global();
+        const auto hostReadableStream = Napi::Function::New(env, [](const Napi::CallbackInfo&) {}, "HostReadableStream");
+        global.Set("ReadableStream", hostReadableStream);
+        global.Set("TransformStream", env.Null());
+
+        Babylon::Polyfills::Streams::Initialize(env);
+        const auto installedReadableStream = global.Get("ReadableStream");
+        const auto installedTransformStream = global.Get("TransformStream");
+        EXPECT_FALSE(installedReadableStream.StrictEquals(hostReadableStream));
+        if (!installedReadableStream.IsFunction() || !installedTransformStream.IsFunction())
+        {
+            complete("Streams::Initialize did not install a complete constructor suite.");
+            return;
+        }
+
+        const auto transform = installedTransformStream.As<Napi::Function>().New({});
+        EXPECT_TRUE(transform.Get("readable").As<Napi::Object>().InstanceOf(installedReadableStream.As<Napi::Function>()));
+
+        Babylon::Polyfills::Streams::Initialize(env);
+        EXPECT_TRUE(global.Get("ReadableStream").StrictEquals(installedReadableStream));
+        EXPECT_TRUE(global.Get("TransformStream").StrictEquals(installedTransformStream));
+        complete({});
+    });
+
+    const auto error = done.get_future().get();
+    EXPECT_TRUE(error.empty()) << error;
+}
+
+TEST(Compression, PreservesHostConstructorsAndIsIdempotent)
+{
+    Babylon::AppRuntime runtime{};
+    std::promise<void> done;
+
+    runtime.Dispatch([&done](Napi::Env env) {
+        auto global = env.Global();
+        const auto hostCompressionStream = Napi::Function::New(env, [](const Napi::CallbackInfo&) {}, "HostCompressionStream");
+        global.Set("CompressionStream", hostCompressionStream);
+
+        Babylon::Polyfills::Compression::Initialize(env);
+        EXPECT_TRUE(global.Get("CompressionStream").StrictEquals(hostCompressionStream));
+        EXPECT_TRUE(global.Get("DecompressionStream").IsFunction());
+
+        const auto installedDecompressionStream = global.Get("DecompressionStream");
+        Babylon::Polyfills::Compression::Initialize(env);
+        EXPECT_TRUE(global.Get("CompressionStream").StrictEquals(hostCompressionStream));
+        EXPECT_TRUE(global.Get("DecompressionStream").StrictEquals(installedDecompressionStream));
+        done.set_value();
+    });
+
+    done.get_future().get();
+}
 TEST(Console, Log)
 {
     Babylon::AppRuntime runtime{};
