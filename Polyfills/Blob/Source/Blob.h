@@ -2,8 +2,9 @@
 
 #include <napi/napi.h>
 
-#include <vector>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -20,10 +21,21 @@ namespace Babylon::Polyfills::Internal
         Napi::Value Text(const Napi::CallbackInfo& info);
         Napi::Value ArrayBuffer(const Napi::CallbackInfo& info);
         Napi::Value Bytes(const Napi::CallbackInfo& info);
+        Napi::Value Slice(const Napi::CallbackInfo& info);
+        Napi::Value Stream(const Napi::CallbackInfo& info);
 
-        void ProcessBlobPart(const Napi::Value& blobPart);
+        struct Segment;
+        struct Data;
+        struct StreamState;
 
-        std::vector<std::byte> m_data;
+        bool AppendBlobPart(Data& data, const Napi::Value& blobPart);
+        Napi::ArrayBuffer CreateArrayBuffer() const;
+
+        static std::string NormalizeType(std::string type);
+        static std::string NormalizeLineEndings(std::string value);
+        static size_t NormalizeSliceIndex(double value, size_t size);
+
+        std::shared_ptr<const Data> m_data;
         std::string m_type;
     };
 }
