@@ -286,7 +286,9 @@
                 if (chunk !== null) {
                     var value = chunk;
                     chunk = null;
-                    controller.enqueue(value);
+                    if (value.byteLength !== 0) {
+                        controller.enqueue(value);
+                    }
                 }
                 controller.close();
             },
