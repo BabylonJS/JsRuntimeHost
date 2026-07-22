@@ -7,6 +7,10 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     3_callbacks
     4_object_factory
     5_function_factory
+    # Recently ported to the cross-platform node-api-cts. This is v5-clean and
+    # expands coverage to function calls, names, pending exceptions, native
+    # finalizers, and strong-reference teardown.
+    test_function
     # v5-clean reference coverage. The rest of the reference/finalizer/wrap suite targets newer
     # Node-API and is staged for the NAPI_VERSION bump:
     #   test_reference      -> node_api_symbol_for (v9)
@@ -16,6 +20,14 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     #  edge case that returns napi_invalid_arg; tracked as a separate fix, not a v5 blocker.)
     test_reference_double_free
 )
+
+# Vlad's hermes-windows#349 regression suite is specifically about Hermes's
+# private metadata/weak-reference machinery. Keep its v5-clean cases on the
+# Hermes adapter so future static_h bumps cannot reintroduce proxy traps,
+# frozen-object rejection, prototype leakage, or cross-GC finalizer bugs.
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_hermes_private_metadata)
+endif()
 
 function(node_api_copy_test_sources TARGET_NAME)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD

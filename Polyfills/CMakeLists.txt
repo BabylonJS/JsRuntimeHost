@@ -10,6 +10,10 @@ if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST)
     add_subdirectory(XMLHttpRequest)
 endif()
 
+if(JSRUNTIMEHOST_POLYFILL_FETCH)
+    add_subdirectory(Fetch)
+endif()
+
 if(JSRUNTIMEHOST_POLYFILL_URL)
     add_subdirectory(URL)
 endif()
@@ -24,6 +28,10 @@ endif()
 
 if(JSRUNTIMEHOST_POLYFILL_BLOB)
     add_subdirectory(Blob)
+endif()
+
+if(JSRUNTIMEHOST_POLYFILL_FILE)
+    add_subdirectory(File)
 endif()
 
 if(JSRUNTIMEHOST_POLYFILL_PERFORMANCE)

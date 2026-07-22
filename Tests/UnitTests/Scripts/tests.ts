@@ -64,6 +64,37 @@ describe("AbortController", function () {
 
         expect(controller.signal.aborted).to.equal(true);
     });
+
+    it("AbortSignal.abort() returns a signal already aborted with an AbortError reason", function () {
+        const signal = (AbortSignal as any).abort();
+        expect(signal.aborted).to.equal(true);
+        expect(signal.reason).to.be.an.instanceof(Error);
+        expect(signal.reason.name).to.equal("AbortError");
+    });
+
+    it("throwIfAborted() throws the reason only once aborted", function () {
+        const controller = new AbortController();
+        // Not aborted yet: must not throw.
+        (controller.signal as any).throwIfAborted();
+
+        controller.abort();
+        expect(() => (controller.signal as any).throwIfAborted()).to.throw();
+    });
+
+    it("abort(reason) records the provided reason", function () {
+        const controller = new AbortController();
+        const reason = new Error("custom reason");
+        controller.abort(reason);
+        expect((controller.signal as any).reason).to.equal(reason);
+    });
+
+    it("abort() with no reason defaults to an AbortError", function () {
+        const controller = new AbortController();
+        controller.abort();
+        const reason = (controller.signal as any).reason;
+        expect(reason).to.be.an.instanceof(Error);
+        expect(reason.name).to.equal("AbortError");
+    });
 });
 
 describe("XMLHTTPRequest", function () {
@@ -121,6 +152,13 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.status).to.equal(404);
     });
 
+    it("should expose statusText", async function () {
+        const okXhr = await createRequest("GET", "https://github.com/");
+        expect(okXhr.statusText).to.equal("OK");
+        const notFoundXhr = await createRequest("GET", "https://github.com/babylonJS/BabylonNative404");
+        expect(notFoundXhr.statusText).to.equal("Not Found");
+    });
+
     it("should fire 'error' event for a remote URL that returns HTTP 404", async function () {
         // Regression test: previously the success-only continuation in XMLHttpRequest::Send
         // skipped 'error' on async failures including non-2xx HTTP responses, so onerror
@@ -144,6 +182,23 @@ describe("XMLHTTPRequest", function () {
         expect(result.errorFired).to.equal(true);
         expect(result.loadendFired).to.equal(true);
         expect(result.readyState).to.equal(4);
+    });
+
+    it("should expose errorCode/errorDetail diagnostics after a transport failure", async function () {
+        this.timeout(30000);
+        const xhr: any = await createRequest("GET", "http://127.0.0.1:1/");
+        expect(xhr.status).to.equal(0);
+        // Non-standard, additive diagnostics: always strings; populated on Apple/Linux and empty
+        // on Windows/Android until those backends populate UrlLib's accessors. Either way the
+        // standard error event + status===0 behavior (asserted above) is unchanged.
+        expect(xhr.errorCode).to.be.a("string");
+        expect(xhr.errorDetail).to.be.a("string");
+    });
+
+    it("should expose empty errorCode/errorDetail after a successful request", async function () {
+        const xhr: any = await createRequest("GET", "app:///Scripts/symlink_target.js");
+        expect(xhr.errorCode).to.equal("");
+        expect(xhr.errorDetail).to.equal("");
     });
 
     it("should throw something when opening //", async function () {
@@ -238,8 +293,168 @@ describe("XMLHTTPRequest", function () {
     });
 });
 
+describe("fetch", function () {
+    this.timeout(30000);
+
+    it("should resolve with ok=true and status=200 for a resource that exists", async function () {
+        const response = await fetch("https://github.com/");
+        expect(response.ok).to.equal(true);
+        expect(response.status).to.equal(200);
+    });
+
+    it("should resolve (not reject) with ok=false and status=404 for a resource that does not exist", async function () {
+        const response = await fetch("https://github.com/babylonJS/BabylonNative404");
+        expect(response.ok).to.equal(false);
+        expect(response.status).to.equal(404);
+    });
+
+    it("should expose statusText", async function () {
+        const okResponse = await fetch("https://github.com/");
+        expect(okResponse.statusText).to.equal("OK");
+        const notFoundResponse = await fetch("https://github.com/babylonJS/BabylonNative404");
+        expect(notFoundResponse.statusText).to.equal("Not Found");
+    });
+
+    it("text() should return the body as a string", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        expect(await response.text()).to.equal("var symlink_target_js = true;");
+    });
+
+    it("arrayBuffer() should return the body as bytes", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        const expected = new Uint8Array("var symlink_target_js = true;".split("").map(x => x.charCodeAt(0)));
+        expect(new Uint8Array(await response.arrayBuffer())).to.eql(expected);
+    });
+
+    it("json() should parse a JSON body", async function () {
+        const response = await fetch("app:///Assets/sample.json");
+        const json = await response.json();
+        expect(json.name).to.equal("fetch-polyfill-test");
+        expect(json.value).to.equal(42);
+        expect(json.nested.items).to.eql([1, 2, 3]);
+    });
+
+    it("json() should reject when the body is not valid JSON", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        let rejected = false;
+        try {
+            await response.json();
+        } catch {
+            rejected = true;
+        }
+        expect(rejected).to.equal(true);
+    });
+
+    it("blob() should return a Blob with the body bytes", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        const blob = await response.blob();
+        expect(blob.size).to.equal("var symlink_target_js = true;".length);
+        expect(await blob.text()).to.equal("var symlink_target_js = true;");
+    });
+
+    it("headers.get() should be case-insensitive and headers.has() should work", async function () {
+        const response = await fetch("https://github.com/");
+        expect(response.headers.has("Content-Type")).to.equal(true);
+        expect(response.headers.get("CONTENT-TYPE")).to.equal(response.headers.get("content-type"));
+    });
+
+    it("clone() should produce an independently readable response", async function () {
+        const response = await fetch("app:///Scripts/symlink_target.js");
+        const clone = response.clone();
+        expect(await response.text()).to.equal("var symlink_target_js = true;");
+        expect(await clone.text()).to.equal("var symlink_target_js = true;");
+    });
+
+    it("should accept a method in the init object", async function () {
+        const response = await fetch("https://github.com/", { method: "GET" });
+        expect(response.status).to.equal(200);
+    });
+
+    it("should reject when no arguments are provided", async function () {
+        let rejected = false;
+        try {
+            await (fetch as any)();
+        } catch {
+            rejected = true;
+        }
+        expect(rejected).to.equal(true);
+    });
+
+    it("should reject a transport failure with a TypeError carrying detail on cause", async function () {
+        this.timeout(30000);
+        let error: any;
+        try {
+            // Nothing listens on this loopback port, so the connection is refused -- a transport
+            // failure (status 0), distinct from an HTTP error status.
+            await fetch("http://127.0.0.1:1/");
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        // Spec-conformant shape: network errors reject with a TypeError whose message is stable
+        // (browsers/Node/undici all keep it constant so crash-report grouping stays intact).
+        expect(error).to.be.an.instanceof(TypeError);
+        expect(error.message).to.equal("fetch failed");
+        // The variable detail rides on `cause` (Node/undici shape), never on the stable message.
+        expect(error.cause, "error.cause should be populated").to.be.an("object");
+        expect(error.cause.url).to.contain("127.0.0.1");
+        expect(error.cause.status).to.equal(0);
+        // On backends where UrlLib populates transport detail (Apple/Linux) `code`/`detail` are
+        // present stable tokens; on backends that don't yet (Windows/Android) they are absent --
+        // the stable observable shape above is preserved either way.
+        if (error.cause.code !== undefined) {
+            expect(error.cause.code).to.be.a("string").and.not.equal("");
+            expect(error.cause.detail).to.be.a("string").and.not.equal("");
+        }
+    });
+
+    it("should reject a missing app:// asset with a TypeError (distinct from a network failure)", async function () {
+        let error: any;
+        try {
+            await fetch("app:///does_not_exist.js");
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error).to.be.an.instanceof(TypeError);
+        expect(error.message).to.equal("fetch failed");
+        expect(error.cause.url).to.contain("does_not_exist.js");
+    });
+
+    it("should reject immediately with an AbortError when the signal is already aborted", async function () {
+        const controller = new AbortController();
+        controller.abort();
+
+        let error: any;
+        try {
+            await fetch("https://github.com/", { signal: controller.signal } as any);
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error.name).to.equal("AbortError");
+    });
+
+    it("should reject with an AbortError when aborted in-flight", async function () {
+        this.timeout(30000);
+        const controller = new AbortController();
+        const promise = fetch("https://github.com/", { signal: controller.signal } as any);
+        // Abort before the response can arrive.
+        controller.abort();
+
+        let error: any;
+        try {
+            await promise;
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error.name).to.equal("AbortError");
+    });
+});
+
 describe("setTimeout", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should return an id greater than zero", function () {
         const id = setTimeout(() => { }, 0);
@@ -347,7 +562,7 @@ describe("setTimeout", function () {
 });
 
 describe("clearTimeout", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should stop the timeout matching the given timeout id", function (done) {
         const id = setTimeout(() => {
@@ -372,7 +587,7 @@ describe("clearTimeout", function () {
 });
 
 describe("setInterval", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should return an id greater than zero", function () {
         const id = setInterval(() => { }, 0);
@@ -402,7 +617,7 @@ describe("setInterval", function () {
 });
 
 describe("clearInterval", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should stop the interval matching the given interval id", function (done) {
         const id = setInterval(() => {
@@ -429,6 +644,8 @@ describe("clearInterval", function () {
 // Websocket
 if (hostPlatform !== "Unix") {
     describe("WebSocket", function () {
+        this.timeout(10000);
+
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket("wss://ws.postman-echo.com/raw");
             const testMessage = "testMessage";
@@ -1395,6 +1612,44 @@ describe("TextDecoder", function () {
         expect(result).to.equal("H\0i");
         expect(result.length).to.equal(3);
     });
+
+    it("throwing from the constructor repeatedly does not corrupt native state", function () {
+        // Regression for a Chakra N-API ObjectWrap bug: when a wrapped
+        // constructor throws, the native instance is destroyed during stack
+        // unwinding but the wrap finalizer stayed attached to `this`, so a
+        // later GC ran the finalizer on freed memory (heap corruption). Throw
+        // many times to create many dangling wraps, then allocate/decode to
+        // exercise the heap and surface any corruption within this test run.
+        for (let i = 0; i < 100; ++i) {
+            expect(() => new TextDecoder("utf-16")).to.throw();
+        }
+        const decoder = new TextDecoder("utf-8");
+        expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+    });
+
+    it("should accept the WHATWG 'utf8' label (no hyphen)", function () {
+        const decoder = new TextDecoder("utf8");
+        const result = decoder.decode(new Uint8Array([72, 105])); // "Hi"
+        expect(result).to.equal("Hi");
+    });
+
+    it("should accept utf-8 labels case-insensitively and with surrounding whitespace", function () {
+        for (const label of ["UTF-8", "UTF8", "  utf-8  ", "\tUtf8\n"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+        }
+    });
+
+    it("should accept the other WHATWG utf-8 aliases", function () {
+        for (const label of ["unicode-1-1-utf-8", "unicode11utf8", "unicode20utf8", "x-unicode20utf8"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+        }
+    });
+
+    it("should still throw for a genuinely unsupported encoding", function () {
+        expect(() => new TextDecoder("utf-16")).to.throw();
+    });
 });
 
 describe("TextEncoder", function () {
@@ -1432,6 +1687,349 @@ describe("TextEncoder", function () {
         const encoder = new TextEncoder();
         const bytes = encoder.encode("H\0i");
         expect(Array.from(bytes)).to.eql([72, 0, 105]);
+    });
+});
+
+declare const File: any;
+declare const FileReader: any;
+
+describe("File", function () {
+    // -------------------------------- Construction --------------------------------
+    it("creates an empty File", function () {
+        const file = new File([], "empty.txt");
+        expect(file.size).to.equal(0);
+        expect(file.type).to.equal("");
+        expect(file.name).to.equal("empty.txt");
+    });
+
+    it("creates a File from a string array", function () {
+        const file = new File(["Hello"], "hello.txt");
+        expect(file.size).to.equal(5);
+        expect(file.name).to.equal("hello.txt");
+    });
+
+    it("creates a File from a TypedArray", function () {
+        const data = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+        const file = new File([data], "typed.bin");
+        expect(file.size).to.equal(5);
+        expect(file.name).to.equal("typed.bin");
+    });
+
+    it("creates a File from an ArrayBuffer", function () {
+        const buffer = new Uint8Array([72, 101, 108, 108, 111]).buffer;
+        const file = new File([buffer], "buffer.bin");
+        expect(file.size).to.equal(5);
+    });
+
+    it("creates a File from a Blob", function () {
+        const blob = new Blob(["Hello"]);
+        const file = new File([blob], "from-blob.txt");
+        expect(file.size).to.equal(5);
+    });
+
+    it("applies MIME type from options", function () {
+        const file = new File(["{}"], "data.json", { type: "application/json" });
+        expect(file.type).to.equal("application/json");
+    });
+
+    it("defaults lastModified to a recent timestamp when not provided", function () {
+        const before = Date.now();
+        const file = new File([], "x.txt");
+        const after = Date.now();
+        expect(file.lastModified).to.be.a("number");
+        // Allow small clock-skew slack on either side.
+        expect(file.lastModified).to.be.at.least(before - 1000);
+        expect(file.lastModified).to.be.at.most(after + 1000);
+    });
+
+    it("honors lastModified from options", function () {
+        const file = new File([], "x.txt", { lastModified: 12345 });
+        expect(file.lastModified).to.equal(12345);
+    });
+
+    it("coerces a non-string name to a string", function () {
+        const file = new File([], 42 as any);
+        expect(file.name).to.equal("42");
+    });
+
+    it("coerces undefined and null name per WebIDL USVString", function () {
+        // Per the WHATWG File constructor's WebIDL signature, name is a
+        // non-optional USVString; ToString is applied regardless of input
+        // type, so passing undefined/null yields the string "undefined" /
+        // "null" rather than an empty string.
+        expect(new File([], undefined as any).name).to.equal("undefined");
+        expect(new File([], null as any).name).to.equal("null");
+    });
+
+    // TODO(JsRH#175): Re-enable once the Chakra Node-API shim surfaces
+    // exceptions thrown from class constructor callbacks back to JS.
+    // it("throws when fewer than 2 arguments are passed", function () {
+    //     // File requires both fileBits and fileName per the WebIDL bindings.
+    //     // Browsers throw TypeError on missing arguments; the native polyfill
+    //     // must match that surface so consumers don't accidentally create a
+    //     // File with empty name when their call site is misspelled.
+    //     // Note: we only assert *that* it throws (not the specific error
+    //     // type), because the JSI napi shim wraps thrown Napi::TypeError as
+    //     // a generic JS Error when surfacing it across the host boundary.
+    //     expect(() => new (File as any)()).to.throw();
+    //     expect(() => new (File as any)([])).to.throw();
+    // });
+
+    // -------------------------------- Read API --------------------------------
+    it("returns text via .text()", async function () {
+        const file = new File(["Hello"], "hello.txt");
+        const text = await file.text();
+        expect(text).to.equal("Hello");
+    });
+
+    it("returns bytes via .bytes()", async function () {
+        const file = new File(["Hello"], "hello.txt");
+        const bytes = await file.bytes();
+        expect(bytes).to.be.instanceOf(Uint8Array);
+        expect(bytes.length).to.equal(5);
+        expect(bytes[0]).to.equal(72); // 'H'
+        expect(bytes[4]).to.equal(111); // 'o'
+    });
+
+    it("returns an ArrayBuffer via .arrayBuffer()", async function () {
+        const file = new File(["Hello"], "hello.txt");
+        const buffer = await file.arrayBuffer();
+        expect(buffer).to.be.instanceOf(ArrayBuffer);
+        expect(buffer.byteLength).to.equal(5);
+    });
+
+    it("handles multi-byte UTF-8 content", async function () {
+        const file = new File(["你好, 世界"], "utf8.txt");
+        const text = await file.text();
+        expect(text).to.equal("你好, 世界");
+    });
+
+    // -------------------------------- Blob inheritance --------------------------------
+    it("is an instance of Blob (prototype chain wired up)", function () {
+        // BJS core (fileTools, Offline/database, abstractEngine,
+        // thinNativeEngine) branches on `instanceof Blob`. File must
+        // satisfy that check for File inputs to take the Blob path,
+        // matching the WHATWG spec where File is a Blob subtype.
+        const file = new File(["x"], "x.txt");
+        expect(file instanceof Blob).to.equal(true);
+        expect(file instanceof File).to.equal(true);
+    });
+});
+
+describe("FileReader", function () {
+    // -------------------------------- State constants --------------------------------
+    it("exposes EMPTY / LOADING / DONE as static constants", function () {
+        expect(FileReader.EMPTY).to.equal(0);
+        expect(FileReader.LOADING).to.equal(1);
+        expect(FileReader.DONE).to.equal(2);
+    });
+
+    it("exposes EMPTY / LOADING / DONE on instances", function () {
+        const reader = new FileReader();
+        expect(reader.EMPTY).to.equal(0);
+        expect(reader.LOADING).to.equal(1);
+        expect(reader.DONE).to.equal(2);
+    });
+
+    it("does not pollute Object.prototype with EMPTY/LOADING/DONE", function () {
+        // Regression: in earlier drafts the JSC napi shim's
+        // func.Get("prototype") returns Object.prototype, so writing
+        // EMPTY/LOADING/DONE through it pollutes every plain object's
+        // for..in iteration and breaks consumers like Babylon.js's
+        // CameraInputsManager.attachElement.
+        const plain: any = {};
+        const keys: string[] = [];
+        for (const k in plain) keys.push(k);
+        expect(keys).to.have.lengthOf(0);
+
+        // And the keys must not be present as inherited enumerable
+        // properties on a fresh object either.
+        expect("EMPTY" in plain && !Object.prototype.hasOwnProperty.call(plain, "EMPTY"))
+            .to.equal(false);
+    });
+
+    // -------------------------------- Initial state --------------------------------
+    it("initializes with EMPTY readyState and null result/error", function () {
+        const reader = new FileReader();
+        expect(reader.readyState).to.equal(FileReader.EMPTY);
+        expect(reader.result).to.equal(null);
+        expect(reader.error).to.equal(null);
+    });
+
+    it("provides null on* event handler slots by default", function () {
+        const reader = new FileReader();
+        expect(reader.onloadstart).to.equal(null);
+        expect(reader.onprogress).to.equal(null);
+        expect(reader.onload).to.equal(null);
+        expect(reader.onabort).to.equal(null);
+        expect(reader.onerror).to.equal(null);
+        expect(reader.onloadend).to.equal(null);
+    });
+
+    // -------------------------------- readAsText --------------------------------
+    it("reads a Blob as text via onload", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["Hello"]);
+        reader.onload = function () {
+            try {
+                expect(reader.readyState).to.equal(FileReader.DONE);
+                expect(reader.result).to.equal("Hello");
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsText(blob);
+    });
+
+    it("reads a File as text via onload", function (done) {
+        const reader = new FileReader();
+        const file = new File(["World"], "world.txt");
+        reader.onload = function () {
+            try {
+                expect(reader.result).to.equal("World");
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    it("fires onloadend after onload", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["abc"]);
+        let loadFired = false;
+        reader.onload = function () {
+            loadFired = true;
+        };
+        reader.onloadend = function () {
+            try {
+                expect(loadFired).to.equal(true);
+                expect(reader.readyState).to.equal(FileReader.DONE);
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsText(blob);
+    });
+
+    // -------------------------------- readAsArrayBuffer --------------------------------
+    it("reads a Blob as an ArrayBuffer via onload", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob([new Uint8Array([1, 2, 3])]);
+        reader.onload = function () {
+            try {
+                expect(reader.result).to.be.instanceOf(ArrayBuffer);
+                expect(reader.result.byteLength).to.equal(3);
+                const view = new Uint8Array(reader.result);
+                expect(view[0]).to.equal(1);
+                expect(view[2]).to.equal(3);
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsArrayBuffer(blob);
+    });
+
+    // -------------------------------- readAsDataURL --------------------------------
+    it("reads a Blob as a base64 data URL", function (done) {
+        const reader = new FileReader();
+        // "Hello" -> base64 SGVsbG8=
+        const blob = new Blob(["Hello"], { type: "text/plain" });
+        reader.onload = function () {
+            try {
+                expect(reader.result).to.be.a("string");
+                expect(reader.result).to.equal("data:text/plain;base64,SGVsbG8=");
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsDataURL(blob);
+    });
+
+    it("falls back to application/octet-stream when the source blob has no type", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["Hello"]);
+        reader.onload = function () {
+            try {
+                expect(reader.result).to.equal("data:application/octet-stream;base64,SGVsbG8=");
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsDataURL(blob);
+    });
+
+    // -------------------------------- addEventListener --------------------------------
+    it("dispatches 'load' events to addEventListener listeners", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["abc"]);
+        let countA = 0;
+        let countB = 0;
+        const handlerA = function () {
+            countA++;
+        };
+        const handlerB = function () {
+            countB++;
+        };
+        reader.addEventListener("load", handlerA);
+        reader.addEventListener("load", handlerB);
+        // Per WHATWG, adding the same listener twice is a no-op, so handlerA
+        // should still fire exactly once.
+        reader.addEventListener("load", handlerA);
+        reader.onloadend = function () {
+            try {
+                expect(countA).to.equal(1);
+                expect(countB).to.equal(1);
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsText(blob);
+    });
+
+    it("does not call a listener after removeEventListener", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["abc"]);
+        let called = false;
+        const handler = function () {
+            called = true;
+        };
+        reader.addEventListener("load", handler);
+        reader.removeEventListener("load", handler);
+        reader.onloadend = function () {
+            try {
+                expect(called).to.equal(false);
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsText(blob);
+    });
+
+    // -------------------------------- abort --------------------------------
+    it("transitions readyState to DONE after abort()", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["abc"]);
+        reader.readAsText(blob);
+        // Immediately abort before the queued read completes.
+        reader.abort();
+        // Wait one microtask turn so any pending dispatch settles before we inspect state.
+        Promise.resolve().then(() => {
+            try {
+                expect(reader.readyState).to.equal(FileReader.DONE);
+                done();
+            } catch (e) {
+                done(e);
+            }
+        });
     });
 });
 

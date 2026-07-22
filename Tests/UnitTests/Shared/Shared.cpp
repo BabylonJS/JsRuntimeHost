@@ -8,13 +8,16 @@
 #include <Babylon/Polyfills/URL.h>
 #include <Babylon/Polyfills/WebSocket.h>
 #include <Babylon/Polyfills/XMLHttpRequest.h>
+#include <Babylon/Polyfills/Fetch.h>
 #include <Babylon/Polyfills/Blob.h>
+#include <Babylon/Polyfills/File.h>
 #include <Babylon/Polyfills/TextDecoder.h>
 #include <Babylon/Polyfills/TextEncoder.h>
 #include <gtest/gtest.h>
 #include <arcana/threading/blocking_concurrent_queue.h>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <future>
 #include <iostream>
 #include <thread>
@@ -259,7 +262,9 @@ TEST(JavaScript, All)
         Babylon::Polyfills::URL::Initialize(env);
         Babylon::Polyfills::WebSocket::Initialize(env);
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
+        Babylon::Polyfills::Fetch::Initialize(env);
         Babylon::Polyfills::Blob::Initialize(env);
+        Babylon::Polyfills::File::Initialize(env);
         Babylon::Polyfills::TextDecoder::Initialize(env);
         Babylon::Polyfills::TextEncoder::Initialize(env);
 
@@ -450,6 +455,130 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     testThread.join();
 }
+
+// The V8JSI Node-API shim does not implement napi_create_dataview /
+// napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
+// only builds on the Chakra, V8, and JavaScriptCore backends. The size_t-width
+// guard is required because the overflow scenario below needs a 64-bit size_t.
+#if (SIZE_MAX > 0xFFFFFFFFu) && !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, CreateDataViewRejectsOverflowingRange)
+{
+    // Regression: napi_create_dataview must reject a (byte_offset, byte_length)
+    // pair whose sum overflows size_t. The pre-fix code performed an unchecked
+    // `byte_offset + byte_length > bufferLength` comparison; with the inputs
+    // below the 64-bit sum wraps to 8 and slips past it. It then truncated the
+    // values to 32-bit (offset -> 0, length -> 8) and created a valid 8-byte
+    // DataView, but stored the ORIGINAL 64-bit offset/length in DataViewInfo,
+    // which napi_get_dataview_info hands back alongside the small real buffer --
+    // an out-of-bounds access primitive. This path is not reachable from JS
+    // `new DataView`, so it is covered natively here. The scenario requires a
+    // 64-bit size_t (where the 32-bit truncation diverged from the stored value),
+    // hence the size_t-width guard.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> overflowSafe;
+    std::promise<bool> validAccepted;
+
+    runtime.Dispatch([&overflowSafe, &validAccepted](Napi::Env env) {
+        napi_env nenv{env};
+
+        Napi::ArrayBuffer arrayBuffer{Napi::ArrayBuffer::New(env, 16)};
+        napi_value arrayBufferValue{arrayBuffer};
+
+        // Low 32 bits are individually valid for the 16-byte buffer (offset 0,
+        // length 8), but the full 64-bit values are enormous and their sum wraps
+        // around size_t to 8.
+        const size_t hugeOffset{0xFFFFFFFF00000000ull};
+        const size_t hugeLength{0x0000000100000008ull};
+
+        napi_value result{nullptr};
+        napi_status status{napi_create_dataview(nenv, hugeLength, arrayBufferValue, hugeOffset, &result)};
+
+        bool safe;
+        if (status != napi_ok || result == nullptr)
+        {
+            // Fixed path: the out-of-range request is rejected outright.
+            safe = true;
+        }
+        else
+        {
+            // If creation unexpectedly succeeds, the reported extents must still
+            // lie within the 16-byte backing buffer (i.e. not the raw 64-bit
+            // inputs). The pre-fix code reported the huge stored values here.
+            size_t reportedLength{0};
+            size_t reportedOffset{0};
+            void* data{nullptr};
+            napi_get_dataview_info(nenv, result, &reportedLength, &data, nullptr, &reportedOffset);
+            safe = reportedOffset <= 16 && reportedLength <= 16 && reportedOffset + reportedLength <= 16;
+        }
+
+        // Clear any pending range error so it doesn't surface as an unhandled error.
+        napi_value pendingException{nullptr};
+        napi_get_and_clear_last_exception(nenv, &pendingException);
+        overflowSafe.set_value(safe);
+
+        // A legitimate offset/length pair must still succeed.
+        napi_value validResult{nullptr};
+        napi_status validStatus{napi_create_dataview(nenv, 8, arrayBufferValue, 4, &validResult)};
+        validAccepted.set_value(validStatus == napi_ok && validResult != nullptr);
+    });
+
+    EXPECT_TRUE(overflowSafe.get_future().get());
+    EXPECT_TRUE(validAccepted.get_future().get());
+}
+#endif
+
+// The V8JSI Node-API shim does not expose napi_get_value_string_utf16, so this
+// native test only builds on the Chakra, V8, and JavaScriptCore backends.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, GetValueStringUtf16HandlesZeroBufsize)
+{
+    // Regression: napi_get_value_string_utf16 with a non-null buffer and
+    // bufsize == 0 must not evaluate bufsize - 1. On the Chakra backend the
+    // pre-fix code forwarded bufsize - 1 (== SIZE_MAX) to JsCopyStringUtf16 as
+    // the destination capacity, copying the entire JS string into the
+    // zero-length buffer, and then stored the terminator at buf[bufsize - 1]
+    // (== buf[SIZE_MAX]). The call must instead write nothing and report zero.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> zeroSafe;
+    std::promise<bool> normalWorks;
+
+    runtime.Dispatch([&zeroSafe, &normalWorks](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value strValue{Napi::String::New(env, "hello world")};
+
+        // Sentinel-filled buffer. With bufsize == 0 nothing may be written, so
+        // every element must survive unchanged (a SIZE_MAX-capacity copy would
+        // clobber it / overflow).
+        char16_t guard[8];
+        for (auto& c : guard)
+        {
+            c = static_cast<char16_t>(0x7FFF);
+        }
+
+        size_t copied{0xDEAD};
+        napi_status status{napi_get_value_string_utf16(nenv, strValue, guard, 0, &copied)};
+
+        bool safe{status == napi_ok && copied == 0};
+        for (auto c : guard)
+        {
+            safe = safe && (c == static_cast<char16_t>(0x7FFF));
+        }
+        zeroSafe.set_value(safe);
+
+        // A sufficiently-sized buffer must still copy and null-terminate.
+        char16_t buf[32];
+        size_t copied2{0};
+        napi_status status2{napi_get_value_string_utf16(nenv, strValue, buf, 32, &copied2)};
+        normalWorks.set_value(status2 == napi_ok && copied2 == 11 && buf[copied2] == 0);
+    });
+
+    EXPECT_TRUE(zeroSafe.get_future().get());
+    EXPECT_TRUE(normalWorks.get_future().get());
+}
+#endif
 
 int RunTests()
 {

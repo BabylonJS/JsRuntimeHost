@@ -13,7 +13,6 @@ function func1() {
 assert.strictEqual(test_function.TestCall(func1), 1);
 
 function func2() {
-  console.log('hello world!');
   return null;
 }
 assert.strictEqual(test_function.TestCall(func2), null);

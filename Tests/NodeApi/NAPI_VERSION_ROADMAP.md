@@ -1,6 +1,6 @@
 # Node-API (N-API) Conformance & Version Roadmap
 
-_Last updated: 2026-06-04 · Tracks PR #116 (`napi-tests`) and the staged path to higher N-API levels._
+_Last updated: 2026-07-22 · Tracks PR #116 (`napi-tests`) and the staged path to higher N-API levels._
 
 ## Scope & PR discipline
 
@@ -17,7 +17,7 @@ This is a multi-PR effort. Keep the boundaries strict:
 > *Platform status*). That is a deliberate packaging change for all Android consumers; if upstream
 > prefers it isolated, it can land as a small precursor commit/PR that this suite depends on.
 
-## Current state (2026-06-04)
+## Current state (2026-07-22)
 
 - `NAPI_VERSION` is pinned at **5** via `[BABYLON-NATIVE-ADDITION]` `#define` blocks in
   `Core/Node-API/Include/Shared/napi/{js_native_api.h, js_native_api_types.h, napi.h}`, and `NAPI_HAS_THREADS` is forced to **0**. Upstream `main` is also still 5.
@@ -38,8 +38,9 @@ This is a multi-PR effort. Keep the boundaries strict:
 
 | Platform | Engine | v5 suite | Runner | Notes |
 |---|---|---|---|---|
-| **macOS** | JavaScriptCore | ✅ **12/12** (plain + ASan/UBSan + TSan) | child-process | Full v5 reference. |
-| **Android** | V8 (`libv8android.so`) | ✅ **4/4 js-native-api** (dynamic `.node` + `libnapi.so`, in-process) | in-process | App sandbox can't `fork`/`exec`; addons `dlopen`'d — see below. |
+| **macOS** | JavaScriptCore | CI-gated (plain + ASan/UBSan + TSan) | child-process | The reusable workflow now builds and runs `NodeApiTests`, not just `UnitTests`. |
+| **Linux** | JavaScriptCore / QuickJS | CI-gated (GCC + Clang + ASan/UBSan + TSan) | child-process | Uses the OS JavaScriptCore package; the full `NodeApiTests` executable runs after `UnitTests`. |
+| **Android** | V8 / JSC / QuickJS / Hermes | CI-gated (dynamic `.node` + `libnapi.so`, in-process) | in-process | App sandbox can't `fork`/`exec`; addons `dlopen`'d — see below. |
 
 **Android in-process addon loading (dynamic `.node` + shared `libnapi.so`).** The app sandbox can't `fork`/`exec`, so the conformance suite runs the addons *in-process*. The addons are built as standalone SHARED `lib<name>.so` modules (matching nodejs/node-api-cts's `add_node_api_cts_addon`), packaged by AGP into `nativeLibraryDir`, and `dlopen`'d by `node_lite_android` by soname. For their `napi_*` imports to bind at load, **`napi` is built as a shared library (`libnapi.so`) on Android** — a real `DT_NEEDED` of both the host and every addon, so there is a single napi instance. This is the IoC / dynamic-self-registration model: `dlopen` the addon → its `DT_NEEDED libnapi.so` resolves the `napi_*` → `dlsym("napi_register_module_v1")` → call it. Verified on device: `lib2_function_arguments.so` carries `DT_NEEDED [libnapi.so]`, its 8 `napi_*` are imports (`U`), `libnapi.so` exports all 106 `napi_*` (`T`), and the 4 v5 tests pass. The harness also needs the `noexcept`-removal fix (`38864e4`) so a failing test surfaces as a `ProcessResult` rather than `std::terminate`, and stdout is routed to logcat via AndroidExtensions' `StdoutLogger` (tag `StdoutLogger`) for visible gtest output.
 
@@ -99,21 +100,36 @@ bump: `test_reference` → `node_api_symbol_for` (v9, B4); `test_finalizer/` & `
 `napi_get_instance_data` (v6, B1) + `node_api_basic_env`/`node_api_post_finalizer` (v9, B4). `test_finalizer`
 also surfaced a JSC finalizer-delivery timing case (`mustCall(1)`→0) to confirm at B1.
 
+**July 2026 CTS expansion.** The official cross-platform suite's `test_function` is v5-clean, was already
+vendored here, and is now enabled. It covers function creation/calls and names, invalid arguments, pending
+exceptions, native finalization, and strong-reference teardown. The remaining recently ported CTS directories
+need newer Node-API levels. `Tests/NodeApi/UPSTREAM_REVISIONS` records the exact audited hermes-windows and
+node-api-cts commits so later resyncs are deliberate and reviewable.
+
 **GC-safety (re upstream [hermes-windows#321](https://github.com/microsoft/hermes-windows/pull/321)).** That
 weak-ref-over-Proxy moving-GC bug is **not present here**. V8 uses `v8::Persistent` (an immediate, auto-relocated
 GC root). JSC keeps the to-be-referenced object in the `value` argument on the C stack across the reference's
 finalizer-setup allocation, so JSC's **conservative stack scan pins it against collection and relocation** — the
 creation-time window is closed regardless of whether the collector moves cells — and weak liveness is an
 object-id check, not a bare-pointer deref. Chakra is non-moving with a nullptr-returning weak read. Empirically,
-`test_reference_double_free` runs **clean under ASan on the modern system JSC** (no use-after-free). There is no
-weak-ref-over-Proxy case in the suite yet; add one at the v9 tier.
+`test_reference_double_free` runs **clean under ASan on the modern system JSC** (no use-after-free).
+
+The newer [hermes-windows#349](https://github.com/microsoft/hermes-windows/pull/349) moved weak-reference,
+wrap/finalizer, and type-tag state into private own-object metadata. Its v5-clean failure modes now have a
+Hermes-only regression module here: throwing Proxies must observe no metadata traps, frozen objects must accept
+weak refs and wraps, prototype children must not inherit wraps, and a Proxy finalizer must survive collection.
+The weak-reference creation case also directly guards #321. It is intentionally engine-gated: other adapters do
+not use Hermes's private-metadata mechanism, and broadening it would turn a Hermes regression guard into an
+unrelated implementation change in this test-integration PR.
 
 ## Test-suite sourcing strategy
 
 - **Now (this PR):** vendored copy of vmoroz's hermes-windows `unittests/NodeApi/` (engine-layer, v8-capable
-  harness, `node_lite`). Resync the v1–v5 test files from upstream hermes-windows so our copies are current (task 5).
+  harness, `node_lite`). Audited at `3c6569e` (2026-07-17), including Vlad's private-metadata fix in #349.
+  The Babel tool graph follows that upstream's deterministic npm/lockfile stamp, but uses `npm ci`; both runner
+  targets explicitly depend on the transform target and receive the transformed assets after their source copy.
 - **Evaluated (task 6) — `nodejs/node-api-cts` as a `FetchContent` `GIT_REPOSITORY` dep: not yet; track for later.**
-  Findings (HEAD `ea10da9`, 2026-06):
+  Findings (HEAD `67b5e42`, 2026-07-13):
   - **Maturity blocker:** the README states it "is currently a work-in-progress and shouldn't yet be relied on by
     anyone" (v0.1.0, not on npm). Too early to take as an upstream dependency.
   - **Harness-model mismatch:** the runner is Node.js + TypeScript (`node --test implementors/node/run-tests.ts`,
@@ -124,8 +140,10 @@ weak-ref-over-Proxy case in the suite yet; add one at the v9 tier.
     suite now uses (dynamic `.node` + `libnapi.so`). Its CMake only handles Apple `-undefined dynamic_lookup` /
     MSVC import-libs, so an Android port would still need our `libnapi.so` + soname-load glue, but the addon model
     itself matches — a future migration is much smoother now.
-  - **No v5 coverage gain now:** its `tests/js-native-api/` are ported from the same `nodejs/node` source as our
-    vendored copies; the 4 v5 tests are identical content.
+  - **One immediate v5 gain:** enable its now-ported `test_function` semantics from our existing vendored copy.
+    The other current ports are either already represented or require a later N-API tier.
+  - **Harness evolution:** `spawnTest` landed in #54. That is useful for a future native CTS implementor, but it
+    does not remove the current runner/Android integration work needed to consume the repository directly.
   - **Upside (why track it):** engine-agnostic, active (~24 js-native-api tests ported incl. `test_bigint`,
     `test_typedarray`, `test_string`, `test_date` — valuable once we bump NAPI_VERSION), CMake-based, and
     contributing a JsRuntimeHost implementor could upstream our Android in-process + static-link learnings.
