@@ -246,3 +246,23 @@ endfunction()
 add_dependencies(NodeApiTests NodeApiModules)
 
 add_subdirectory(test)
+
+# node_api_copy_test_sources() first stages the complete source tree (native
+# module layout and non-JS fixtures included). Overlay Babel's generated JS and
+# source maps afterward. add_custom_command(TARGET) must be called from the
+# directory that created the target, so this cannot live in test/CMakeLists.txt.
+foreach(testJSFile IN LISTS NODE_API_TRANSFORMED_JS_RELATIVE_FILES)
+    get_filename_component(testJSDir ${testJSFile} DIRECTORY)
+    foreach(nodeApiRunner node_lite NodeApiTests)
+        add_custom_command(TARGET ${nodeApiRunner} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:${nodeApiRunner}>/test/${testJSDir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${NODE_API_TRANSFORMED_JS_BINARY_DIR}/${testJSFile}"
+                "$<TARGET_FILE_DIR:${nodeApiRunner}>/test/${testJSFile}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${NODE_API_TRANSFORMED_JS_BINARY_DIR}/${testJSFile}.map"
+                "$<TARGET_FILE_DIR:${nodeApiRunner}>/test/${testJSFile}.map"
+            VERBATIM)
+    endforeach()
+endforeach()

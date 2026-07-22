@@ -88,24 +88,7 @@ foreach(absoluteTestJSFile ${testJSFiles})
     ${CMAKE_CURRENT_BINARY_DIR}/${testJSFile}
     ${CMAKE_CURRENT_BINARY_DIR}/${testJSFile}.map
   )
-
-  # node_api_copy_test_sources() first stages the complete source tree (native
-  # module layout and non-JS fixtures included). Overlay only Babel's generated
-  # JS and source map afterward, without copying node_modules into the runtime
-  # directory. The second overlay is needed because NodeApiTests has its own
-  # post-build source copy after node_lite has already been built.
-  foreach(nodeApiRunner node_lite NodeApiTests)
-    add_custom_command(TARGET ${nodeApiRunner} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-        "$<TARGET_FILE_DIR:${nodeApiRunner}>/test/${testJSDir}"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_BINARY_DIR}/${testJSFile}"
-        "$<TARGET_FILE_DIR:${nodeApiRunner}>/test/${testJSFile}"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_BINARY_DIR}/${testJSFile}.map"
-        "$<TARGET_FILE_DIR:${nodeApiRunner}>/test/${testJSFile}.map"
-      VERBATIM)
-  endforeach()
+  list(APPEND transformedJSRelativeFiles ${testJSFile})
 endforeach()
 
 # run the Babel transforms for all required output files
@@ -115,6 +98,16 @@ add_custom_target(transformJSFiles
 add_dependencies(transformJSFiles installNodeApiTestJsTools)
 add_dependencies(node_lite transformJSFiles)
 add_dependencies(NodeApiTests transformJSFiles)
+
+# The parent directory owns the runner targets, so it must attach their
+# POST_BUILD commands. Export the generated-file locations for that final
+# source-tree overlay after this subdirectory returns.
+set(NODE_API_TRANSFORMED_JS_BINARY_DIR
+  "${CMAKE_CURRENT_BINARY_DIR}"
+  PARENT_SCOPE)
+set(NODE_API_TRANSFORMED_JS_RELATIVE_FILES
+  "${transformedJSRelativeFiles}"
+  PARENT_SCOPE)
 
 if(JSR_NODE_API_BUILD_NATIVE_TESTS)
   add_subdirectory(js-native-api)
