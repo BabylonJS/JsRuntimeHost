@@ -57,6 +57,7 @@ namespace Babylon::Polyfills::Internal
         // this constant (the variable detail rides on `cause`) so crash-report grouping stays
         // intact; we follow Node/undici's "fetch failed" spelling.
         constexpr const char* FETCH_FAILED_MESSAGE = "fetch failed";
+        constexpr const char* JS_FETCH_POLYFILL_EXPORTS_NAME = "fetchPolyfillExports";
 
         // Snapshot the JS call-site stack synchronously, inside fetch(), before SendAsync() hands
         // the request to a worker thread. The transport-failure rejection is otherwise built in a
@@ -174,16 +175,22 @@ namespace Babylon::Polyfills::Internal
         void InitializeFetchClasses(Napi::Env env)
         {
             auto global = env.Global();
-            const auto exports = Napi::Eval(env, FetchScripts::Polyfill, "jsruntimehost://fetch-polyfill.js").As<Napi::Object>();
-            if (global.Get("Headers").IsUndefined())
+            auto nativeObject = JsRuntime::NativeObject::GetFromJavaScript(env);
+            auto exportsValue = nativeObject.Get(JS_FETCH_POLYFILL_EXPORTS_NAME);
+            if (exportsValue.IsUndefined() || exportsValue.IsNull())
+            {
+                exportsValue = Napi::Eval(env, FetchScripts::Polyfill, "jsruntimehost://fetch-polyfill.js");
+                nativeObject.Set(JS_FETCH_POLYFILL_EXPORTS_NAME, exportsValue);
+            }
+            const auto exports = exportsValue.As<Napi::Object>();
+            const auto headers = global.Get("Headers");
+            const auto response = global.Get("Response");
+            if (headers.IsUndefined() || headers.IsNull() || response.IsUndefined() || response.IsNull())
             {
                 global.Set("Headers", exports.Get("Headers"));
-            }
-            if (global.Get("Response").IsUndefined())
-            {
                 global.Set("Response", exports.Get("Response"));
             }
-            JsRuntime::NativeObject::GetFromJavaScript(env).Set("createFetchResponse", exports.Get("createFetchResponse"));
+            nativeObject.Set("createFetchResponse", exports.Get("createFetchResponse"));
         }
     }
 

@@ -462,8 +462,23 @@ describe("Response", function () {
         expect(await clone.text()).to.equal("clone body");
     });
 
+    function withoutPrivateDisturbedState(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+        Object.defineProperty(stream, "_disturbed", {
+            configurable: true,
+            get() { return undefined; },
+            set() {}
+        });
+        return stream;
+    }
+
     it("tracks direct stream reads and rejects invalid body chunks", async function () {
-        const direct = new Response("body");
+        const directStream = withoutPrivateDisturbedState(new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode("body"));
+                controller.close();
+            }
+        }));
+        const direct = new Response(directStream);
         const reader = direct.body!.getReader();
         expect(direct.bodyUsed).to.equal(false);
         await reader.read();
@@ -482,6 +497,49 @@ describe("Response", function () {
             rejected = error instanceof TypeError;
         }
         expect(rejected).to.equal(true);
+    });
+
+    it("rejects a host-shaped stream disturbed before Response construction", async function () {
+        const stream = withoutPrivateDisturbedState(new ReadableStream({
+            start(controller) {
+                controller.enqueue(new Uint8Array([1]));
+                controller.close();
+            }
+        }));
+        const reader = stream.getReader();
+        await reader.read();
+        reader.releaseLock();
+
+        expect(() => new Response(stream)).to.throw(TypeError);
+    });
+
+    // Focused ports from WPT response-stream-disturbed-6.any.js and
+    // response-stream-disturbed-by-pipe.any.js. These must not depend on a
+    // private field supplied by one particular Streams implementation.
+    it("tracks cancellation and piping through standard stream methods", async function () {
+        const cancelled = new Response(withoutPrivateDisturbedState(new ReadableStream()));
+        const cancelledReader = cancelled.body!.getReader();
+        expect(cancelled.bodyUsed).to.equal(false);
+        await cancelledReader.cancel();
+        expect(cancelled.bodyUsed).to.equal(true);
+
+        const piped = new Response(withoutPrivateDisturbedState(new ReadableStream({
+            start(controller) {
+                controller.close();
+            }
+        })));
+        const pipePromise = piped.body!.pipeTo(new WritableStream({}, { highWaterMark: 0 }));
+        expect(piped.bodyUsed).to.equal(true);
+        await pipePromise;
+
+        const pipedThrough = new Response(withoutPrivateDisturbedState(new ReadableStream({
+            start(controller) {
+                controller.close();
+            }
+        })));
+        const output = pipedThrough.body!.pipeThrough(new TransformStream());
+        expect(pipedThrough.bodyUsed).to.equal(true);
+        await output.cancel();
     });
 
     // Adapted from Firefox dom/fetch/tests/crashtests/1939295.html. The
