@@ -1,0 +1,36 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+
+namespace Babylon::Polyfills::Internal::StreamsScripts
+{
+    inline constexpr char PonyfillPart1[] = R"JSRHSTREAM(
+(function() {
+    var exports = {};
+    var module = { exports: exports };
+@WEB_STREAMS_POLYFILL_SOURCE_1@
+)JSRHSTREAM";
+
+    inline constexpr char PonyfillPart2[] = R"JSRHSTREAM(@WEB_STREAMS_POLYFILL_SOURCE_2@
+    return module.exports;
+})()
+)JSRHSTREAM";
+
+    template<std::size_t Part1Size, std::size_t Part2Size>
+    consteval auto Join(const char (&part1)[Part1Size], const char (&part2)[Part2Size])
+    {
+        std::array<char, Part1Size + Part2Size - 1> result{};
+        for (std::size_t index{}; index < Part1Size - 1; ++index)
+        {
+            result[index] = part1[index];
+        }
+        for (std::size_t index{}; index < Part2Size; ++index)
+        {
+            result[Part1Size - 1 + index] = part2[index];
+        }
+        return result;
+    }
+
+    inline constexpr auto Ponyfill = Join(PonyfillPart1, PonyfillPart2);
+}
