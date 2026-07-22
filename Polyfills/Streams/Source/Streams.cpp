@@ -31,7 +31,8 @@ namespace Babylon::Polyfills::Streams
         bool needsPonyfill{};
         for (const auto name : constructorNames)
         {
-            if (global.Get(name.data()).IsUndefined())
+            const auto constructor = global.Get(name.data());
+            if (constructor.IsUndefined() || constructor.IsNull())
             {
                 needsPonyfill = true;
                 break;
@@ -46,10 +47,7 @@ namespace Babylon::Polyfills::Streams
         const auto exports = Napi::Eval(env, Internal::StreamsScripts::Ponyfill.data(), "jsruntimehost://web-streams-polyfill.js").As<Napi::Object>();
         for (const auto name : constructorNames)
         {
-            if (global.Get(name.data()).IsUndefined())
-            {
-                global.Set(name.data(), exports.Get(name.data()));
-            }
+            global.Set(name.data(), exports.Get(name.data()));
         }
     }
 }
