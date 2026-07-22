@@ -65,6 +65,20 @@ namespace Napi
         napi_env env_ptr{env};
         if (env_ptr)
         {
+            // Node-API instance data belongs to the environment rather than a
+            // JS object. Finalize it while both the context and env are still
+            // valid; user finalizers are permitted to call Node-API.
+            if (env_ptr->instance_data_finalize != nullptr)
+            {
+                auto finalize = env_ptr->instance_data_finalize;
+                void* data = env_ptr->instance_data;
+                void* hint = env_ptr->instance_data_finalize_hint;
+                env_ptr->instance_data = nullptr;
+                env_ptr->instance_data_finalize = nullptr;
+                env_ptr->instance_data_finalize_hint = nullptr;
+                finalize(env_ptr, data, hint);
+            }
+
             // Release every strong napi_ref still outstanding. This mirrors
             // the V8 impl (napi_env__::DeleteMe) and is essential on QuickJS:
             // any surviving strong ref pins a JS value from outside the GC

@@ -49,7 +49,7 @@ jobs:
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
 
-      - name: Run Node-API v5 conformance
+      - name: Run Node-API v7 conformance
         working-directory: Build/macOS/Tests/NodeApi/RelWithDebInfo
         run: ./NodeApiTests
         env:

@@ -50,7 +50,7 @@ NodeApiRef MakeNodeApiRef(napi_env env, napi_value value) {
 }
 
 template <typename TCallback>
-void ThrowJSErrorOnException(napi_env env, TCallback&& callback) noexcept {
+void ThrowJSErrorOnException(napi_env env, TCallback&& callback) {
   try {
     callback();
   } catch (const NodeLiteException& e) {
@@ -464,7 +464,10 @@ void NodeLiteRuntime::RunTestScript(const std::string& script_path) {
       main_module.LoadModule(env_);
     });
     ExitOnException(env_, [this]() {
+      napi_env env = env_;
       task_runner_->DrainTaskQueue();
+      bool microtasks_drained{};
+      NODE_LITE_CALL(jsr_drain_microtasks(env, -1, &microtasks_drained));
       OnExit();
       on_exit_callbacks_.clear();
       on_uncaughtException_callbacks_.clear();
@@ -663,8 +666,8 @@ void NodeLiteRuntime::DefineGlobalFunctions() {
     // process.execPath
     NodeApi::SetPropertyString(env_, process_obj, "execPath", args_[0]);
 
-    // process.target_config - always use "Release" to match CMAKE module output directory
-    NodeApi::SetPropertyString(env_, process_obj, "target_config", "Release");
+    // process.target_config follows the directory where CMake staged addons.
+    NodeApi::SetPropertyString(env_, process_obj, "target_config", NODE_API_BUILD_TYPE);
 
 // process.platform
 #ifdef WIN32
@@ -1326,6 +1329,7 @@ NodeApiEnvScope& NodeApiEnvScope::operator=(NodeApiEnvScope&& other) noexcept {
                                               std::string_view name,
                                               NodeApiCallback cb) {
   napi_value result{};
+  auto callback = std::make_unique<NodeApiCallback>(std::move(cb));
   NODE_LITE_CALL(napi_create_function(
       env,
       name.data(),
@@ -1340,9 +1344,18 @@ NodeApiEnvScope& NodeApiEnvScope::operator=(NodeApiEnvScope&& other) noexcept {
         });
         return result;
       },
-      // TODO: (vmoroz) Find a way to delete it on close.
-      new NodeApiCallback(std::move(cb)),
+      callback.get(),
       &result));
+  NODE_LITE_CALL(napi_add_finalizer(
+      env,
+      result,
+      callback.get(),
+      [](napi_env, void* data, void*) {
+        delete static_cast<NodeApiCallback*>(data);
+      },
+      nullptr,
+      nullptr));
+  callback.release();
   return result;
 }
 

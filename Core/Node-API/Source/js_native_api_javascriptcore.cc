@@ -1,7 +1,10 @@
 #include "js_native_api_javascriptcore.h"
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <stdexcept>
@@ -856,6 +859,32 @@ void napi_env__::init_function_prototype_call() {
   JSValueProtect(context, function_prototype_call);
 }
 
+void napi_env__::init_is_bigint_function() {
+  // Cache a `typeof v === 'bigint'` predicate so napi_typeof can detect BigInt on JSC builds whose C
+  // API does not expose kJSTypeBigInt (e.g. jsc-android). On macOS 15+/iOS 18+ napi_typeof uses the
+  // kJSTypeBigInt fast path and this predicate is unused.
+  JSStringRef script = JSStringCreateWithUTF8CString("(function (v) { return typeof v === 'bigint'; })");
+  JSValueRef exception = nullptr;
+  is_bigint_function = JSEvaluateScript(context, script, nullptr, nullptr, 0, &exception);
+  JSStringRelease(script);
+  if (is_bigint_function != nullptr) {
+    JSValueProtect(context, is_bigint_function);
+  }
+}
+
+void napi_env__::init_bigint_supported() {
+  // Detect BigInt once at env init. jsc-android (~2020) ships without BigInt -- its parser even rejects
+  // `0n` literals -- so the eval/C-API BigInt paths must feature-detect-fail there. `typeof BigInt`
+  // parses on every JSC (no literal syntax), and BigInt(1) confirms the global is actually functional.
+  JSStringRef script = JSStringCreateWithUTF8CString(
+      "(function () { try { return typeof BigInt === 'function' && typeof BigInt(1) === 'bigint'; }"
+      " catch (e) { return false; } })()");
+  JSValueRef exception = nullptr;
+  JSValueRef result = JSEvaluateScript(context, script, nullptr, nullptr, 0, &exception);
+  JSStringRelease(script);
+  bigint_supported = (exception == nullptr) && (result != nullptr) && JSValueToBoolean(context, result);
+}
+
 // Warning: Keep in-sync with napi_status enum
 static const char* error_messages[] = {
   nullptr,
@@ -1551,7 +1580,6 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
-  // JSC does not support BigInt
   JSType valueType = JSValueGetType(env->context, ToJSValue(value));
   switch (valueType) {
     case kJSTypeUndefined: *result = napi_undefined; break;
@@ -1560,7 +1588,28 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
     case kJSTypeNumber: *result = napi_number; break;
     case kJSTypeString: *result = napi_string; break;
     case kJSTypeSymbol: *result = napi_symbol; break;
-    default:
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+    // kJSTypeBigInt is macOS 15+/iOS 18+. On older JSC (e.g. jsc-android) a BigInt falls to the
+    // default branch; a typeof-based fallback is added with the Android bring-up.
+    case kJSTypeBigInt: *result = napi_bigint; break;
+#endif
+    default: {
+#if !(defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000)
+      // Older JSC (e.g. jsc-android) does not report kJSTypeBigInt through JSValueGetType, so detect
+      // BigInt with the cached `typeof v === 'bigint'` predicate before treating value as an object.
+      if (env->is_bigint_function != nullptr) {
+        JSValueRef arg = ToJSValue(value);
+        JSValueRef exception = nullptr;
+        JSObjectRef predicate = JSValueToObject(env->context, env->is_bigint_function, &exception);
+        if (exception == nullptr && predicate != nullptr) {
+          JSValueRef matched = JSObjectCallAsFunction(env->context, predicate, nullptr, 1, &arg, &exception);
+          if (exception == nullptr && JSValueToBoolean(env->context, matched)) {
+            *result = napi_bigint;
+            break;
+          }
+        }
+      }
+#endif
       JSObjectRef object{ToJSObject(env, value)};
       if (JSObjectIsFunction(env->context, object)) {
         *result = napi_function;
@@ -1573,6 +1622,7 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
         }
       }
       break;
+    }
   }
 
   return napi_ok;
@@ -1691,6 +1741,280 @@ napi_status napi_get_global(napi_env env, napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
   *result = ToNapi(JSContextGetGlobalObject(env->context));
+  return napi_ok;
+}
+
+// N-API v6: per-environment instance data. The finalizer (if any) runs when the env is torn down
+// (see ~napi_env__).
+napi_status napi_set_instance_data(napi_env env,
+                                   void* data,
+                                   napi_finalize finalize_cb,
+                                   void* finalize_hint) {
+  CHECK_ENV(env);
+  env->instance_data = data;
+  env->instance_data_finalize_cb = finalize_cb;
+  env->instance_data_finalize_hint = finalize_hint;
+  return napi_ok;
+}
+
+napi_status napi_get_instance_data(napi_env env, void** data) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, data);
+  *data = env->instance_data;
+  return napi_ok;
+}
+
+//=============================================================================
+// N-API v6 BigInt + v7 ArrayBuffer detach (JavaScriptCore)
+//
+// The JSC public C API only ships BigInt create functions on macOS 15+/iOS 18+, and ships no
+// ArrayBuffer-detach call at all. The JS-level BigInt global, however, has been in JSC since ~2018,
+// and ArrayBuffer.prototype.transfer() (ES2024) detaches a buffer -- both reachable through the
+// public C API. So: BigInt uses the native C API where available and the JS BigInt global otherwise;
+// detach uses transfer(). Extraction (get_value_bigint_*) is always string/round-trip based, since
+// the C API has no BigInt readers.
+//=============================================================================
+
+namespace {
+
+// Call BigInt.asIntN(64, value) / BigInt.asUintN(64, value); yields the low 64 bits as a BigInt.
+// Reported when the underlying JSC build has no BigInt (e.g. jsc-android ~2020). Matches the Chakra
+// backend: a JS-catchable ENOTSUP error per the Node-API feature-detection pattern.
+napi_status napi_bigint_unsupported(napi_env env) {
+  CHECK_NAPI(napi_throw_error(env, "ENOTSUP",
+      "BigInt is not supported by the underlying JavaScript engine."));
+  return napi_set_last_error(env, napi_pending_exception);
+}
+
+napi_status BigIntLow64(napi_env env, napi_value value, const char* method, JSValueRef* low) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
+  JSObjectRef global = JSContextGetGlobalObject(env->context);
+  JSValueRef exception{};
+  JSValueRef bigIntCtor = JSObjectGetProperty(env->context, global, JSString("BigInt"), &exception);
+  CHECK_JSC(env, exception);
+  JSObjectRef bigIntObj = JSValueToObject(env->context, bigIntCtor, &exception);
+  CHECK_JSC(env, exception);
+  JSValueRef fn = JSObjectGetProperty(env->context, bigIntObj, JSString(method), &exception);
+  CHECK_JSC(env, exception);
+  JSObjectRef fnObj = JSValueToObject(env->context, fn, &exception);
+  CHECK_JSC(env, exception);
+  JSValueRef args[2] = {JSValueMakeNumber(env->context, 64), ToJSValue(value)};
+  *low = JSObjectCallAsFunction(env->context, fnObj, bigIntObj, 2, args, &exception);
+  CHECK_JSC(env, exception);
+  return napi_ok;
+}
+
+// value.toString(radix) for a BigInt primitive (boxes the primitive, then calls toString).
+napi_status BigIntToString(napi_env env, napi_value value, int radix, std::string* out) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
+  JSValueRef exception{};
+  JSObjectRef boxed = JSValueToObject(env->context, ToJSValue(value), &exception);
+  CHECK_JSC(env, exception);
+  JSValueRef toString = JSObjectGetProperty(env->context, boxed, JSString("toString"), &exception);
+  CHECK_JSC(env, exception);
+  JSObjectRef toStringFn = JSValueToObject(env->context, toString, &exception);
+  CHECK_JSC(env, exception);
+  JSValueRef radixArg = JSValueMakeNumber(env->context, radix);
+  JSValueRef str = JSObjectCallAsFunction(env->context, toStringFn, boxed, 1, &radixArg, &exception);
+  CHECK_JSC(env, exception);
+  JSStringRef jsStr = JSValueToStringCopy(env->context, str, &exception);
+  CHECK_JSC(env, exception);
+  size_t cap = JSStringGetMaximumUTF8CStringSize(jsStr);
+  out->resize(cap);
+  size_t written = JSStringGetUTF8CString(jsStr, out->data(), cap);
+  JSStringRelease(jsStr);
+  if (written > 0) out->resize(written - 1);  // drop the trailing NUL
+  return napi_ok;
+}
+
+// Construct a BigInt from a (controlled) JS source expression; used as the create path where the C
+// API is unavailable. Only embeds numeric/hex literals -> no injection surface.
+napi_status BigIntFromExpr(napi_env env, const std::string& expr, napi_value* result) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
+  JSStringRef src = JSStringCreateWithUTF8CString(expr.c_str());
+  JSValueRef exception{};
+  JSValueRef big = JSEvaluateScript(env->context, src, nullptr, nullptr, 0, &exception);
+  JSStringRelease(src);
+  CHECK_JSC(env, exception);
+  *result = ToNapi(big);
+  return napi_ok;
+}
+
+}  // namespace
+
+napi_status napi_create_bigint_int64(napi_env env, int64_t value, napi_value* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, result);
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+  if (__builtin_available(macOS 15.0, *)) {
+    JSValueRef exception{};
+    JSValueRef big = JSBigIntCreateWithInt64(env->context, value, &exception);
+    CHECK_JSC(env, exception);
+    *result = ToNapi(big);
+    return napi_ok;
+  }
+#endif
+  return BigIntFromExpr(env, "BigInt(\"" + std::to_string(value) + "\")", result);
+}
+
+napi_status napi_create_bigint_uint64(napi_env env, uint64_t value, napi_value* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, result);
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+  if (__builtin_available(macOS 15.0, *)) {
+    JSValueRef exception{};
+    JSValueRef big = JSBigIntCreateWithUInt64(env->context, value, &exception);
+    CHECK_JSC(env, exception);
+    *result = ToNapi(big);
+    return napi_ok;
+  }
+#endif
+  return BigIntFromExpr(env, "BigInt(\"" + std::to_string(value) + "\")", result);
+}
+
+napi_status napi_create_bigint_words(napi_env env,
+                                     int sign_bit,
+                                     size_t word_count,
+                                     const uint64_t* words,
+                                     napi_value* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, result);
+  // Match Node/V8 limits *before* touching the (possibly under-sized) words buffer: beyond INT_MAX
+  // it's napi_invalid_arg; beyond the engine's BigInt size limit it's a RangeError.
+  if (word_count > static_cast<size_t>(INT_MAX)) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  if (word_count > (static_cast<size_t>(1) << 24)) {  // ~ kMaxBigIntLengthBits / 64
+    napi_throw_range_error(env, nullptr, "Maximum BigInt size exceeded");
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+  if (word_count > 0) {
+    CHECK_ARG(env, words);
+  }
+  // Big-endian hex from the little-endian words (words[0] is the least-significant 64 bits).
+  std::string hex;
+  for (size_t i = word_count; i-- > 0;) {
+    char buf[17];
+    snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(words[i]));
+    hex += buf;
+  }
+  if (hex.empty()) {
+    hex = "0";
+  }
+  std::string expr = (sign_bit ? "-BigInt(\"0x" : "BigInt(\"0x") + hex + "\")";
+  return BigIntFromExpr(env, expr, result);
+}
+
+napi_status napi_get_value_bigint_int64(napi_env env,
+                                        napi_value value,
+                                        int64_t* result,
+                                        bool* lossless) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, value);
+  CHECK_ARG(env, result);
+  CHECK_ARG(env, lossless);
+  JSValueRef low{};
+  CHECK_NAPI(BigIntLow64(env, value, "asIntN", &low));
+  std::string decimal;
+  CHECK_NAPI(BigIntToString(env, ToNapi(low), 10, &decimal));
+  *result = static_cast<int64_t>(strtoll(decimal.c_str(), nullptr, 10));
+  *lossless = JSValueIsStrictEqual(env->context, ToJSValue(value), low);
+  return napi_ok;
+}
+
+napi_status napi_get_value_bigint_uint64(napi_env env,
+                                         napi_value value,
+                                         uint64_t* result,
+                                         bool* lossless) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, value);
+  CHECK_ARG(env, result);
+  CHECK_ARG(env, lossless);
+  JSValueRef low{};
+  CHECK_NAPI(BigIntLow64(env, value, "asUintN", &low));
+  std::string decimal;
+  CHECK_NAPI(BigIntToString(env, ToNapi(low), 10, &decimal));
+  *result = static_cast<uint64_t>(strtoull(decimal.c_str(), nullptr, 10));
+  *lossless = JSValueIsStrictEqual(env->context, ToJSValue(value), low);
+  return napi_ok;
+}
+
+napi_status napi_get_value_bigint_words(napi_env env,
+                                        napi_value value,
+                                        int* sign_bit,
+                                        size_t* word_count,
+                                        uint64_t* words) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, value);
+  CHECK_ARG(env, word_count);
+  std::string hex;
+  CHECK_NAPI(BigIntToString(env, value, 16, &hex));
+  bool negative = !hex.empty() && hex[0] == '-';
+  std::string digits = negative ? hex.substr(1) : hex;
+  if (digits == "0") {
+    digits.clear();
+  }
+  size_t needed = (digits.length() + 15) / 16;
+  if (words == nullptr) {
+    *word_count = needed;
+    return napi_ok;
+  }
+  if (sign_bit != nullptr) {
+    *sign_bit = negative ? 1 : 0;
+  }
+  size_t capacity = *word_count;
+  *word_count = needed;
+  for (size_t w = 0; w < needed && w < capacity; ++w) {
+    size_t end = digits.length() - w * 16;
+    size_t start = end >= 16 ? end - 16 : 0;
+    std::string chunk = digits.substr(start, end - start);
+    words[w] = static_cast<uint64_t>(strtoull(chunk.c_str(), nullptr, 16));
+  }
+  return napi_ok;
+}
+
+napi_status napi_detach_arraybuffer(napi_env env, napi_value arraybuffer) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, arraybuffer);
+  JSObjectRef ab = ToJSObject(env, arraybuffer);
+  JSValueRef exception{};
+  JSValueRef transfer = JSObjectGetProperty(env->context, ab, JSString("transfer"), &exception);
+  CHECK_JSC(env, exception);
+  if (!JSValueIsObject(env->context, transfer)) {
+    // ArrayBuffer.prototype.transfer() (ES2024) is the only public-API detach path; if the engine
+    // predates it (older jsc-android), throw a catchable ENOTSUP so JS land can polyfill.
+    napi_throw_error(env, "ENOTSUP",
+                     "ArrayBuffer detach is not supported by the underlying JavaScript engine.");
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+  JSObjectRef transferFn = JSValueToObject(env->context, transfer, &exception);
+  CHECK_JSC(env, exception);
+  JSObjectCallAsFunction(env->context, transferFn, ab, 0, nullptr, &exception);  // detaches `ab`
+  CHECK_JSC(env, exception);
+  return napi_ok;
+}
+
+napi_status napi_is_detached_arraybuffer(napi_env env, napi_value arraybuffer, bool* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, arraybuffer);
+  CHECK_ARG(env, result);
+  JSObjectRef ab = ToJSObject(env, arraybuffer);
+  JSValueRef exception{};
+  JSValueRef detached = JSObjectGetProperty(env->context, ab, JSString("detached"), &exception);
+  CHECK_JSC(env, exception);
+  if (JSValueIsBoolean(env->context, detached)) {
+    *result = JSValueToBoolean(env->context, detached);
+  } else {
+    // Pre-ES2024 fallback: a detached buffer has no backing store.
+    JSValueRef ignored{};
+    *result = JSObjectGetArrayBufferBytesPtr(env->context, ab, &ignored) == nullptr;
+  }
   return napi_ok;
 }
 
@@ -2381,6 +2705,14 @@ napi_status napi_create_typedarray(napi_env env,
     case napi_float64_array:
       jsType = kJSTypedArrayTypeFloat64Array;
       break;
+#if defined(JSR_JSC_HAS_BIGINT_TYPED_ARRAYS)
+    case napi_bigint64_array:
+      jsType = kJSTypedArrayTypeBigInt64Array;
+      break;
+    case napi_biguint64_array:
+      jsType = kJSTypedArrayTypeBigUint64Array;
+      break;
+#endif
     default:
       return napi_set_last_error(env, napi_invalid_arg);
   }
@@ -2444,6 +2776,14 @@ napi_status napi_get_typedarray_info(napi_env env,
       case kJSTypedArrayTypeFloat64Array:
         *type = napi_float64_array;
         break;
+#if defined(JSR_JSC_HAS_BIGINT_TYPED_ARRAYS)
+      case kJSTypedArrayTypeBigInt64Array:
+        *type = napi_bigint64_array;
+        break;
+      case kJSTypedArrayTypeBigUint64Array:
+        *type = napi_biguint64_array;
+        break;
+#endif
       default:
         return napi_set_last_error(env, napi_generic_failure);
     }

@@ -42,8 +42,10 @@ add_library(UnitTestsJNI SHARED
     ${TESTS_DIR}/NodeApi/string_utils.cpp
     ${TESTS_DIR}/NodeApi/test_main.cpp)
 
-target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
-target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
+target_compile_definitions(UnitTestsJNI
+    PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}"
+    PRIVATE ARCANA_TEST_HOOKS
+    PRIVATE NODE_API_BUILD_TYPE="$<IF:$<CONFIG:Debug>,Debug,Release>")
 
 target_include_directories(UnitTestsJNI
     PRIVATE ${UNIT_TESTS_DIR}
@@ -75,8 +77,19 @@ target_link_libraries(UnitTestsJNI
 if(ANDROID)
     target_link_libraries(UnitTestsJNI PRIVATE dl)
 endif()
+# Keep the in-process Android list aligned with JSR_NODE_API_NATIVE_TEST_DIRS
+# in Tests/NodeApi/CMakeLists.txt.
+set(_jsr_node_api_tests
+    "2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data")
+# Frozen jsc-android has no BigInt (its parser rejects `0n`); the maintained
+# V8, QuickJS, and Hermes adapters run the real conformance addon.
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
+    string(APPEND _jsr_node_api_tests ",test_bigint_unsupported")
+else()
+    string(APPEND _jsr_node_api_tests ",test_bigint")
+endif()
 target_compile_definitions(UnitTestsJNI
-    PRIVATE NODE_API_AVAILABLE_NATIVE_TESTS="2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free")
+    PRIVATE NODE_API_AVAILABLE_NATIVE_TESTS="${_jsr_node_api_tests}")
 
 # The conformance addons are built as standalone SHARED lib<name>.so by Tests/NodeApi/CMakeLists.txt,
 # packaged by AGP into nativeLibraryDir, and dlopen'd in-process by node_lite_android. Both they and

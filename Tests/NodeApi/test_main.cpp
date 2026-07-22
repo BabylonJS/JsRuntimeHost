@@ -111,7 +111,9 @@ class NodeApiTestFixture : public TestFixtureBase {
       }
     }
 
-    ASSERT_EQ(result.status, 0);
+    ADD_FAILURE() << "node_lite exited with status " << result.status
+                  << "\nstdout:\n" << result.std_output
+                  << "\nstderr:\n" << result.std_error;
   }
 
   static void Register() {

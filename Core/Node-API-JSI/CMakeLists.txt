@@ -57,7 +57,12 @@ if(NOT TARGET jsi)
 endif()
 
 target_include_directories(napi
-    PUBLIC "include")
+    PUBLIC "include"
+    # napi.h pulls in the shared <napi/js_native_api_types.h>, which lives in
+    # Core/Node-API/Include/Shared. That sibling isn't built when the engine is JSI
+    # (Core/CMakeLists.txt selects Node-API-JSI instead of Node-API), so reference the shared
+    # headers directly here -- otherwise the JSI napi fails to compile with C1083.
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../Node-API/Include/Shared")
 
 target_link_libraries(napi
     PUBLIC jsi)

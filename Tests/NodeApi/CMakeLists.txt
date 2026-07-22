@@ -29,6 +29,33 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_hermes_private_metadata)
 endif()
 
+# v6/v7 conformance addons. The JSI backend (Core/Node-API-JSI) does not implement the v6/v7 C surface,
+# so its addons are omitted (its build links only the v1-v5 set). V8 + JavaScriptCore execute these for
+# real; Chakra links them (instance_data works; BigInt throws ENOTSUP via feature-detection).
+# The current node-api-cts typed-array addon only needs the v7 API surface;
+# node_api_basic_env is an ABI-compatible finalizer typedef here. Enable it
+# now so detach/is-detached behavior is exercised instead of waiting for v9.
+if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
+    list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_instance_data)
+    # BigInt: the real conformance test where the engine has BigInt; an ENOTSUP feature-detection
+    # fallback where it doesn't -- the Win10 OS Chakra, and jsc-android (~2020), whose parser rejects
+    # `0n` literals so the standard test_bigint can't even be parsed there.
+    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra" OR
+       (NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore" AND ANDROID))
+        list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_bigint_unsupported)
+    else()
+        list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_bigint)
+    endif()
+
+    # Frozen Chakra and the old Android JSC do not expose a real detach
+    # primitive. All modern engines covered by the v7 branch run the upstream
+    # CTS-derived typed-array/detach cases.
+    if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra" AND
+       NOT (NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore" AND ANDROID))
+        list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_typedarray)
+    endif()
+endif()
+
 function(node_api_copy_test_sources TARGET_NAME)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -79,12 +106,19 @@ target_include_directories(node_lite
 target_compile_definitions(node_lite
     PRIVATE
         NODE_API_EXPERIMENTAL_NO_WARNING
+        NODE_API_BUILD_TYPE="$<IF:$<CONFIG:Debug>,Debug,Release>"
 )
 
 target_link_libraries(node_lite
     PRIVATE
         napi
 )
+
+if(UNIX AND NOT APPLE)
+    # Native test addons resolve napi_* against the embedding executable, like
+    # node itself. Export node_lite's symbols so dlopen can bind them on ELF.
+    set_target_properties(node_lite PROPERTIES ENABLE_EXPORTS ON)
+endif()
 
 node_api_copy_test_sources(node_lite)
 
@@ -183,6 +217,12 @@ function(add_node_api_module MODULE_TARGET)
     elseif(ANDROID)
         # Link the shared napi (libnapi.so) so the addon's napi_* imports resolve at dlopen via a real
         # DT_NEEDED -- the same libnapi.so the host depends on, so there is a single napi instance.
+        target_link_libraries(${MODULE_TARGET} PRIVATE napi)
+    elseif(WIN32)
+        # MSVC binds a DLL's imports at link time (there's no node.exe-style host export / delay-load
+        # wired up here), so the .node addon must resolve its napi_* against the napi library directly.
+        # napi is static on Windows, so the references bind into the addon; node_lite isn't executed by
+        # the Windows/UWP CI (build-only), so a single shared napi instance isn't required there.
         target_link_libraries(${MODULE_TARGET} PRIVATE napi)
     endif()
 

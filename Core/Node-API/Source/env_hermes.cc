@@ -26,7 +26,7 @@
 //     `hermes_run_script` directly — so the linker is never asked to find
 //     the 4-arg symbol).
 //
-// We keep `NAPI_VERSION` at the shared default (5) so the inline wrappers
+// We keep `NAPI_VERSION` at the shared default (7) so the inline wrappers
 // in napi-inl.h that target newer NAPI revisions (e.g.
 // `Env::GetModuleFileName` which calls `node_api_get_module_file_name`)
 // aren't pulled in — they would reference symbols absent from our shared
@@ -164,6 +164,15 @@ namespace Napi
         // exceptions thrown FROM user callbacks are already handled in
         // AppRuntime::Dispatch's try/catch.
         (void)runtime->drainJobs();
+    }
+
+    void CollectGarbage(Napi::Env env)
+    {
+        hermes::vm::Runtime* runtime = LookupRuntime(env);
+        if (runtime != nullptr)
+        {
+            runtime->collect("node_lite explicit collection");
+        }
     }
 
     Napi::Value Eval(Napi::Env env, const char* source, const char* sourceUrl)

@@ -54,20 +54,24 @@ jobs:
 
       - name: Run Tests
         working-directory: Build/ubuntu/Tests/UnitTests
-        run: ./UnitTests
-        env:
-          TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
+        run: |
           # JSC's concurrent GC on Linux uses SIGUSR1 + sem_wait to suspend mutator
           # threads at safepoints. TSan's signal interception delays SIGUSR1 delivery
           # indefinitely, deadlocking the Collector Thread's sem_wait. Disabling the
           # concurrent collector removes the dedicated Collector Thread, so GC runs
           # on the mutator without cross-thread signals. macOS JSC uses Mach
           # thread_suspend() and is unaffected.
-          JSC_useConcurrentGC: ${{ inputs.enable-thread-sanitizer && '0' || '' }}
+          if [[ "${{ inputs.enable-thread-sanitizer }}" == "true" ]]; then
+            export TSAN_OPTIONS="suppressions=${{ github.workspace }}/.github/tsan_suppressions.txt"
+            export JSC_useConcurrentGC=0
+          fi
+          ./UnitTests
 
-      - name: Run Node-API v5 conformance
+      - name: Run Node-API v7 conformance
         working-directory: Build/ubuntu/Tests/NodeApi
-        run: ./NodeApiTests
-        env:
-          TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
-          JSC_useConcurrentGC: ${{ inputs.enable-thread-sanitizer && '0' || '' }}
+        run: |
+          if [[ "${{ inputs.enable-thread-sanitizer }}" == "true" ]]; then
+            export TSAN_OPTIONS="suppressions=${{ github.workspace }}/.github/tsan_suppressions.txt"
+            export JSC_useConcurrentGC=0
+          fi
+          ./NodeApiTests

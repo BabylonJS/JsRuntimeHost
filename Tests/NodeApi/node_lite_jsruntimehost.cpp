@@ -7,12 +7,21 @@
 #include <memory>
 #include <utility>
 
-#if defined(__APPLE__)
+#if defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE)
 #include <JavaScriptCore/JavaScript.h>
 #include "js_native_api_javascriptcore.h"
-#elif defined(__ANDROID__)
+#elif defined(JSR_NAPI_ENGINE_V8)
 #include <v8.h>
 #include "js_native_api_v8.h"
+#elif defined(JSR_NAPI_ENGINE_QUICKJS)
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
+#include <quickjs.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #endif
 
 namespace node_api_tests {
@@ -25,10 +34,10 @@ class JsRuntimeHostEnvHolder : public IEnvHolder {
       std::shared_ptr<NodeLiteTaskRunner> /*taskRunner*/,
       std::function<void(napi_env, napi_value)> onUnhandledError)
       : onUnhandledError_(std::move(onUnhandledError)) {
-#if defined(__APPLE__)
+#if defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE)
     context_ = JSGlobalContextCreateInGroup(nullptr, nullptr);
     env_ = Napi::Attach(context_);
-#elif defined(__ANDROID__)
+#elif defined(JSR_NAPI_ENGINE_V8)
     // V8's platform is process-global and is already initialized by JsRuntimeHost -- the host
     // AppRuntime that UnitTestsJNI links and that runs (via the regular V8 unit tests) before these
     // in-process Node-API tests. Initializing it a second time aborts V8 with "Wrong initialization
@@ -51,15 +60,29 @@ class JsRuntimeHostEnvHolder : public IEnvHolder {
     context_.Reset(isolate_, context);
     v8::Context::Scope context_scope(context);
     env_ = Napi::Attach(context);
+#elif defined(JSR_NAPI_ENGINE_QUICKJS)
+    runtime_ = JS_NewRuntime();
+    if (runtime_ == nullptr) {
+      throw std::runtime_error("Unable to create QuickJS runtime");
+    }
+    context_ = JS_NewContext(runtime_);
+    if (context_ == nullptr) {
+      JS_FreeRuntime(runtime_);
+      runtime_ = nullptr;
+      throw std::runtime_error("Unable to create QuickJS context");
+    }
+    env_ = Napi::Attach(context_);
+#elif defined(JSR_NAPI_ENGINE_HERMES)
+    env_ = Napi::Attach();
 #else
     (void)onUnhandledError_;
     throw std::runtime_error(
-        "node_lite is only implemented for Apple platforms in this port.");
+        "node_lite is not implemented for the selected JavaScript engine.");
 #endif
   }
 
   ~JsRuntimeHostEnvHolder() override {
-#if defined(__APPLE__)
+#if defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE)
     if (env_ != nullptr) {
       Napi::Env napiEnv{env_};
 
@@ -85,7 +108,7 @@ class JsRuntimeHostEnvHolder : public IEnvHolder {
       JSGlobalContextRelease(context_);
       context_ = nullptr;
     }
-#elif defined(__ANDROID__)
+#elif defined(JSR_NAPI_ENGINE_V8)
     if (env_ != nullptr && isolate_ != nullptr) {
       // Still locked + isolate-scoped on this thread via locker_/isolate_scope_ (held members).
       v8::HandleScope handle_scope(isolate_);
@@ -125,20 +148,65 @@ class JsRuntimeHostEnvHolder : public IEnvHolder {
     }
 
     allocator_.reset();
+#elif defined(JSR_NAPI_ENGINE_QUICKJS)
+    if (env_ != nullptr) {
+      if (onUnhandledError_) {
+        bool hasPending = false;
+        if (napi_is_exception_pending(env_, &hasPending) == napi_ok && hasPending) {
+          napi_value error{};
+          if (napi_get_and_clear_last_exception(env_, &error) == napi_ok) {
+            try {
+              onUnhandledError_(env_, error);
+            } catch (...) {
+            }
+          }
+        }
+      }
+      Napi::Detach(Napi::Env{env_});
+      env_ = nullptr;
+    }
+    if (context_ != nullptr) {
+      JS_FreeContext(context_);
+      context_ = nullptr;
+    }
+    if (runtime_ != nullptr) {
+      JS_FreeRuntime(runtime_);
+      runtime_ = nullptr;
+    }
+#elif defined(JSR_NAPI_ENGINE_HERMES)
+    if (env_ != nullptr) {
+      if (onUnhandledError_) {
+        bool hasPending = false;
+        if (napi_is_exception_pending(env_, &hasPending) == napi_ok && hasPending) {
+          napi_value error{};
+          if (napi_get_and_clear_last_exception(env_, &error) == napi_ok) {
+            try {
+              onUnhandledError_(env_, error);
+            } catch (...) {
+            }
+          }
+        }
+      }
+      Napi::Detach(Napi::Env{env_});
+      env_ = nullptr;
+    }
 #endif
   }
 
   napi_env getEnv() override { return env_; }
 
  private:
-#if defined(__APPLE__)
+#if defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE)
   JSGlobalContextRef context_{};
-#elif defined(__ANDROID__)
+#elif defined(JSR_NAPI_ENGINE_V8)
   v8::Isolate* isolate_{nullptr};
   std::unique_ptr<v8::Locker> locker_{};
   std::unique_ptr<v8::Isolate::Scope> isolate_scope_{};
   v8::Global<v8::Context> context_;
   std::unique_ptr<v8::ArrayBuffer::Allocator> allocator_{};
+#elif defined(JSR_NAPI_ENGINE_QUICKJS)
+  JSRuntime* runtime_{};
+  JSContext* context_{};
 #endif
   napi_env env_{};
   std::function<void(napi_env, napi_value)> onUnhandledError_{};

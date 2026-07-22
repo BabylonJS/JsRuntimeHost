@@ -1,15 +1,16 @@
 # Node-API (N-API) Conformance & Version Roadmap
 
-_Last updated: 2026-07-22 · Tracks PR #116 (`napi-tests`) and the staged path to higher N-API levels._
+_Last updated: 2026-07-22 · Tracks PR #116 (`napi-tests`), PR #189 (`napi-v7`), and the current node-api-cts._
 
 ## Scope & PR discipline
 
 This is a multi-PR effort. Keep the boundaries strict:
 
-- **PR #116 (this PR): land the conformance test suite on the N-API v5 surface that upstream already supports.** That is the whole goal — a regression safety net at the current capability level.
+- **PR #116 / `napi-tests`:** land the conformance test suite on the N-API v5 surface that upstream already supports.
+- **PR #189 / this stacked branch:** raise the engine-facing surface to v7 and enable the matching portable cases per engine capability.
 - **Out of scope here — each becomes its own follow-up PR:**
   - **Bug fixes** against the current N-API implementation that the tests surface → *quarantine* the failing test via the allow-list and open a separate fix PR. Do not fix impl bugs in the test-suite PR.
-  - **Any `NAPI_VERSION` bump** (6 → 7 → 8 → …) and the per-engine native work it requires.
+  - **Any later `NAPI_VERSION` bump** (8 → 9 → 10) and the per-engine native work it requires.
   - **jsc-android engine bump** (v6 enabler — see below).
 
 > **Android packaging note:** to run the suite in-process the addons are `dlopen`'d as standalone
@@ -19,8 +20,8 @@ This is a multi-PR effort. Keep the boundaries strict:
 
 ## Current state (2026-07-22)
 
-- `NAPI_VERSION` is pinned at **5** via `[BABYLON-NATIVE-ADDITION]` `#define` blocks in
-  `Core/Node-API/Include/Shared/napi/{js_native_api.h, js_native_api_types.h, napi.h}`, and `NAPI_HAS_THREADS` is forced to **0**. Upstream `main` is also still 5.
+- PR #189 raises the engine-facing headers to **N-API v7**. `NAPI_HAS_THREADS` remains **0**;
+  Worker message delivery is a runtime queue and does not depend on Node-API thread-safe functions.
 - Recommended early refactor (a later PR): replace the three hardcoded defines with a single
   build-system knob (`target_compile_definitions(... NAPI_VERSION=${JSR_NAPI_VERSION})`), per-engine overridable.
 
@@ -28,17 +29,20 @@ This is a multi-PR effort. Keep the boundaries strict:
 
 | Engine | Source (fns) | v5 | v6 bigint / instance-data | v7 detach AB | v8 type-tag / freeze-seal | Notes |
 |---|---|:--:|:--:|:--:|:--:|---|
-| **V8** | `js_native_api_v8.cc` (109) | ✅ | ✅ | ✅ | ✅ | Upstream Node impl; ready to ~v8/v9 once the version is bumped. |
-| **JavaScriptCore** | `js_native_api_javascriptcore.cc` (97) | ✅* | ❌ | ❌ | ❌ | Hand-port; no v6+ surface. Bump jsc-android + crib from Bun to implement. |
-| **Chakra** | `js_native_api_chakra.cc` (97) | ✅* | ❌ (hard wall: BigInt) | ❌ | partial (soft) | Frozen OS engine on post-EOL Win10. Decouple; see ceiling. |
+| **V8** | `js_native_api_v8.cc` | ✅ | ✅ | ✅ | ✅ | Current CTS caught and fixed a stale stub which reported every value as detached. |
+| **JavaScriptCore** | `js_native_api_javascriptcore.cc` | ✅ | ✅* | ✅* | ❌ | System JSC is green-capable; old Android JSC feature-detects BigInt/detach and reports ENOTSUP. |
+| **QuickJS** | `js_native_api_quickjs.cc` | ✅ | ✅ | ✅ | partial | Added by upstream after #189 branched; the merge update completes word BigInts, lossless conversion, instance data/finalizers, exact detach semantics, and escaped-handle lifetime. |
+| **Hermes** | upstream `hermesNapi` | ✅ | ✅ | ✅ | ✅ | Hermes supplies its own N-API v10 implementation; JsRuntimeHost exposes only the selected public header level. |
+| **Chakra** | `js_native_api_chakra.cc` | ✅ | ❌ (hard wall: BigInt) | ❌ | partial | Frozen OS engine on post-EOL Win10; it remains capability-gated. |
+| **JSI** | `Core/Node-API-JSI` | ✅* | ❌ | ❌ | ❌ | Separate v1-v5 shim; excluded from v6/v7 addon coverage. |
 
-`*` v5 surface to be confirmed green by this PR's suite.
+`*` capability depends on the concrete engine build (notably legacy Android JSC).
 
 ### Platform status (this PR)
 
-| Platform | Engine | v5 suite | Runner | Notes |
+| Platform | Engine | conformance suite | Runner | Notes |
 |---|---|---|---|---|
-| **macOS** | JavaScriptCore | CI-gated (plain + ASan/UBSan + TSan) | child-process | The reusable workflow now builds and runs `NodeApiTests`, not just `UnitTests`. |
+| **macOS** | JavaScriptCore | v5 + supported v6/v7, CI-gated (plain + ASan/UBSan + TSan) | child-process | The reusable workflow now builds and runs `NodeApiTests`, not just `UnitTests`. |
 | **Linux** | JavaScriptCore / QuickJS | CI-gated (GCC + Clang + ASan/UBSan + TSan) | child-process | Uses the OS JavaScriptCore package; the full `NodeApiTests` executable runs after `UnitTests`. |
 | **Android** | V8 / JSC / QuickJS / Hermes | CI-gated (dynamic `.node` + `libnapi.so`, in-process) | in-process | App sandbox can't `fork`/`exec`; addons `dlopen`'d — see below. |
 
@@ -83,27 +87,29 @@ run the suite per engine → implement the JSC/(Chakra) gaps → green.
 
 | Step | Target | Unlocks (test dirs) | V8 | JSC / Chakra work |
 |---|---|---|:--:|---|
-| B1 | **v6** | `test_bigint`, `test_instance_data`, `get_all_property_names` | free | bigint create/get + instance-data (Chakra: bigint = hard wall) |
-| B2 | **v7** | detached-ArrayBuffer cases | free | `napi_detach_arraybuffer` / `is_detached` |
+| B1 | **v6** | `test_bigint`, `test_instance_data`, `get_all_property_names` | ✅ | Implemented on system JSC and QuickJS; capability-gated on legacy JSC/Chakra. |
+| B2 | **v7** | `test_typedarray` detached-ArrayBuffer cases | ✅ | Enabled on V8, system JSC, QuickJS, and Hermes; capability-gated on legacy JSC/Chakra. |
 | B3 | **v8** | type-tag + freeze/seal in `test_object`/`test_general` | free | type tags + freeze/seal → **parity with hermes-windows** |
 | B4* | **v9** | `symbol_for`, syntax-error, `module_file_name` | free | implement on JSC |
 | B5* | **v10** | external strings, property keys (matches `facebook/hermes API/napi`) | mostly | implement on JSC |
 
-`*` stretch. Separately: the worklets/worker goal needs **threadsafe functions** — a runtime-layer
-(`node_api.h`, `NAPI_HAS_THREADS 1`) axis not covered by the engine-only suite; track independently.
+`*` stretch. Node-API thread-safe functions remain a separate runtime-layer axis. The browser Worker
+polyfill uses `AppRuntime` dispatch queues directly, so it neither exposes nor depends on TSFN support.
 
-**Reference/finalizer test staging (measured at v5).** Of the vendored reference/finalizer/wrap dirs, only
+**Reference/finalizer test staging (initially measured at v5).** Of the vendored reference/finalizer/wrap dirs, only
 `test_reference_double_free` is v5-clean and is enabled now (green on macOS/JSC incl. ASan, and Android/V8); its
 `test_wrap.js` is quarantined (JSC `napi_remove_wrap` on an unwrapped object returns `napi_invalid_arg` — it
 does not crash; separate fix). The rest are gated by symbols our v5 pin doesn't export and enable with the
 bump: `test_reference` → `node_api_symbol_for` (v9, B4); `test_finalizer/` & `6_object_wrap` →
-`napi_get_instance_data` (v6, B1) + `node_api_basic_env`/`node_api_post_finalizer` (v9, B4). `test_finalizer`
+`napi_get_instance_data` (v6, B1) + `node_api_post_finalizer` (v9, B4). `node_api_basic_env` is an
+ABI-compatible finalizer-environment typedef and does not itself require postponing v7 `test_typedarray`. `test_finalizer`
 also surfaced a JSC finalizer-delivery timing case (`mustCall(1)`→0) to confirm at B1.
 
 **July 2026 CTS expansion.** The official cross-platform suite's `test_function` is v5-clean, was already
 vendored here, and is now enabled. It covers function creation/calls and names, invalid arguments, pending
-exceptions, native finalization, and strong-reference teardown. The remaining recently ported CTS directories
-need newer Node-API levels. `Tests/NodeApi/UPSTREAM_REVISIONS` records the exact audited hermes-windows and
+exceptions, native finalization, and strong-reference teardown. This v7 branch additionally enables the
+instance-data, BigInt, and typed-array/detach cases where the selected engine can implement them faithfully.
+`Tests/NodeApi/UPSTREAM_REVISIONS` records the exact audited hermes-windows and
 node-api-cts commits so later resyncs are deliberate and reviewable.
 
 **GC-safety (re upstream [hermes-windows#321](https://github.com/microsoft/hermes-windows/pull/321)).** That
@@ -141,15 +147,17 @@ unrelated implementation change in this test-integration PR.
     MSVC import-libs, so an Android port would still need our `libnapi.so` + soname-load glue, but the addon model
     itself matches — a future migration is much smoother now.
   - **One immediate v5 gain:** enable its now-ported `test_function` semantics from our existing vendored copy.
-    The other current ports are either already represented or require a later N-API tier.
+    At v7, its current `test_typedarray` native test is content-equivalent to the vendored copy and exercises
+    the detach contract. It exposed the V8 always-true stub and QuickJS's zero-length/non-ArrayBuffer false
+    positives plus a double finalizer on detached external buffers. Its BigInt cases also require full word
+    conversion and correct `lossless` reporting, which are now implemented for QuickJS.
   - **Harness evolution:** `spawnTest` landed in #54. That is useful for a future native CTS implementor, but it
     does not remove the current runner/Android integration work needed to consume the repository directly.
-  - **Upside (why track it):** engine-agnostic, active (~24 js-native-api tests ported incl. `test_bigint`,
-    `test_typedarray`, `test_string`, `test_date` — valuable once we bump NAPI_VERSION), CMake-based, and
+  - **Upside (why track it):** engine-agnostic, active (including `test_bigint`, `test_typedarray`, SharedArrayBuffer,
+    references, strings and dates), CMake-based, and
     contributing a JsRuntimeHost implementor could upstream our Android in-process + static-link learnings.
-  - **Recommendation:** keep the vendored suite for v5 (works; both platforms green). Revisit node-api-cts when we
-    bump NAPI_VERSION (needing its broader tests) **and** it approaches 1.0 — migrating there rather than doing a
-    hermes-windows resync at that point. That is the eventual answer to the "gross copying" this PR flags.
+  - **Recommendation:** keep the pinned vendored subset while CTS is explicitly WIP, regularly diff every enabled
+    case against CTS, and add a first-party `implementors/jsruntimehost` adapter once its harness stabilizes.
 
 ---
 
