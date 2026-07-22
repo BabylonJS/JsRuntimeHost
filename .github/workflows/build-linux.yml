@@ -65,3 +65,9 @@ jobs:
           # thread_suspend() and is unaffected.
           JSC_useConcurrentGC: ${{ inputs.enable-thread-sanitizer && '0' || '' }}
 
+      - name: Run Node-API v5 conformance
+        working-directory: Build/ubuntu/Tests/NodeApi
+        run: ./NodeApiTests
+        env:
+          TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
+          JSC_useConcurrentGC: ${{ inputs.enable-thread-sanitizer && '0' || '' }}
