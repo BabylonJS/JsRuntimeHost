@@ -415,6 +415,16 @@ describe("Response", function () {
         expect(jsonResponse.bodyUsed).to.equal(false);
     });
 
+    // Byte streams reject zero-length enqueues. An empty BufferSource still
+    // represents a non-null body, but its stream must close without a chunk.
+    it("consumes an empty BufferSource without enqueueing an empty byte chunk", async function () {
+        const response = new Response(new Uint8Array(0));
+        expect(response.body).to.be.instanceOf(ReadableStream);
+        expect(response.bodyUsed).to.equal(false);
+        expect(new Uint8Array(await response.arrayBuffer())).to.eql(new Uint8Array(0));
+        expect(response.bodyUsed).to.equal(true);
+    });
+
     it("snapshots mutable BufferSource input once", async function () {
         const input = new Uint8Array([80, 65, 83, 83]);
         const response = new Response(input);
