@@ -95,10 +95,9 @@ namespace Babylon::Polyfills::Internal
             return -1;
         }
 
-        std::vector<uint8_t> PercentDecode(std::string_view value)
+        template<typename TCallback>
+        void ForEachPercentDecodedByte(std::string_view value, TCallback&& callback)
         {
-            std::vector<uint8_t> decoded;
-            decoded.reserve(value.size());
             for (size_t index = 0; index < value.size(); ++index)
             {
                 if (value[index] == '%' && index + 2 < value.size())
@@ -107,13 +106,22 @@ namespace Babylon::Polyfills::Internal
                     const int low = HexDigitValue(value[index + 2]);
                     if (high >= 0 && low >= 0)
                     {
-                        decoded.push_back(static_cast<uint8_t>((high << 4) | low));
+                        callback(static_cast<uint8_t>((high << 4) | low));
                         index += 2;
                         continue;
                     }
                 }
-                decoded.push_back(static_cast<uint8_t>(value[index]));
+                callback(static_cast<uint8_t>(value[index]));
             }
+        }
+
+        std::vector<uint8_t> PercentDecode(std::string_view value)
+        {
+            std::vector<uint8_t> decoded;
+            decoded.reserve(value.size());
+            ForEachPercentDecodedByte(value, [&decoded](uint8_t byte) {
+                decoded.push_back(byte);
+            });
             return decoded;
         }
 
@@ -142,29 +150,28 @@ namespace Babylon::Polyfills::Internal
             return -1;
         }
 
-        std::vector<uint8_t> ForgivingBase64Decode(const std::vector<uint8_t>& input)
+        std::vector<uint8_t> ForgivingBase64Decode(std::string_view input)
         {
             size_t digitCount{};
             size_t paddingCount{};
             bool sawPadding{};
-            for (const auto value : input)
-            {
+            ForEachPercentDecodedByte(input, [&](uint8_t value) {
                 if (IsAsciiWhitespace(value))
                 {
-                    continue;
+                    return;
                 }
                 if (value == '=')
                 {
                     sawPadding = true;
                     ++paddingCount;
-                    continue;
+                    return;
                 }
                 if (sawPadding || Base64DigitValue(value) < 0)
                 {
                     throw std::runtime_error{"fetch: invalid base64 data URL"};
                 }
                 ++digitCount;
-            }
+            });
 
             const auto encodedCount = digitCount + paddingCount;
             if ((paddingCount > 0 && (encodedCount % 4 != 0 || paddingCount > 2)) || digitCount % 4 == 1)
@@ -172,25 +179,24 @@ namespace Babylon::Polyfills::Internal
                 throw std::runtime_error{"fetch: invalid base64 data URL"};
             }
 
-            std::vector<uint8_t> decoded;
-            decoded.reserve(digitCount * 6 / 8);
+            std::vector<uint8_t> decoded(digitCount / 4 * 3 + digitCount % 4 * 3 / 4);
+            size_t outputIndex{};
             uint32_t accumulator{};
             size_t availableBits{};
-            for (const auto value : input)
-            {
+            ForEachPercentDecodedByte(input, [&](uint8_t value) {
                 if (IsAsciiWhitespace(value) || value == '=')
                 {
-                    continue;
+                    return;
                 }
                 accumulator = (accumulator << 6) | static_cast<uint32_t>(Base64DigitValue(value));
                 availableBits += 6;
                 if (availableBits >= 8)
                 {
                     availableBits -= 8;
-                    decoded.push_back(static_cast<uint8_t>(accumulator >> availableBits));
+                    decoded[outputIndex++] = static_cast<uint8_t>(accumulator >> availableBits);
                     accumulator &= (uint32_t{1} << availableBits) - 1;
                 }
-            }
+            });
             return decoded;
         }
 
@@ -232,11 +238,7 @@ namespace Babylon::Polyfills::Internal
 
             const auto fragment = url.find('#', comma + 1);
             const auto payload = url.substr(comma + 1, fragment == std::string_view::npos ? std::string_view::npos : fragment - comma - 1);
-            auto decodedPayload = PercentDecode(payload);
-            if (base64)
-            {
-                decodedPayload = ForgivingBase64Decode(decodedPayload);
-            }
+            auto decodedPayload = base64 ? ForgivingBase64Decode(payload) : PercentDecode(payload);
 
             return DataUrlResponse{
                 std::move(mediaType),
