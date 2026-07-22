@@ -103,6 +103,7 @@ option(JSRUNTIMEHOST_POLYFILL_PERFORMANCE "Include JsRuntimeHost Polyfill Perfor
 option(JSRUNTIMEHOST_POLYFILL_TEXTDECODER "Include JsRuntimeHost Polyfill TextDecoder." ON)
 option(JSRUNTIMEHOST_POLYFILL_TEXTENCODER "Include JsRuntimeHost Polyfill TextEncoder." ON)
 option(JSRUNTIMEHOST_POLYFILL_STREAMS "Include JsRuntimeHost Polyfill Web Streams." ON)
+option(JSRUNTIMEHOST_POLYFILL_COMPRESSION "Include JsRuntimeHost Polyfills CompressionStream and DecompressionStream." ON)
 
 # Sanitizers
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
