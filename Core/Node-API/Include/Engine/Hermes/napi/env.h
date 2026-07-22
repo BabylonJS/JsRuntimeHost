@@ -30,4 +30,7 @@ namespace Napi
     // top-level dispatch.  Equivalent engines (V8, Chakra) auto-drain
     // microtasks at scope exit; Hermes requires an explicit drainJobs().
     void DrainJobs(Napi::Env env);
+
+    // Force a collection for conformance tests that expose global.gc().
+    void CollectGarbage(Napi::Env env);
 }

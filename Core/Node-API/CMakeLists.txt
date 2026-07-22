@@ -1,15 +1,23 @@
-# Set per-platform defaults if unspecified.
-if(WIN32)
-    set(NAPI_JAVASCRIPT_ENGINE "Chakra" CACHE STRING "JavaScript engine for Node-API")
-elseif(APPLE)
-    set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
-elseif(ANDROID)
-    set(NAPI_JAVASCRIPT_ENGINE "V8" CACHE STRING "JavaScript engine for Node-API")
-elseif(UNIX)
-    set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
-    set(JAVASCRIPTCORE_LIBRARY "/usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so" CACHE STRING "Path to the JavaScriptCore shared library")
-else()
-    message(FATAL_ERROR "Unable to select Node-API JavaScript engine for platform")
+# Set per-platform defaults only when the caller did not select an engine.
+if(NOT NAPI_JAVASCRIPT_ENGINE)
+    if(WIN32)
+        set(NAPI_JAVASCRIPT_ENGINE "Chakra" CACHE STRING "JavaScript engine for Node-API")
+    elseif(APPLE)
+        set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
+    elseif(ANDROID)
+        set(NAPI_JAVASCRIPT_ENGINE "V8" CACHE STRING "JavaScript engine for Node-API")
+    elseif(UNIX)
+        set(NAPI_JAVASCRIPT_ENGINE "JavaScriptCore" CACHE STRING "JavaScript engine for Node-API")
+    else()
+        message(FATAL_ERROR "Unable to select Node-API JavaScript engine for platform")
+    endif()
+endif()
+
+if(UNIX AND NOT APPLE AND NOT ANDROID AND NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
+    find_library(JAVASCRIPTCORE_LIBRARY javascriptcoregtk-4.1)
+    if(NOT JAVASCRIPTCORE_LIBRARY)
+        message(FATAL_ERROR "JavaScriptCore library not found. Please install libwebkit2gtk-4.1-dev")
+    endif()
 endif()
 
 set(SOURCES
@@ -93,6 +101,13 @@ if(NAPI_BUILD_ABI)
                 PUBLIC "/usr/include/webkitgtk-4.1/")
         else()
             message(FATAL_ERROR "Unsupported JavaScript engine: ${NAPI_JAVASCRIPT_ENGINE}")
+        endif()
+
+        # The maintained Apple and WebKitGTK headers/runtimes expose the
+        # BigInt typed-array enum values. The frozen jsc-android package does
+        # not, so keep its capability-gated build on the older enum surface.
+        if(NOT ANDROID)
+            set(JSR_JSC_HAS_BIGINT_TYPED_ARRAYS ON)
         endif()
     elseif(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
         set(SOURCES ${SOURCES}
@@ -187,9 +202,9 @@ Make sure Hermes was fetched at the top-level CMakeLists.txt and NAPI_JAVASCRIPT
         # (bigint::exponentiate, regex::parseRegex, hbc::compileEvalModule,
         # llvh::raw_ostream, platform_unicode::normalize, ...) which
         # `hermesvm_a` bundles together for us.
-        set(LINK_LIBRARIES ${LINK_LIBRARIES}
-            PRIVATE hermesNapi
-            PRIVATE hermesvm_a)
+        set(NAPI_HERMES_LINK_LIBRARIES
+            hermesNapi
+            hermesvm_a)
 
         # `hermes_napi.h` lives in Hermes's `API/napi/` source directory and
         # is NOT installed alongside the other `include/hermes/napi/`
@@ -261,10 +276,60 @@ Make sure Hermes was fetched at the top-level CMakeLists.txt and NAPI_JAVASCRIPT
     message(STATUS "Selected ${NAPI_JAVASCRIPT_ENGINE}")
 endif()
 
-add_library(napi ${SOURCES})
+# On Android, native addons are dlopen'd as standalone .node modules and resolve their napi_* imports
+# from a shared napi at load time -- bionic will not surface a statically-linked host's napi to a
+# dlopen'd module, so the host and every addon must share a single libnapi.so. Default napi to a
+# shared library on Android so that model works out of the box; an integrator who wants a static napi
+# (e.g. for size/packaging) can override with -DJSR_NAPI_SHARED=OFF. The option defaults OFF on other
+# platforms, where napi keeps following the project's default library type (i.e. honors
+# BUILD_SHARED_LIBS).
+set(JSR_NAPI_SHARED_DEFAULT OFF)
+if(ANDROID)
+    set(JSR_NAPI_SHARED_DEFAULT ON)
+endif()
+option(JSR_NAPI_SHARED "Build napi as a shared library (libnapi.so)" ${JSR_NAPI_SHARED_DEFAULT})
+
+if(JSR_NAPI_SHARED)
+    add_library(napi SHARED ${SOURCES})
+else()
+    add_library(napi ${SOURCES})
+endif()
 
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
+
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
+    if(JSR_NAPI_SHARED)
+        # hermesNapi is a static archive. When it is folded into libnapi.so,
+        # the linker would normally extract only the objects referenced by
+        # env_hermes.cc, leaving most exported napi_* entry points out of the
+        # shared library. Android addons then fail to resolve even core APIs
+        # such as napi_create_arraybuffer and napi_wrap. Include the complete
+        # archive so the shared library provides the full Node-API surface.
+        if(MSVC)
+            target_link_libraries(napi PRIVATE ${NAPI_HERMES_LINK_LIBRARIES})
+            target_link_options(napi PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:hermesNapi>")
+        else()
+            target_link_libraries(napi PRIVATE
+                "-Wl,--whole-archive"
+                hermesNapi
+                "-Wl,--no-whole-archive"
+                hermesvm_a)
+        endif()
+    else()
+        target_link_libraries(napi PRIVATE ${NAPI_HERMES_LINK_LIBRARIES})
+    endif()
+endif()
+
+if(JSR_JSC_HAS_BIGINT_TYPED_ARRAYS)
+    target_compile_definitions(napi PRIVATE JSR_JSC_HAS_BIGINT_TYPED_ARRAYS=1)
+endif()
+
+# Expose the selected engine as a compile definition so engine-agnostic consumers (the node_lite test
+# harness) can branch on engine capability instead of guessing from the platform
+# (__APPLE__ == JSC / __ANDROID__ == V8 breaks Android-JSC, Linux-V8, Windows-Chakra, ...).
+string(TOUPPER "${NAPI_JAVASCRIPT_ENGINE}" NAPI_ENGINE_UPPER)
+target_compile_definitions(napi PUBLIC JSR_NAPI_ENGINE_${NAPI_ENGINE_UPPER})
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     # Apply Hermes-specific warning suppressions ONLY to env_hermes.cc so

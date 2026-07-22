@@ -1,0 +1,4 @@
+# Audited upstream revisions for the vendored Node-API conformance tests.
+# Bump deliberately after reviewing the diff and updating the roadmap.
+hermes-windows 3c6569eccb99d1940fb29ebe5a24413fd954dd5c
+node-api-cts 67b5e428a17b2cf31c8aacf9181840a111ba639a

@@ -9,7 +9,7 @@
 #define NODE_ADDON_API_DISABLE_NODE_SPECIFIC
 #endif
 #ifndef NAPI_VERSION
-#define NAPI_VERSION 5
+#define NAPI_VERSION 7
 #endif
 #ifndef NAPI_HAS_THREADS
 #define NAPI_HAS_THREADS 0

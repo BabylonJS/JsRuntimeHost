@@ -41,7 +41,7 @@ jobs:
             -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }}
 
       - name: Build
-        run: cmake --build Build/macOS --target UnitTests --config RelWithDebInfo
+        run: cmake --build Build/macOS --target UnitTests NodeApiTests --config RelWithDebInfo
 
       - name: Run Tests
         working-directory: Build/macOS/Tests/UnitTests/RelWithDebInfo
@@ -49,3 +49,8 @@ jobs:
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
 
+      - name: Run Node-API v7 conformance
+        working-directory: Build/macOS/Tests/NodeApi/RelWithDebInfo
+        run: ./NodeApiTests
+        env:
+          TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}

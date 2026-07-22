@@ -1,0 +1,13 @@
+{
+  "name": "hermes-node-api-test-packages",
+  "private": true,
+  "scripts": {
+    "postinstall": "node postinstall.mjs"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.0",
+    "@babel/core": "^7.28.0",
+    "@babel/runtime": "^7.28.2",
+    "@react-native/babel-preset": "^0.80.2"
+  }
+}
