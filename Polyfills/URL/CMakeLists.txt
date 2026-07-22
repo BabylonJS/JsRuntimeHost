@@ -11,6 +11,7 @@ add_library(URL ${SOURCES})
 target_include_directories(URL PUBLIC "Include")
 
 target_link_libraries(URL
+    PRIVATE Blob
     PUBLIC JsRuntime)
 
 set_property(TARGET URL PROPERTY FOLDER Polyfills)

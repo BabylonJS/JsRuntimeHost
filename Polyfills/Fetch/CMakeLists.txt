@@ -11,7 +11,8 @@ target_include_directories(Fetch PUBLIC "Include")
 target_link_libraries(Fetch
     PUBLIC JsRuntime
     PRIVATE arcana
-    PRIVATE UrlLib)
+    PRIVATE UrlLib
+    PRIVATE URL)
 
 set_property(TARGET Fetch PROPERTY FOLDER Polyfills)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})

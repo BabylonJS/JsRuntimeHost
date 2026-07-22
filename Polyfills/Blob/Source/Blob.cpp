@@ -139,4 +139,20 @@ namespace Babylon::Polyfills::Blob
     {
         Internal::Blob::Initialize(env);
     }
+
+    bool BABYLON_API TryGetData(const Napi::Object& object, const std::byte*& outData, size_t& outSize, std::string& outType)
+    {
+        const auto blobConstructor = object.Env().Global().Get("Blob");
+        if (!blobConstructor.IsFunction() || !object.InstanceOf(blobConstructor.As<Napi::Function>()))
+        {
+            return false;
+        }
+
+        const auto* blob = Internal::Blob::Unwrap(object);
+        const auto& data = blob->Data();
+        outData = data.data();
+        outSize = data.size();
+        outType = blob->Type();
+        return true;
+    }
 }

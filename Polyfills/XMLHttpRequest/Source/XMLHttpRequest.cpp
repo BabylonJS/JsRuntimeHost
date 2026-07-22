@@ -1,7 +1,10 @@
 #include "XMLHttpRequest.h"
 #include <Babylon/JsRuntime.h>
 #include <Babylon/Polyfills/XMLHttpRequest.h>
+#include <Babylon/Polyfills/URL.h>
 #include <arcana/tracing/trace_region.h>
+#include <cctype>
+#include <cstring>
 #include <sstream>
 
 namespace Babylon::Polyfills::Internal
@@ -58,6 +61,21 @@ namespace Babylon::Polyfills::Internal
             constexpr const char* ReadyStateChange = "readystatechange";
             constexpr const char* LoadEnd = "loadend";
             constexpr const char* Error = "error";
+        }
+
+        constexpr const char* BlobUrlScheme = "blob:";
+
+        bool EqualsIgnoreCase(const std::string& a, const char* b)
+        {
+            size_t i = 0;
+            for (; i < a.size() && b[i] != '\0'; ++i)
+            {
+                if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                {
+                    return false;
+                }
+            }
+            return i == a.size() && b[i] == '\0';
         }
     }
 
@@ -118,6 +136,21 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponse(const Napi::CallbackInfo&)
     {
+        if (m_isBlobRequest)
+        {
+            if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
+            {
+                return GetResponseText(Napi::CallbackInfo{Env(), nullptr});
+            }
+
+            auto arrayBuffer{Napi::ArrayBuffer::New(Env(), m_blobData.size())};
+            if (!m_blobData.empty())
+            {
+                std::memcpy(arrayBuffer.Data(), m_blobData.data(), m_blobData.size());
+            }
+            return arrayBuffer;
+        }
+
         if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
         {
             return Napi::Value::From(Env(), m_request.ResponseString().data());
@@ -133,6 +166,11 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponseText(const Napi::CallbackInfo&)
     {
+        if (m_isBlobRequest)
+        {
+            return Napi::String::New(Env(), reinterpret_cast<const char*>(m_blobData.data()), m_blobData.size());
+        }
+
         return Napi::Value::From(Env(), m_request.ResponseString().data());
     }
 
@@ -148,16 +186,31 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponseURL(const Napi::CallbackInfo&)
     {
+        if (m_isBlobRequest)
+        {
+            return Napi::String::New(Env(), m_url);
+        }
+
         return Napi::Value::From(Env(), m_request.ResponseUrl().data());
     }
 
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
+        if (m_isBlobRequest)
+        {
+            return Napi::Value::From(Env(), m_blobResolved ? 200 : 0);
+        }
+
         return Napi::Value::From(Env(), arcana::underlying_cast(m_request.StatusCode()));
     }
 
     Napi::Value XMLHttpRequest::GetStatusText(const Napi::CallbackInfo&)
     {
+        if (m_isBlobRequest)
+        {
+            return Napi::String::New(Env(), m_blobResolved ? "OK" : "");
+        }
+
         // Per the XHR spec, statusText is the empty string until a response is available
         // (status 0 means UNSENT/OPENED or a network error).
         if (arcana::underlying_cast(m_request.StatusCode()) == 0)
@@ -185,14 +238,34 @@ namespace Babylon::Polyfills::Internal
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
     {
         const auto headerName = info[0].As<Napi::String>().Utf8Value();
+
+        if (m_isBlobRequest)
+        {
+            if (m_blobResolved && EqualsIgnoreCase(headerName, "content-type"))
+            {
+                return Napi::String::New(Env(), m_blobType);
+            }
+            return info.Env().Null();
+        }
+
         const auto header = m_request.GetResponseHeader(headerName);
         return header ? Napi::Value::From(Env(), header.value()) : info.Env().Null();
     }
 
     Napi::Value XMLHttpRequest::GetAllResponseHeaders(const Napi::CallbackInfo&)
     {
-        auto responseHeaders = m_request.GetAllResponseHeaders();
         Napi::Object responseHeadersObject = Napi::Object::New(Env());
+
+        if (m_isBlobRequest)
+        {
+            if (m_blobResolved)
+            {
+                responseHeadersObject.Set(Napi::String::New(Env(), "content-type"), Napi::String::New(Env(), m_blobType));
+            }
+            return responseHeadersObject;
+        }
+
+        auto responseHeaders = m_request.GetAllResponseHeaders();
 
         for (auto& iter : responseHeaders)
         {
@@ -254,6 +327,17 @@ namespace Babylon::Polyfills::Internal
     {
         m_url = info[1].As<Napi::String>();
 
+        // blob: URLs (URL.createObjectURL) are served from the in-memory object-URL store rather
+        // than the UrlLib transport, which only understands app/file/http(s). Resolve eagerly so
+        // status/response are available synchronously once Send() completes.
+        if (m_url.rfind(BlobUrlScheme, 0) == 0)
+        {
+            m_isBlobRequest = true;
+            m_blobResolved = Babylon::Polyfills::URL::TryResolveObjectURL(info.Env(), m_url, m_blobData, m_blobType);
+            SetReadyState(ReadyState::Opened);
+            return;
+        }
+
         try
         {
             m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
@@ -275,6 +359,25 @@ namespace Babylon::Polyfills::Internal
         if (m_readyState != ReadyState::Opened)
         {
             throw Napi::Error::New(info.Env(), "XMLHttpRequest must be opened before it can be sent");
+        }
+
+        // blob: request: the response is already resolved in Open(). Deliver the completion events
+        // asynchronously (mirroring a real transport) so listeners registered after send() still fire.
+        if (m_isBlobRequest)
+        {
+            auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
+
+            m_runtimeScheduler([this, anchor{std::move(anchor)}]() {
+                SetReadyState(ReadyState::Done);
+                if (!m_blobResolved)
+                {
+                    RaiseEvent(EventType::Error);
+                }
+                RaiseEvent(EventType::LoadEnd);
+                m_eventHandlerRefs.clear();
+            });
+
+            return;
         }
 
         if (info.Length() > 0)

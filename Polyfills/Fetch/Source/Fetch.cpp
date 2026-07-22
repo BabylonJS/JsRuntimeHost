@@ -3,6 +3,7 @@
 #include <Babylon/JsRuntime.h>
 #include <Babylon/JsRuntimeScheduler.h>
 #include <Babylon/Polyfills/Fetch.h>
+#include <Babylon/Polyfills/URL.h>
 
 #include <UrlLib/UrlLib.h>
 
@@ -402,6 +403,34 @@ namespace Babylon::Polyfills::Internal
 
                         headers = init.Get("headers");
                         signal = init.Get("signal");
+                    }
+
+                    // blob: URLs (URL.createObjectURL) resolve against the in-memory object-URL store
+                    // instead of the UrlLib transport, which only understands app/file/http(s). Serve
+                    // the buffered bytes synchronously as a 200 response, or reject with a network
+                    // error (TypeError) when the URL was never registered or has been revoked.
+                    if (url.rfind("blob:", 0) == 0)
+                    {
+                        std::vector<std::byte> blobData;
+                        std::string blobType;
+                        if (!Babylon::Polyfills::URL::TryResolveObjectURL(env, url, blobData, blobType))
+                        {
+                            deferred.Reject(Napi::TypeError::New(env, "Failed to fetch: blob URL is not registered").Value());
+                            return deferred.Promise();
+                        }
+
+                        auto data = std::make_shared<ResponseData>();
+                        data->statusCode = 200;
+                        data->statusText = "OK";
+                        data->url = url;
+                        if (!blobType.empty())
+                        {
+                            data->headers.emplace_back("content-type", blobType);
+                        }
+                        data->body = std::move(blobData);
+
+                        deferred.Resolve(BuildResponse(env, data));
+                        return deferred.Promise();
                     }
 
                     auto request = std::make_shared<UrlLib::UrlRequest>();

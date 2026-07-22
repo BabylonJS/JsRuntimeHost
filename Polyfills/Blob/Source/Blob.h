@@ -14,6 +14,10 @@ namespace Babylon::Polyfills::Internal
 
         explicit Blob(const Napi::CallbackInfo& info);
 
+        // Synchronous accessors for internal cross-polyfill use (e.g. URL.createObjectURL).
+        const std::vector<std::byte>& Data() const { return m_data; }
+        const std::string& Type() const { return m_type; }
+
     private:
         Napi::Value GetSize(const Napi::CallbackInfo& info);
         Napi::Value GetType(const Napi::CallbackInfo& info);
