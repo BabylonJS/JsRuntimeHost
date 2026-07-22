@@ -140,7 +140,7 @@ namespace Babylon::Polyfills::Internal
         {
             if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
             {
-                return GetResponseText(Napi::CallbackInfo{Env(), nullptr});
+                return Napi::String::New(Env(), reinterpret_cast<const char*>(m_blobData.data()), m_blobData.size());
             }
 
             auto arrayBuffer{Napi::ArrayBuffer::New(Env(), m_blobData.size())};
@@ -325,22 +325,33 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
     {
-        m_url = info[1].As<Napi::String>();
+        // Clear any state left over from a previous use of this instance so that reusing a single
+        // XMLHttpRequest across multiple requests never mixes blob: and transport request state
+        // (e.g. a later non-blob request being mistaken for a blob request).
+        m_isBlobRequest = false;
+        m_blobResolved = false;
+        m_blobData.clear();
+        m_blobType.clear();
 
-        // blob: URLs (URL.createObjectURL) are served from the in-memory object-URL store rather
-        // than the UrlLib transport, which only understands app/file/http(s). Resolve eagerly so
-        // status/response are available synchronously once Send() completes.
-        if (m_url.rfind(BlobUrlScheme, 0) == 0)
-        {
-            m_isBlobRequest = true;
-            m_blobResolved = Babylon::Polyfills::URL::TryResolveObjectURL(info.Env(), m_url, m_blobData, m_blobType);
-            SetReadyState(ReadyState::Opened);
-            return;
-        }
+        m_url = info[1].As<Napi::String>();
 
         try
         {
-            m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
+            // Validate the HTTP method for every request, including blob: URLs, so unsupported
+            // verbs are rejected consistently regardless of the URL scheme.
+            const auto method = MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value());
+
+            // blob: URLs (URL.createObjectURL) are served from the in-memory object-URL store
+            // rather than the UrlLib transport, which only understands app/file/http(s). The store
+            // is (re-)resolved at Send() time so revoke-after-open is honored.
+            if (m_url.rfind(BlobUrlScheme, 0) == 0)
+            {
+                m_isBlobRequest = true;
+            }
+            else
+            {
+                m_request.Open(method, m_url);
+            }
         }
         catch (const std::exception& e)
         {
@@ -361,10 +372,16 @@ namespace Babylon::Polyfills::Internal
             throw Napi::Error::New(info.Env(), "XMLHttpRequest must be opened before it can be sent");
         }
 
-        // blob: request: the response is already resolved in Open(). Deliver the completion events
-        // asynchronously (mirroring a real transport) so listeners registered after send() still fire.
+        // blob: request: resolve the object-URL store now (at send() time, not open()) so a blob:
+        // URL revoked between open() and send() is reported as a network error (status 0 + error),
+        // matching browser revoke semantics. Deliver the completion events asynchronously (mirroring
+        // a real transport) so listeners registered after send() still fire.
         if (m_isBlobRequest)
         {
+            m_blobData.clear();
+            m_blobType.clear();
+            m_blobResolved = Babylon::Polyfills::URL::TryResolveObjectURL(info.Env(), m_url, m_blobData, m_blobType);
+
             auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
 
             m_runtimeScheduler([this, anchor{std::move(anchor)}]() {
