@@ -2104,6 +2104,33 @@ describe("Blob", function () {
         expect(await readStream(new Blob().stream())).to.deep.equal([]);
     });
 
+    // Adapted from WPT streams/readable-byte-streams/general.any.js BYOB
+    // coverage. Small, offset views exercise the caller-owned output path.
+    it("fills bounded BYOB views across Blob segment boundaries", async function () {
+        const input = new Uint8Array(97);
+        for (let index = 0; index < input.length; ++index) {
+            input[index] = (index * 31) & 0xff;
+        }
+
+        const blob = new Blob([input.subarray(0, 11), input.subarray(11, 53), input.subarray(53)]);
+        const reader = blob.stream().getReader({ mode: "byob" });
+        const output: number[] = [];
+        const requestSizes = [1, 3, 7, 16];
+        let requestIndex = 0;
+        while (true) {
+            const requestSize = requestSizes[requestIndex++ % requestSizes.length];
+            const request = new Uint8Array(new ArrayBuffer(requestSize + 4), 2, requestSize);
+            const result = await reader.read(request);
+            if (result.done) {
+                break;
+            }
+            expect(result.value!.byteLength).to.be.at.most(requestSize);
+            output.push(...Array.from(result.value!));
+        }
+
+        expect(output).to.deep.equal(Array.from(input));
+    });
+
     it("keeps independent stream cursors after the Blob reference is dropped", async function () {
         let blob: Blob | null = new Blob(["PASS"]);
         const first = blob.stream();
