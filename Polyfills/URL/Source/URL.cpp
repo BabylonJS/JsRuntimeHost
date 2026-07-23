@@ -1,6 +1,7 @@
 #include "URL.h"
 #include <Babylon/Polyfills/URL.h>
 #include <Babylon/Polyfills/Blob.h>
+#include <UrlLib/UrlLib.h>
 #include <sstream>
 #include <regex>
 #include <optional>
@@ -51,6 +52,36 @@ namespace
     {
         static BlobUrlStore store;
         return store;
+    }
+
+    // Registers the process-global blob: resolver with UrlLib exactly once. This lets every UrlLib
+    // consumer (fetch, XMLHttpRequest, and any future image/texture loader) resolve blob: URLs
+    // minted by URL.createObjectURL uniformly through the transport layer, instead of each polyfill
+    // re-implementing the store lookup. A revoked (or never-registered) URL reports handled=false,
+    // which UrlLib surfaces as a status-0 network error -- matching browser behavior.
+    void EnsureBlobSchemeResolverRegistered()
+    {
+        static std::once_flag onceFlag;
+        std::call_once(onceFlag, [] {
+            UrlLib::UrlRequest::RegisterSchemeResolver("blob", [](const std::string& url) {
+                UrlLib::UrlSchemeResolverResult result;
+
+                auto& store = GetBlobUrlStore();
+                const std::lock_guard<std::mutex> lock{store.mutex};
+                const auto it = store.entries.find(url);
+                if (it == store.entries.end())
+                {
+                    return result; // handled stays false -> surfaced as a network error
+                }
+
+                result.handled = true;
+                result.statusCode = UrlLib::UrlStatusCode::Ok;
+                result.statusText = "OK";
+                result.contentType = it->second.type;
+                result.body = it->second.data;
+                return result;
+            });
+        });
     }
 
     // Mints a URL of the form blob:<origin>/<uuid>. Native has no origin, so the opaque "null"
@@ -399,6 +430,8 @@ namespace Babylon::Polyfills::Internal
 
     void URL::Initialize(Napi::Env env)
     {
+        EnsureBlobSchemeResolverRegistered();
+
         if (env.Global().Get(JS_URL_CONSTRUCTOR_NAME).IsUndefined())
         {
             Napi::Function func = DefineClass(
@@ -863,20 +896,5 @@ namespace Babylon::Polyfills::URL
         auto& store = GetBlobUrlStore();
         const std::lock_guard<std::mutex> lock{store.mutex};
         store.entries.erase(url);
-    }
-
-    std::shared_ptr<const std::vector<std::byte>> BABYLON_API TryResolveObjectURL(Napi::Env, const std::string& url, std::string& outType)
-    {
-        auto& store = GetBlobUrlStore();
-        const std::lock_guard<std::mutex> lock{store.mutex};
-
-        const auto it = store.entries.find(url);
-        if (it == store.entries.end())
-        {
-            return nullptr;
-        }
-
-        outType = it->second.type;
-        return it->second.data;
     }
 }
