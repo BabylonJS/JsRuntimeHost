@@ -139,4 +139,69 @@ namespace Babylon::Polyfills::Blob
     {
         Internal::Blob::Initialize(env);
     }
+
+    bool BABYLON_API TryGetData(const Napi::Object& object, const std::byte*& outData, size_t& outSize, std::string& outType)
+    {
+        const auto env = object.Env();
+        const auto global = env.Global();
+
+        // Verify `object` is a Blob (or a subclass such as File) by walking its prototype chain and
+        // comparing each link against Blob.prototype, using the JS-level Object.getPrototypeOf.
+        //
+        // We use Object.getPrototypeOf rather than the raw napi_get_prototype C API because the
+        // latter is not exposed by every adapter (e.g. JSI) and, on JSC, returns the raw
+        // [[Prototype]] which differs from the JS-visible prototype of a DefineClass instance.
+        // This keeps the check portable across QuickJS, V8, JavaScriptCore, Chakra and JSI, and it
+        // also accepts Blob subclasses (e.g. File). We deliberately avoid napi_instanceof, whose
+        // node-addon-api wrapper requires a Napi::Function.
+        const auto blobConstructor = global.Get("Blob");
+        if (!blobConstructor.IsFunction())
+        {
+            return false;
+        }
+
+        const auto blobPrototype = blobConstructor.As<Napi::Object>().Get("prototype");
+        if (!blobPrototype.IsObject())
+        {
+            return false;
+        }
+
+        const auto objectConstructor = global.Get("Object");
+        if (!objectConstructor.IsObject())
+        {
+            return false;
+        }
+
+        const auto getPrototypeOf = objectConstructor.As<Napi::Object>().Get("getPrototypeOf");
+        if (!getPrototypeOf.IsFunction())
+        {
+            return false;
+        }
+
+        const auto getPrototypeOfFn = getPrototypeOf.As<Napi::Function>();
+
+        bool isBlob = false;
+        Napi::Value current = getPrototypeOfFn.Call({object});
+        while (current.IsObject())
+        {
+            if (current.StrictEquals(blobPrototype))
+            {
+                isBlob = true;
+                break;
+            }
+            current = getPrototypeOfFn.Call({current});
+        }
+
+        if (!isBlob)
+        {
+            return false;
+        }
+
+        const auto* blob = Internal::Blob::Unwrap(object);
+        const auto& data = blob->Data();
+        outData = data.data();
+        outSize = data.size();
+        outType = blob->Type();
+        return true;
+    }
 }

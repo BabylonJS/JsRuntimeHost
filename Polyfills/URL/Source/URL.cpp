@@ -1,10 +1,119 @@
 #include "URL.h"
+#include <Babylon/Polyfills/URL.h>
+#include <Babylon/Polyfills/Blob.h>
+#include <UrlLib/UrlLib.h>
 #include <sstream>
 #include <regex>
 #include <optional>
+#include <cstdint>
+#include <cstddef>
+#include <cstdio>
+#include <memory>
+#include <mutex>
+#include <random>
+#include <unordered_map>
+#include <vector>
 
 // NOTE: This is a platform agnostic implementation created with a lot of help from AI :)
 //       In the future, we may want to consider using platform-specific URL parsing APIs instead.
+
+namespace
+{
+    // ---- Blob URL registry -------------------------------------------------------------------
+    // URL.createObjectURL/revokeObjectURL are backed by an in-memory store. The XMLHttpRequest and
+    // fetch polyfills resolve minted blob: URLs against this store (see the public
+    // Register/Revoke/TryResolveObjectURL functions below), since the underlying transport has no
+    // notion of the blob: scheme.
+    //
+    // The store is process-global rather than per-environment: the Node-API engine adapters this
+    // library targets do not all expose napi_add_env_cleanup_hook (e.g. QuickJS), so there is no
+    // portable hook on which to free per-environment state. Keys are unguessable v4 UUIDs, so
+    // sharing one store across environments is safe (a blob: URL minted in one environment is never
+    // produced in another). Entries are released by revokeObjectURL; any not revoked before the
+    // process exits are reclaimed at exit, mirroring how browsers retain blob URLs until unload.
+    //
+    // Each entry owns its bytes through a shared_ptr, so TryResolveObjectURL hands out a reference
+    // to the immutable buffer instead of copying it on every resolve. Revoking (or process exit)
+    // drops the store's reference; the bytes are freed once any outstanding resolver has also
+    // released its shared_ptr, matching how a browser Blob's bytes stay valid for an in-flight read.
+    struct BlobUrlEntry
+    {
+        std::shared_ptr<const std::vector<std::byte>> data;
+        std::string type;
+    };
+
+    struct BlobUrlStore
+    {
+        std::mutex mutex;
+        std::unordered_map<std::string, BlobUrlEntry> entries;
+    };
+
+    BlobUrlStore& GetBlobUrlStore()
+    {
+        static BlobUrlStore store;
+        return store;
+    }
+
+    // Registers the process-global blob: resolver with UrlLib exactly once. This lets every UrlLib
+    // consumer (fetch, XMLHttpRequest, and any future image/texture loader) resolve blob: URLs
+    // minted by URL.createObjectURL uniformly through the transport layer, instead of each polyfill
+    // re-implementing the store lookup. A revoked (or never-registered) URL reports handled=false,
+    // which UrlLib surfaces as a status-0 network error -- matching browser behavior.
+    void EnsureBlobSchemeResolverRegistered()
+    {
+        static std::once_flag onceFlag;
+        std::call_once(onceFlag, [] {
+            UrlLib::UrlRequest::RegisterSchemeResolver("blob", [](const std::string& url) {
+                UrlLib::UrlSchemeResolverResult result;
+
+                auto& store = GetBlobUrlStore();
+                const std::lock_guard<std::mutex> lock{store.mutex};
+                const auto it = store.entries.find(url);
+                if (it == store.entries.end())
+                {
+                    return result; // handled stays false -> surfaced as a network error
+                }
+
+                result.handled = true;
+                result.statusCode = UrlLib::UrlStatusCode::Ok;
+                result.statusText = "OK";
+                result.contentType = it->second.type;
+                result.body = it->second.data;
+                return result;
+            });
+        });
+    }
+
+    // Mints a URL of the form blob:<origin>/<uuid>. Native has no origin, so the opaque "null"
+    // origin (as used by the web platform for e.g. data:-document contexts) is used. The uuid is a
+    // random RFC 4122 version 4 identifier -- unique enough to key the store, not security bearing.
+    std::string GenerateObjectURL()
+    {
+        static std::mutex generatorMutex;
+        static std::mt19937_64 generator{std::random_device{}()};
+
+        uint64_t hi{};
+        uint64_t lo{};
+        {
+            const std::lock_guard<std::mutex> lock{generatorMutex};
+            hi = generator();
+            lo = generator();
+        }
+
+        hi = (hi & 0xFFFFFFFFFFFF0FFFull) | 0x0000000000004000ull; // version 4
+        lo = (lo & 0x3FFFFFFFFFFFFFFFull) | 0x8000000000000000ull; // variant 1
+
+        char buffer[64];
+        std::snprintf(buffer, sizeof(buffer),
+            "blob:null/%08x-%04x-%04x-%04x-%012llx",
+            static_cast<uint32_t>(hi >> 32),
+            static_cast<uint32_t>((hi >> 16) & 0xFFFFull),
+            static_cast<uint32_t>(hi & 0xFFFFull),
+            static_cast<uint32_t>(lo >> 48),
+            static_cast<unsigned long long>(lo & 0xFFFFFFFFFFFFull));
+        return std::string{buffer};
+    }
+}
 
 namespace
 {
@@ -321,6 +430,8 @@ namespace Babylon::Polyfills::Internal
 
     void URL::Initialize(Napi::Env env)
     {
+        EnsureBlobSchemeResolverRegistered();
+
         if (env.Global().Get(JS_URL_CONSTRUCTOR_NAME).IsUndefined())
         {
             Napi::Function func = DefineClass(
@@ -346,6 +457,8 @@ namespace Babylon::Polyfills::Internal
                     // Static methods
                     StaticMethod("canParse", &URL::CanParse),
                     StaticMethod("parse", &URL::Parse),
+                    StaticMethod("createObjectURL", &URL::CreateObjectURL),
+                    StaticMethod("revokeObjectURL", &URL::RevokeObjectURL),
                 });
 
             env.Global().Set(JS_URL_CONSTRUCTOR_NAME, func);
@@ -712,6 +825,48 @@ namespace Babylon::Polyfills::Internal
             return info.Env().Null();
         }
     }
+
+    // URL.createObjectURL(blob) copies the Blob's bytes into the in-memory blob URL store and
+    // returns a minted blob: URL. The XMLHttpRequest and fetch polyfills resolve that URL against
+    // the store. Only Blob objects are supported (not MediaSource/MediaStream). revokeObjectURL
+    // releases the entry.
+    Napi::Value URL::CreateObjectURL(const Napi::CallbackInfo& info)
+    {
+        auto env = info.Env();
+
+        if (!info.Length() || !info[0].IsObject())
+        {
+            throw Napi::TypeError::New(env, "URL.createObjectURL: expected a Blob argument");
+        }
+
+        const std::byte* data{};
+        size_t size{};
+        std::string type;
+        if (!Polyfills::Blob::TryGetData(info[0].As<Napi::Object>(), data, size, type))
+        {
+            throw Napi::TypeError::New(env, "URL.createObjectURL: argument is not a Blob");
+        }
+
+        if (type.empty())
+        {
+            type = "application/octet-stream";
+        }
+
+        return Napi::String::New(env, Babylon::Polyfills::URL::RegisterObjectURL(env, data, size, std::move(type)));
+    }
+
+    // Releases the store entry for the given blob: URL. Unknown or non-string arguments are ignored.
+    Napi::Value URL::RevokeObjectURL(const Napi::CallbackInfo& info)
+    {
+        auto env = info.Env();
+
+        if (info.Length() && info[0].IsString())
+        {
+            Babylon::Polyfills::URL::RevokeObjectURL(env, info[0].As<Napi::String>().Utf8Value());
+        }
+
+        return env.Undefined();
+    }
 }
 
 namespace Babylon::Polyfills::URL
@@ -720,5 +875,26 @@ namespace Babylon::Polyfills::URL
     {
         Internal::URL::Initialize(env);
         Internal::URLSearchParams::Initialize(env);
+    }
+
+    std::string BABYLON_API RegisterObjectURL(Napi::Env, const std::byte* data, size_t size, std::string type)
+    {
+        BlobUrlEntry entry;
+        entry.data = std::make_shared<const std::vector<std::byte>>(data, data + size);
+        entry.type = std::move(type);
+
+        std::string url = GenerateObjectURL();
+
+        auto& store = GetBlobUrlStore();
+        const std::lock_guard<std::mutex> lock{store.mutex};
+        store.entries.emplace(url, std::move(entry));
+        return url;
+    }
+
+    void BABYLON_API RevokeObjectURL(Napi::Env, const std::string& url)
+    {
+        auto& store = GetBlobUrlStore();
+        const std::lock_guard<std::mutex> lock{store.mutex};
+        store.entries.erase(url);
     }
 }
