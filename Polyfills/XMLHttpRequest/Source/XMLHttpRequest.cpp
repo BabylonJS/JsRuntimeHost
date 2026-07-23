@@ -138,15 +138,18 @@ namespace Babylon::Polyfills::Internal
     {
         if (m_isBlobRequest)
         {
+            const auto* bytes = m_blobData ? reinterpret_cast<const char*>(m_blobData->data()) : nullptr;
+            const size_t count = m_blobData ? m_blobData->size() : 0;
+
             if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
             {
-                return Napi::String::New(Env(), reinterpret_cast<const char*>(m_blobData.data()), m_blobData.size());
+                return Napi::String::New(Env(), bytes, count);
             }
 
-            auto arrayBuffer{Napi::ArrayBuffer::New(Env(), m_blobData.size())};
-            if (!m_blobData.empty())
+            auto arrayBuffer{Napi::ArrayBuffer::New(Env(), count)};
+            if (count != 0)
             {
-                std::memcpy(arrayBuffer.Data(), m_blobData.data(), m_blobData.size());
+                std::memcpy(arrayBuffer.Data(), bytes, count);
             }
             return arrayBuffer;
         }
@@ -168,7 +171,9 @@ namespace Babylon::Polyfills::Internal
     {
         if (m_isBlobRequest)
         {
-            return Napi::String::New(Env(), reinterpret_cast<const char*>(m_blobData.data()), m_blobData.size());
+            const auto* bytes = m_blobData ? reinterpret_cast<const char*>(m_blobData->data()) : nullptr;
+            const size_t count = m_blobData ? m_blobData->size() : 0;
+            return Napi::String::New(Env(), bytes, count);
         }
 
         return Napi::Value::From(Env(), m_request.ResponseString().data());
@@ -330,7 +335,7 @@ namespace Babylon::Polyfills::Internal
         // (e.g. a later non-blob request being mistaken for a blob request).
         m_isBlobRequest = false;
         m_blobResolved = false;
-        m_blobData.clear();
+        m_blobData.reset();
         m_blobType.clear();
 
         m_url = info[1].As<Napi::String>();
@@ -378,9 +383,9 @@ namespace Babylon::Polyfills::Internal
         // a real transport) so listeners registered after send() still fire.
         if (m_isBlobRequest)
         {
-            m_blobData.clear();
             m_blobType.clear();
-            m_blobResolved = Babylon::Polyfills::URL::TryResolveObjectURL(info.Env(), m_url, m_blobData, m_blobType);
+            m_blobData = Babylon::Polyfills::URL::TryResolveObjectURL(info.Env(), m_url, m_blobType);
+            m_blobResolved = (m_blobData != nullptr);
 
             auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
 

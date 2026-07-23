@@ -5,6 +5,7 @@
 #include <napi/napi.h>
 #include <UrlLib/UrlLib.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -56,9 +57,10 @@ namespace Babylon::Polyfills::Internal
 
         // In-memory response state for blob: URLs (URL.createObjectURL). m_isBlobRequest is set once
         // Open() sees a blob: URL; m_blobResolved records whether it mapped to a live store entry.
+        // m_blobData shares the store's immutable buffer (null when unresolved) instead of copying.
         bool m_isBlobRequest{};
         bool m_blobResolved{};
-        std::vector<std::byte> m_blobData{};
+        std::shared_ptr<const std::vector<std::byte>> m_blobData{};
         std::string m_blobType{};
     };
 }

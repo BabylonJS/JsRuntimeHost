@@ -4,6 +4,7 @@
 #include <Babylon/Api.h>
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,11 @@ namespace Babylon::Polyfills::URL
     // the minted URLs embed a UUID so entries never collide between environments. The
     // XMLHttpRequest and fetch polyfills call TryResolveObjectURL to serve those URLs from memory
     // instead of handing them to the (scheme-unaware) transport.
+    //
+    // The store holds the Blob's bytes in a shared_ptr, so resolving a blob: URL hands out a
+    // reference to the immutable buffer rather than copying it. Bytes are released once the entry
+    // is revoked and every outstanding resolver has dropped its shared_ptr, matching how a browser
+    // Blob's bytes stay valid for an in-flight read even if the URL is revoked mid-flight.
 
     // Copies `size` bytes into the process-global store and returns a freshly minted blob: URL.
     // The `env` parameter is currently unused but kept for API symmetry and future per-env scoping.
@@ -25,7 +31,9 @@ namespace Babylon::Polyfills::URL
     // Releases the entry for `url`, if any. Unknown URLs are ignored (matching the web platform).
     void BABYLON_API RevokeObjectURL(Napi::Env env, const std::string& url);
 
-    // Copies the bytes and MIME type registered for `url` into the out-parameters. Returns false
-    // if `url` is not a live blob: URL in the process-global store.
-    bool BABYLON_API TryResolveObjectURL(Napi::Env env, const std::string& url, std::vector<std::byte>& outData, std::string& outType);
+    // Returns a shared handle to the immutable bytes registered for `url`, and writes the MIME type
+    // into `outType`. Returns nullptr if `url` is not a live blob: URL in the process-global store.
+    // The returned buffer is shared (not copied) and remains valid for as long as the caller holds
+    // the shared_ptr, even if the entry is revoked in the meantime.
+    std::shared_ptr<const std::vector<std::byte>> BABYLON_API TryResolveObjectURL(Napi::Env env, const std::string& url, std::string& outType);
 }

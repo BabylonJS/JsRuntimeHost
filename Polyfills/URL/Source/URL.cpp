@@ -30,9 +30,14 @@ namespace
     // sharing one store across environments is safe (a blob: URL minted in one environment is never
     // produced in another). Entries are released by revokeObjectURL; any not revoked before the
     // process exits are reclaimed at exit, mirroring how browsers retain blob URLs until unload.
+    //
+    // Each entry owns its bytes through a shared_ptr, so TryResolveObjectURL hands out a reference
+    // to the immutable buffer instead of copying it on every resolve. Revoking (or process exit)
+    // drops the store's reference; the bytes are freed once any outstanding resolver has also
+    // released its shared_ptr, matching how a browser Blob's bytes stay valid for an in-flight read.
     struct BlobUrlEntry
     {
-        std::vector<std::byte> data;
+        std::shared_ptr<const std::vector<std::byte>> data;
         std::string type;
     };
 
@@ -842,7 +847,7 @@ namespace Babylon::Polyfills::URL
     std::string BABYLON_API RegisterObjectURL(Napi::Env, const std::byte* data, size_t size, std::string type)
     {
         BlobUrlEntry entry;
-        entry.data.assign(data, data + size);
+        entry.data = std::make_shared<const std::vector<std::byte>>(data, data + size);
         entry.type = std::move(type);
 
         std::string url = GenerateObjectURL();
@@ -860,7 +865,7 @@ namespace Babylon::Polyfills::URL
         store.entries.erase(url);
     }
 
-    bool BABYLON_API TryResolveObjectURL(Napi::Env, const std::string& url, std::vector<std::byte>& outData, std::string& outType)
+    std::shared_ptr<const std::vector<std::byte>> BABYLON_API TryResolveObjectURL(Napi::Env, const std::string& url, std::string& outType)
     {
         auto& store = GetBlobUrlStore();
         const std::lock_guard<std::mutex> lock{store.mutex};
@@ -868,11 +873,10 @@ namespace Babylon::Polyfills::URL
         const auto it = store.entries.find(url);
         if (it == store.entries.end())
         {
-            return false;
+            return nullptr;
         }
 
-        outData = it->second.data;
         outType = it->second.type;
-        return true;
+        return it->second.data;
     }
 }

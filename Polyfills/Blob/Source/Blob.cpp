@@ -148,20 +148,14 @@ namespace Babylon::Polyfills::Blob
         // Verify `object` is a Blob (or a subclass such as File) by walking its prototype chain and
         // comparing each link against Blob.prototype, using the JS-level Object.getPrototypeOf.
         //
-        // Two engine-adapter quirks drive this implementation:
-        //  * The Blob constructor is created via node-addon-api's DefineClass. On the JavaScriptCore
-        //    adapter such constructors are callable-as-constructor but are NOT reported as functions
-        //    by napi_typeof (JSObjectIsFunction returns false), so we must probe the constructor with
-        //    IsObject() rather than IsFunction() and read `prototype` as a plain object property.
-        //  * We use Object.getPrototypeOf rather than the raw napi_get_prototype C API because the
-        //    latter is not exposed by every adapter (e.g. JSI) and, on JSC, returns the raw
-        //    [[Prototype]] which differs from the JS-visible prototype of a DefineClass instance.
-        // Together this keeps the check portable across QuickJS, V8, JavaScriptCore, Chakra and JSI,
-        // and it also accepts Blob subclasses (e.g. File). We deliberately avoid napi_instanceof,
-        // whose node-addon-api wrapper requires a Napi::Function and is likewise gated on the
-        // constructor being typed as a function.
+        // We use Object.getPrototypeOf rather than the raw napi_get_prototype C API because the
+        // latter is not exposed by every adapter (e.g. JSI) and, on JSC, returns the raw
+        // [[Prototype]] which differs from the JS-visible prototype of a DefineClass instance.
+        // This keeps the check portable across QuickJS, V8, JavaScriptCore, Chakra and JSI, and it
+        // also accepts Blob subclasses (e.g. File). We deliberately avoid napi_instanceof, whose
+        // node-addon-api wrapper requires a Napi::Function.
         const auto blobConstructor = global.Get("Blob");
-        if (!blobConstructor.IsObject())
+        if (!blobConstructor.IsFunction())
         {
             return false;
         }
