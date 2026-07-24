@@ -49,7 +49,7 @@ FetchContent_Declare(llhttp
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/bkaradzic-microsoft/UrlLib.git
-    GIT_TAG 109e373a2cb26815bea70af4ca04f9ca4b546577
+    GIT_TAG 6437417e7c2886588d5656d1c1d2db28358cdb2e
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
