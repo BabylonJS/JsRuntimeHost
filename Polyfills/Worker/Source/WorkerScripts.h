@@ -442,14 +442,46 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
   __jsrhInstallHandler(g, 'messageerror');
   __jsrhInstallHandler(g, 'error');
 
+  function createWorkerLocation(href) {
+    const location = {
+      href,
+      origin: 'null',
+      protocol: '',
+      host: '',
+      hostname: '',
+      port: '',
+      pathname: '',
+      search: '',
+      hash: '',
+      toString() { return this.href; }
+    };
+    try {
+      const parsed = new URL(href, 'app:///');
+      for (const key of ['href', 'origin', 'protocol', 'host', 'hostname',
+                         'port', 'pathname', 'search', 'hash']) {
+        if (parsed[key] !== undefined) location[key] = String(parsed[key]);
+      }
+    } catch (_) {
+      location.pathname = href;
+    }
+    return Object.freeze(location);
+  }
+
   Object.defineProperties(g, {
     WorkerGlobalScope: { value: WorkerGlobalScope, writable: true, configurable: true },
     DedicatedWorkerGlobalScope: { value: DedicatedWorkerGlobalScope, writable: true, configurable: true },
     self: { value: g, writable: false, enumerable: true, configurable: false },
-    location: { value: Object.freeze({ href: String(g.__jsrhWorkerLocation || '') }),
+    location: { value: createWorkerLocation(String(g.__jsrhWorkerLocation || '')),
       writable: false, enumerable: true, configurable: false },
     name: { value: String(g.__jsrhWorkerName || ''), writable: false, configurable: true },
-    navigator: { value: Object.freeze({ hardwareConcurrency: 1, language: 'en-US', languages: ['en-US'] }),
+    navigator: { value: Object.freeze({
+        hardwareConcurrency: 1,
+        language: 'en-US',
+        languages: Object.freeze(['en-US']),
+        onLine: true,
+        platform: '',
+        userAgent: 'JsRuntimeHost Worker'
+      }),
       writable: false, configurable: true },
     addEventListener: { value: EventTarget.prototype.addEventListener.bind(g),
       writable: true, configurable: true },
@@ -465,6 +497,351 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
     importScripts: { value(...urls) { return g.__jsrhNativeImportScripts(...urls); },
       writable: true, configurable: true }
   });
+
+  // IndexedDB is available in browser workers, and the visualization bundle
+  // behind https://rebeckerspecialties.github.io/webapp/visualization/
+  // constructs its cache synchronously while handling pipelineCreate. Missing
+  // the global therefore kills playback before any data stream can subscribe.
+  //
+  // This deliberately implements the commonly used asynchronous key/value
+  // subset, backed by memory for the lifetime of this worker. It is not a
+  // durable database: hosts that need persistence or indexes can install a
+  // fuller implementation before Worker initialization. The API shape and
+  // task ordering below are enough for the app's IndexedDBCache as well as
+  // many cache-style worker bundles.
+  if (g.indexedDB === undefined) {
+    const databases = new Map();
+
+    const cloneForStorage = value => {
+      const encoded = g.__jsrhSerialize(value);
+      return g.__jsrhDeserialize(encoded.json, encoded.buffers);
+    };
+
+    const fire = (target, type, cancelable = false) =>
+      target.dispatchEvent(new Event(type, { cancelable }));
+
+    class DOMStringList {
+      constructor(values) {
+        this._values = values;
+        for (let i = 0; i < values.length; ++i) this[i] = values[i];
+      }
+      get length() { return this._values.length; }
+      contains(value) { return this._values.includes(String(value)); }
+      item(index) { return this._values[index] === undefined ? null : this._values[index]; }
+      [Symbol.iterator]() { return this._values[Symbol.iterator](); }
+    }
+
+    class IDBRequest extends EventTarget {
+      constructor(source = null, transaction = null) {
+        super();
+        this.result = undefined;
+        this.error = null;
+        this.source = source;
+        this.transaction = transaction;
+        this.readyState = 'pending';
+      }
+    }
+    __jsrhInstallHandler(IDBRequest.prototype, 'success');
+    __jsrhInstallHandler(IDBRequest.prototype, 'error');
+
+    class IDBOpenDBRequest extends IDBRequest {}
+    __jsrhInstallHandler(IDBOpenDBRequest.prototype, 'blocked');
+    __jsrhInstallHandler(IDBOpenDBRequest.prototype, 'upgradeneeded');
+
+    class IDBTransaction extends EventTarget {
+      constructor(record, storeNames, mode = 'readonly') {
+        super();
+        this._record = record;
+        this._storeNames = storeNames;
+        this._pending = 0;
+        this._completionScheduled = false;
+        this._finished = false;
+        this.mode = mode;
+        this.error = null;
+        this.durability = 'default';
+        this.objectStoreNames = new DOMStringList(storeNames.slice());
+        setTimeout(() => this._scheduleCompletion(), 0);
+      }
+
+      objectStore(name) {
+        name = String(name);
+        if (!this._storeNames.includes(name) || !this._record.stores.has(name)) {
+          throw new DOMException('The requested object store was not found', 'NotFoundError');
+        }
+        return new IDBObjectStore(this, name);
+      }
+
+      abort() {
+        if (this._finished) {
+          throw new DOMException('The transaction has finished', 'InvalidStateError');
+        }
+        this._finished = true;
+        this.error = new DOMException('The transaction was aborted', 'AbortError');
+        setTimeout(() => fire(this, 'abort'), 0);
+      }
+
+      commit() {
+        this._scheduleCompletion();
+      }
+
+      _request(source, operation) {
+        if (this._finished) {
+          throw new DOMException('The transaction has finished', 'TransactionInactiveError');
+        }
+        const request = new IDBRequest(source, this);
+        this._pending++;
+        setTimeout(() => {
+          if (this._finished) return;
+          try {
+            request.result = operation();
+            request.readyState = 'done';
+            fire(request, 'success');
+          } catch (error) {
+            request.error = error instanceof DOMException ? error :
+              new DOMException(String(error), 'UnknownError');
+            request.readyState = 'done';
+            this.error = request.error;
+            fire(request, 'error', true);
+            if (!this._finished) {
+              this._finished = true;
+              fire(this, 'error', true);
+              fire(this, 'abort');
+            }
+          } finally {
+            this._pending--;
+            this._scheduleCompletion();
+          }
+        }, 0);
+        return request;
+      }
+
+      _scheduleCompletion() {
+        if (this._finished || this._pending !== 0 || this._completionScheduled) return;
+        this._completionScheduled = true;
+        setTimeout(() => {
+          this._completionScheduled = false;
+          if (this._finished || this._pending !== 0) return;
+          this._finished = true;
+          fire(this, 'complete');
+        }, 0);
+      }
+    }
+    for (const type of ['complete', 'abort', 'error']) {
+      __jsrhInstallHandler(IDBTransaction.prototype, type);
+    }
+
+    class IDBObjectStore {
+      constructor(transaction, name) {
+        this.transaction = transaction;
+        this.name = name;
+        this.keyPath = null;
+        this.autoIncrement = false;
+        this.indexNames = new DOMStringList([]);
+      }
+
+      _data() { return this.transaction._record.stores.get(this.name); }
+
+      _write(operation) {
+        if (this.transaction.mode === 'readonly') {
+          throw new DOMException('The transaction is read-only', 'ReadOnlyError');
+        }
+        return this.transaction._request(this, operation);
+      }
+
+      get(key) {
+        return this.transaction._request(this, () => {
+          const value = this._data().get(key);
+          return value === undefined ? undefined : cloneForStorage(value);
+        });
+      }
+
+      getAll() {
+        return this.transaction._request(this,
+          () => Array.from(this._data().values(), cloneForStorage));
+      }
+
+      count() {
+        return this.transaction._request(this, () => this._data().size);
+      }
+
+      put(value, key) {
+        if (arguments.length < 2) {
+          throw new DOMException('An explicit key is required', 'DataError');
+        }
+        return this._write(() => {
+          this._data().set(key, cloneForStorage(value));
+          return key;
+        });
+      }
+
+      add(value, key) {
+        if (arguments.length < 2) {
+          throw new DOMException('An explicit key is required', 'DataError');
+        }
+        return this._write(() => {
+          if (this._data().has(key)) {
+            throw new DOMException('The key already exists', 'ConstraintError');
+          }
+          this._data().set(key, cloneForStorage(value));
+          return key;
+        });
+      }
+
+      delete(key) {
+        return this._write(() => {
+          this._data().delete(key);
+          return undefined;
+        });
+      }
+
+      clear() {
+        return this._write(() => {
+          this._data().clear();
+          return undefined;
+        });
+      }
+    }
+
+    class IDBDatabase extends EventTarget {
+      constructor(record) {
+        super();
+        this._record = record;
+        this._upgradeTransaction = null;
+        this.name = record.name;
+        this.version = record.version;
+      }
+
+      get objectStoreNames() {
+        return new DOMStringList(Array.from(this._record.stores.keys()).sort());
+      }
+
+      createObjectStore(name) {
+        if (!this._upgradeTransaction) {
+          throw new DOMException('Object stores can only be created during an upgrade',
+            'InvalidStateError');
+        }
+        name = String(name);
+        if (this._record.stores.has(name)) {
+          throw new DOMException('The object store already exists', 'ConstraintError');
+        }
+        this._record.stores.set(name, new Map());
+        this._upgradeTransaction._storeNames.push(name);
+        this._upgradeTransaction.objectStoreNames =
+          new DOMStringList(this._upgradeTransaction._storeNames.slice());
+        return new IDBObjectStore(this._upgradeTransaction, name);
+      }
+
+      deleteObjectStore(name) {
+        if (!this._upgradeTransaction) {
+          throw new DOMException('Object stores can only be deleted during an upgrade',
+            'InvalidStateError');
+        }
+        if (!this._record.stores.delete(String(name))) {
+          throw new DOMException('The requested object store was not found', 'NotFoundError');
+        }
+      }
+
+      transaction(storeNames, mode = 'readonly') {
+        const names = typeof storeNames === 'string' ? [storeNames] : Array.from(storeNames);
+        if (names.length === 0) {
+          throw new DOMException('At least one object store is required', 'InvalidAccessError');
+        }
+        for (const name of names) {
+          if (!this._record.stores.has(String(name))) {
+            throw new DOMException('The requested object store was not found', 'NotFoundError');
+          }
+        }
+        return new IDBTransaction(this._record, names.map(String), String(mode));
+      }
+
+      close() {}
+    }
+    __jsrhInstallHandler(IDBDatabase.prototype, 'abort');
+    __jsrhInstallHandler(IDBDatabase.prototype, 'close');
+    __jsrhInstallHandler(IDBDatabase.prototype, 'error');
+    __jsrhInstallHandler(IDBDatabase.prototype, 'versionchange');
+
+    class IDBFactory {
+      open(name, version) {
+        name = String(name);
+        if (version !== undefined) {
+          version = Number(version);
+          if (!Number.isInteger(version) || version <= 0) {
+            throw new TypeError('IndexedDB version must be a positive integer');
+          }
+        }
+        const request = new IDBOpenDBRequest();
+        setTimeout(() => {
+          let record = databases.get(name);
+          const oldVersion = record ? record.version : 0;
+          const nextVersion = version === undefined ? (record ? record.version : 1) : version;
+          if (record && nextVersion < record.version) {
+            request.error = new DOMException('The requested version is lower than the current version',
+              'VersionError');
+            request.readyState = 'done';
+            fire(request, 'error', true);
+            return;
+          }
+          if (!record) {
+            record = { name, version: nextVersion, stores: new Map() };
+            databases.set(name, record);
+          }
+          const upgrading = nextVersion > oldVersion;
+          record.version = nextVersion;
+          const database = new IDBDatabase(record);
+          request.result = database;
+          const succeed = () => {
+            database._upgradeTransaction = null;
+            request.transaction = null;
+            request.readyState = 'done';
+            fire(request, 'success');
+          };
+          if (upgrading) {
+            const upgradeTransaction = new IDBTransaction(
+              record, Array.from(record.stores.keys()), 'versionchange');
+            database._upgradeTransaction = upgradeTransaction;
+            request.transaction = upgradeTransaction;
+            upgradeTransaction.addEventListener('complete', succeed, { once: true });
+            fire(request, 'upgradeneeded');
+          } else {
+            succeed();
+          }
+        }, 0);
+        return request;
+      }
+
+      deleteDatabase(name) {
+        const request = new IDBOpenDBRequest();
+        setTimeout(() => {
+          databases.delete(String(name));
+          request.result = undefined;
+          request.readyState = 'done';
+          fire(request, 'success');
+        }, 0);
+        return request;
+      }
+
+      cmp(first, second) {
+        if (Object.is(first, second)) return 0;
+        return first < second ? -1 : 1;
+      }
+
+      databases() {
+        return Promise.resolve(Array.from(databases.values(),
+          record => ({ name: record.name, version: record.version })));
+      }
+    }
+
+    Object.defineProperties(g, {
+      indexedDB: { value: new IDBFactory(), writable: true, configurable: true },
+      IDBFactory: { value: IDBFactory, writable: true, configurable: true },
+      IDBRequest: { value: IDBRequest, writable: true, configurable: true },
+      IDBOpenDBRequest: { value: IDBOpenDBRequest, writable: true, configurable: true },
+      IDBDatabase: { value: IDBDatabase, writable: true, configurable: true },
+      IDBTransaction: { value: IDBTransaction, writable: true, configurable: true },
+      IDBObjectStore: { value: IDBObjectStore, writable: true, configurable: true }
+    });
+  }
 })();
 )JSRH";
 }

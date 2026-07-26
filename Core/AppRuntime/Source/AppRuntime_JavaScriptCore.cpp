@@ -27,7 +27,7 @@ namespace Babylon
     defined(JSRUNTIMEHOST_LOOKUP_JSC_EXECUTION_TIME_LIMIT)
         auto contextGroup = JSContextGetGroup(globalContext);
         const auto shouldTerminateJSC = [](JSContextRef, void* context) {
-            return static_cast<AppRuntime*>(context)->IsTerminationRequested();
+            return static_cast<AppRuntime*>(context)->IsExecutionTerminationRequested();
         };
 #endif
 

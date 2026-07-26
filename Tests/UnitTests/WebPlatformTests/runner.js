@@ -294,9 +294,114 @@
         if (messages !== expected) {
           fail(name, "message events queued before terminate() were delivered");
         }
-        finish();
+        runVisualizationStartupCase();
       }, 100);
     }, 100);
+  }
+
+  function runVisualizationStartupCase() {
+    const name = "/workers/support/visualization-worker-smoke.js";
+    const workerUrl = new URL(name, "app:///");
+    const worker = new Worker(workerUrl, {
+      type: "module",
+      name: "github-portfolio"
+    });
+    const config = { owner: "BabylonJS", repo: "Babylon.js" };
+    const expectedKey = config.owner + "/" + config.repo;
+    let sawBootstrap = false;
+    let sawPipeline = false;
+    let sawData = false;
+    let sawPlaybackDate = false;
+    const initialTypes = new Set();
+
+    function completeIfReady() {
+      if (!sawBootstrap || !sawPipeline || !sawData || !sawPlaybackDate ||
+          initialTypes.size !== 5) {
+        return;
+      }
+      clearTimeout(timer);
+      worker.terminate();
+      finish();
+    }
+
+    timer = setTimeout(() => {
+      worker.terminate();
+      fail(name, "timed out during app-derived startup");
+      finish();
+    }, 10000);
+
+    worker.onerror = event => {
+      clearTimeout(timer);
+      worker.terminate();
+      fail(name, event.message || "worker error");
+      finish();
+    };
+    worker.onmessageerror = () => {
+      clearTimeout(timer);
+      worker.terminate();
+      fail(name, "messageerror while cloning a visualization stream");
+      finish();
+    };
+    worker.onmessage = event => {
+      const value = event.data;
+      if (!value || typeof value.type !== "string") return;
+      switch (value.type) {
+        case "bootstrap":
+          if (value.workerName !== "github-portfolio" ||
+              !value.location || value.location.protocol !== "app:" ||
+              value.location.pathname !== name ||
+              !value.globals || value.globals.indexedDB !== "object" ||
+              value.globals.fetch !== "function" ||
+              value.globals.AbortController !== "function" ||
+              value.globals.TextEncoder !== "function") {
+            fail(name, "worker-global bootstrap surface is incomplete");
+          }
+          sawBootstrap = true;
+          break;
+        case "pipelineCreated":
+          if (value.key !== expectedKey) {
+            fail(name, "IndexedDB pipeline key was corrupted");
+          }
+          sawPipeline = true;
+          worker.postMessage({ type: "pipelinePlay", key: expectedKey });
+          break;
+        case "clone":
+        case "currentDate":
+        case "startFrom":
+        case "playRate":
+        case "configs":
+          if (value.type === "currentDate" && value.date instanceof Date) {
+            if (value.date.toISOString() !== "2026-07-21T00:00:00.000Z") {
+              fail(name, "playback Date changed across postMessage");
+            }
+            sawPlaybackDate = true;
+          } else {
+            initialTypes.add(value.type);
+          }
+          break;
+        case "data": {
+          const streams = value.data;
+          if (!Array.isArray(streams) || streams.length !== 3 ||
+              !(value.updatedItems instanceof Map) ||
+              value.updatedItems.size !== 384 ||
+              !(value.metadata.activeTypes instanceof Set) ||
+              value.metadata.activeTypes.size !== 3 ||
+              !(streams[0].currentDate instanceof Date) ||
+              streams[0].currentDate !== streams[1].currentDate ||
+              streams[0].items[0].self !== streams[0].items[0]) {
+            fail(name, "multi-stream structured clone lost Date/Map/Set/alias fidelity");
+          }
+          sawData = true;
+          break;
+        }
+      }
+      completeIfReady();
+    };
+
+    // Match the interop's startup protocol: messages may be queued while the
+    // module-compatible bundle is still evaluating.
+    worker.postMessage({ type: "pipelineCreate", config });
+    worker.postMessage({ type: "subscribe" });
   }
 
   function next() {

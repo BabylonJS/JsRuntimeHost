@@ -26,10 +26,17 @@ browser-engine fixes; each source file carries its exact upstream links:
 - `workers/support/Worker-termination-stress.js` repeats shutdown with an
   inbound task pending, guarding the cross-thread destruction pattern fixed by
   WebKit in July 2026.
+- `workers/support/visualization-worker-smoke.js` is a small, non-proprietary
+  reproduction of the deployed rebeckerspecialties visualization worker's
+  startup contract. It constructs a named module-compatible worker from a
+  WHATWG `URL`, opens the IndexedDB cache used by `pipelineCreate`, queues the
+  interop startup messages, and sends multiple `Date`/`Map`/`Set`-rich
+  playback streams through structured clone.
 
 `runner.js` replaces WPT's browser document/server runner: it launches the
 worker tests sequentially, consumes `testharness.js` completion records, and
 adapts the document-side structured-clone, transfer, startup, close, and
 termination checks to the JsRuntimeHost unit-test host. The infinite-evaluation
 case runs only when the selected engine has a native execution-interrupt hook;
-the rest of the subset remains cross-engine.
+the rest of the subset remains cross-engine. The visualization smoke case is
+run last so it exercises a fresh worker after the lifecycle stress cases.

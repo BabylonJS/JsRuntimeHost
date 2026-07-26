@@ -42,6 +42,7 @@ namespace Babylon
         bool m_delayedTaskSchedulerRegistered{};
         std::thread m_thread;
         std::atomic_bool m_terminationRequested{false};
+        std::atomic_bool m_executionTerminationRequested{false};
     };
 
     AppRuntime::AppRuntime() :
@@ -126,6 +127,12 @@ namespace Babylon
 
     void AppRuntime::Terminate()
     {
+        m_impl->m_executionTerminationRequested.store(true);
+        Close();
+    }
+
+    void AppRuntime::Close()
+    {
         if (m_impl->m_terminationRequested.exchange(true))
         {
             return;
@@ -142,6 +149,11 @@ namespace Babylon
     bool AppRuntime::IsTerminationRequested() const noexcept
     {
         return m_impl->m_terminationRequested.load();
+    }
+
+    bool AppRuntime::IsExecutionTerminationRequested() const noexcept
+    {
+        return m_impl->m_executionTerminationRequested.load();
     }
 
     void AppRuntime::Dispatch(Dispatchable<void(Napi::Env)> func)

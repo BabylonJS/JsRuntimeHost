@@ -10,6 +10,9 @@ Implemented surface:
   `close()`, synchronous `importScripts()`, and worker `postMessage()`
 - `EventTarget`, `Event`, `MessageEvent`, `ErrorEvent`, `DOMException`,
   `onmessage`, `onmessageerror`, and `onerror`
+- the cache-oriented IndexedDB subset commonly used by worker bundles:
+  `open()`, database/object-store creation, read/write transactions, and
+  asynchronous `get`, `getAll`, `count`, `put`, `add`, `delete`, and `clear`
 - structured cloning for cyclic objects, arrays, dates, regular expressions,
   maps, sets, errors, ArrayBuffers, DataViews, typed arrays, BigInts, and
   special number values
@@ -18,6 +21,17 @@ Implemented surface:
 The default loader reads relative paths and `app:///` URLs below
 `Options::ScriptRoot`. Native applications can instead supply a thread-safe
 `ScriptResolver` for packaged assets.
+
+WHATWG `URL` serializes a hostless `app:///worker.js` URL as
+`app:/worker.js`; both spellings resolve through `ScriptRoot`. Worker
+`location` exposes the URL fields application bundles normally inspect
+(`protocol`, `origin`, `pathname`, and related fields), not only `href`.
+
+The built-in IndexedDB subset is intentionally in-memory and scoped to one
+Worker lifetime. It unblocks browser cache clients whose fallback is a live
+fetch, including the visualization integration fixture. Applications that
+require durable storage, indexes, cursors, or cross-realm database sharing
+should install a complete host storage implementation.
 
 `type: "module"` accepts self-contained, script-compatible application bundles.
 JavaScriptCore's public C API has no module-loader hook, so the application's

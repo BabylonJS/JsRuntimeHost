@@ -937,6 +937,7 @@ TEST(Worker, WebPlatformTests)
     Babylon::AppRuntime runtime{std::move(runtimeOptions)};
     runtime.Dispatch([&completion, &completed](Napi::Env env) {
         Babylon::Polyfills::Scheduling::Initialize(env);
+        Babylon::Polyfills::URL::Initialize(env);
 
         Babylon::Polyfills::Worker::Options options{};
         options.ScriptRoot = (std::filesystem::current_path() / "WebPlatformTests").string();

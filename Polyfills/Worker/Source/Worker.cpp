@@ -83,7 +83,7 @@ namespace Babylon::Polyfills::Internal
                                const std::string& requested)
         {
             if (requested.rfind("data:", 0) == 0 || requested.rfind("file://", 0) == 0 ||
-                requested.rfind("app://", 0) == 0)
+                requested.rfind("app:", 0) == 0)
             {
                 return requested;
             }
@@ -100,12 +100,19 @@ namespace Babylon::Polyfills::Internal
                 return requested;
             }
 
-            if (base.rfind("app://", 0) == 0)
+            if (base.rfind("app:", 0) == 0)
             {
-                const auto slash = base.find('/', 6);
-                const std::string prefix = slash == std::string::npos ? base + "/" : base.substr(0, slash + 1);
-                const std::filesystem::path path = slash == std::string::npos ? std::filesystem::path{} :
-                    std::filesystem::path{base.substr(slash + 1)}.parent_path();
+                // WHATWG URL serializes a hostless custom scheme such as
+                // app:///worker.js as app:/worker.js. Accept both that form
+                // and the app://host/path form used by existing hosts.
+                const bool hasAuthority = base.rfind("app://", 0) == 0;
+                const auto pathStart = hasAuthority ? base.find('/', 6) : base.find('/', 4);
+                const std::string prefix = pathStart == std::string::npos ?
+                    (hasAuthority ? base + "/" : "app:/") :
+                    base.substr(0, pathStart + 1);
+                const std::filesystem::path path = pathStart == std::string::npos ?
+                    std::filesystem::path{} :
+                    std::filesystem::path{base.substr(pathStart + 1)}.parent_path();
                 return prefix + (path / requested).lexically_normal().generic_string();
             }
 
@@ -178,10 +185,13 @@ namespace Babylon::Polyfills::Internal
                 return PercentDecode(url.substr(comma + 1));
             }
 
-            if (url.rfind("app://", 0) == 0)
+            if (url.rfind("app:", 0) == 0)
             {
-                const auto pathStart = url.find('/', 6);
-                const auto relative = pathStart == std::string::npos ? std::string{} : url.substr(pathStart + 1);
+                const bool hasAuthority = url.rfind("app://", 0) == 0;
+                const auto pathStart = hasAuthority ? url.find('/', 6) : url.find('/', 4);
+                const auto relative = pathStart == std::string::npos ?
+                    std::string{} :
+                    url.substr(pathStart + 1);
                 return ReadFile(ResolveWithinRoot(
                     options.ScriptRoot, std::filesystem::path{options.ScriptRoot} / relative));
             }
@@ -306,7 +316,17 @@ namespace Babylon::Polyfills::Internal
             {
                 return;
             }
-            DispatchErrorToParent(weakState, Napi::GetErrorString(error));
+            // Some engines expose a stack without its usual "Error: message"
+            // header (QuickJS is one). Always retain the exception message:
+            // parent Worker.onerror is the only startup diagnostic for a
+            // bundle that fails before installing its message protocol.
+            auto detail = Napi::GetErrorString(error);
+            const auto& message = error.Message();
+            if (!message.empty() && detail.find(message) == std::string::npos)
+            {
+                detail = message + (detail.empty() ? "" : "\n" + detail);
+            }
+            DispatchErrorToParent(weakState, std::move(detail));
         };
         runtimeOptions.ThreadExitHandler = [weakState] {
             const auto locked = weakState.lock();
@@ -550,7 +570,11 @@ namespace Babylon::Polyfills::Internal
                     std::scoped_lock lock{locked->RuntimeMutex};
                     if (locked->Runtime)
                     {
-                        locked->Runtime->Terminate();
+                        // WorkerGlobalScope.close() discards future tasks but
+                        // must let this task finish (including postMessage and
+                        // an uncaught error). Parent terminate() remains the
+                        // immediate-interrupt path for tight loops.
+                        locked->Runtime->Close();
                     }
                 }
                 return info.Env().Undefined();
