@@ -561,6 +561,7 @@ TEST(IndexedDB, InstallsBrowserGlobals)
             auto global = env.Global();
             Babylon::Polyfills::IndexedDB::Initialize(env);
 
+            EXPECT_TRUE(global.Get("globalThis").StrictEquals(global));
             auto indexedDB = global.Get("indexedDB");
             EXPECT_TRUE(indexedDB.IsObject());
             if (indexedDB.IsObject())

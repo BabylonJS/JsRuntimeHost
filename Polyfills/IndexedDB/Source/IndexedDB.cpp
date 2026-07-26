@@ -17,6 +17,15 @@ namespace Babylon::Polyfills::IndexedDB
             return;
         }
 
+        // ChakraCore predates globalThis. fake-indexeddb deliberately targets
+        // that browser global, so provide the standard alias on older hosts
+        // before evaluating the bundle while preserving any host definition.
+        const auto globalThis = global.Get("globalThis");
+        if (globalThis.IsUndefined() || globalThis.IsNull())
+        {
+            global.Set("globalThis", global);
+        }
+
         // IndexedDB queues database work as tasks rather than microtasks.
         Scheduling::Initialize(env);
         std::string source;
