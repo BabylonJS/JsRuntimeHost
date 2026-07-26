@@ -9,8 +9,9 @@
 const databaseOpenPromise = new Promise((resolve, reject) => {
   const request = indexedDB.open('visualization-worker-smoke');
   request.onupgradeneeded = () => {
-    if (!request.result.objectStoreNames.contains('streams')) {
-      request.result.createObjectStore('streams').put({ schema: 1 }, '__schema__');
+    if (!request.result.objectStoreNames.contains('rebeckerLoaderCacheStore')) {
+      request.result.createObjectStore('rebeckerLoaderCacheStore')
+        .put({ schema: 1 }, '__schema__');
     }
   };
   request.onsuccess = () => resolve(request.result);
@@ -18,9 +19,12 @@ const databaseOpenPromise = new Promise((resolve, reject) => {
 });
 
 const gzipBytes = new Uint8Array([
-  31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 171, 86, 42, 46, 41, 74,
-  77, 204, 45, 86, 178, 138, 54, 212, 49, 210, 49, 142, 173, 5,
-  0, 178, 9, 46, 120, 19, 0, 0, 0
+  31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 171, 86, 42, 74, 77, 74,
+  77, 206, 78, 45, 242, 201, 79, 76, 73, 45, 114, 78, 76, 206,
+  72, 13, 46, 201, 47, 74, 85, 178, 170, 86, 74, 6, 241, 172,
+  12, 64, 204, 148, 196, 146, 68, 37, 171, 104, 67, 29, 35, 29,
+  227, 216, 90, 29, 168, 148, 33, 146, 148, 137, 142, 169, 142,
+  89, 108, 109, 109, 45, 0, 105, 118, 117, 71, 84, 0, 0, 0
 ]);
 
 const cacheHydrationPromise = (async () => {
@@ -62,7 +66,25 @@ const cacheHydrationPromise = (async () => {
 const databasePromise = Promise.all([
   databaseOpenPromise,
   cacheHydrationPromise
-]).then(([database, cache]) => ({ database, cache }));
+]).then(async ([database, cache]) => {
+  // Match IndexedDBCache.setMany(): all hydrated repository records are
+  // queued in one readwrite transaction and completion, not individual put
+  // success events, resolves the batch.
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(
+      'rebeckerLoaderCacheStore', 'readwrite');
+    const store = transaction.objectStore('rebeckerLoaderCacheStore');
+    for (const [key, value] of Object.entries(
+      cache.prerecorded.rebeckerLoaderCacheStore)) {
+      store.put(value, key);
+    }
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+
+  return { database, cache };
+});
 
 const keyFor = config => `${config.owner}/${config.repo}`;
 const itemsPerStream = 128;
@@ -79,8 +101,9 @@ onmessage = event => {
   switch (message.type) {
     case 'pipelineCreate':
       databasePromise.then(({ database, cache }) => {
-        const transaction = database.transaction('streams', 'readwrite');
-        transaction.objectStore('streams').put({
+        const transaction = database.transaction(
+          'rebeckerLoaderCacheStore', 'readwrite');
+        transaction.objectStore('rebeckerLoaderCacheStore').put({
           currentDate: new Date('2026-07-21T00:00:00.000Z'),
           streams: [
             makeStream('commits', 3),
@@ -94,7 +117,8 @@ onmessage = event => {
             key: keyFor(message.config),
             cacheHydrated:
               cache.metadata.source === 'relative-worker-fetch' &&
-              cache.prerecorded.streams.length === 3
+              cache.prerecorded.rebeckerLoaderCacheStore['cache:1']
+                .data.length === 3
           });
         };
       }).catch(error => {
@@ -115,7 +139,8 @@ onmessage = event => {
 
     case 'pipelinePlay':
       databasePromise.then(({ database }) => {
-        const request = database.transaction('streams').objectStore('streams').get(message.key);
+        const request = database.transaction('rebeckerLoaderCacheStore')
+          .objectStore('rebeckerLoaderCacheStore').get(message.key);
         request.onsuccess = () => {
           const cached = request.result;
           const updatedItems = new Map();
@@ -179,6 +204,9 @@ postMessage({
       new TextEncoder() instanceof TextEncoder,
     ReadableStream: typeof ReadableStream,
     Response: typeof Response,
+    ResponseError:
+      Response.error().status === 0 &&
+      Response.error().type === 'error',
     DecompressionStream: typeof DecompressionStream,
     blobStream: typeof Blob.prototype.stream
   }

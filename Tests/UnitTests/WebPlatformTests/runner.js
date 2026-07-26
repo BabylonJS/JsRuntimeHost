@@ -381,6 +381,7 @@
               value.globals.NativeConstructorInstanceof !== true ||
               value.globals.ReadableStream !== "function" ||
               value.globals.Response !== "function" ||
+              value.globals.ResponseError !== true ||
               value.globals.DecompressionStream !== "function" ||
               value.globals.blobStream !== "function") {
             fail(name, "worker-global bootstrap surface is incomplete: " +

@@ -759,6 +759,12 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
       json() {
         return this.text().then(JSON.parse);
       }
+
+      static error() {
+        const response = new Response(null, { status: 0 });
+        response.type = 'error';
+        return response;
+      }
     }
     Object.defineProperty(g, 'Response',
       { value: Response, writable: true, configurable: true });
