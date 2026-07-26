@@ -1,0 +1,23 @@
+name: Worker WPT
+
+on:
+  pull_request:
+    branches: [napi-v7]
+
+jobs:
+  Ubuntu_JSC:
+    uses: ./.github/workflows/build-linux.yml
+
+  Ubuntu_JSC_Sanitizers:
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      cc: clang
+      cxx: clang++
+      enable-sanitizers: true
+
+  Ubuntu_JSC_ThreadSanitizer:
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      cc: clang
+      cxx: clang++
+      enable-thread-sanitizer: true

@@ -16,11 +16,18 @@
 #include <Babylon/Polyfills/TextEncoder.h>
 #include <Babylon/Polyfills/Streams.h>
 #include <Babylon/Polyfills/Compression.h>
+#include <Babylon/Polyfills/Streams.h>
+#include <Babylon/Polyfills/Streams.h>
+#include <Babylon/Polyfills/Streams.h>
+#if defined(JSRUNTIMEHOST_TEST_WORKER)
+#include <Babylon/Polyfills/Worker.h>
+#endif
 #include <gtest/gtest.h>
 #include <arcana/threading/blocking_concurrent_queue.h>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <future>
 #include <iostream>
 #include <thread>
@@ -34,7 +41,6 @@
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include <fstream>
-#include <filesystem>
 #include <system_error>
 
 #include <AndroidExtensions/Globals.h>
@@ -282,6 +288,12 @@ TEST(JavaScript, All)
         Babylon::Polyfills::Streams::Initialize(env);
         Babylon::Polyfills::Compression::Initialize(env);
         Babylon::Polyfills::Fetch::Initialize(env);
+
+#if defined(JSRUNTIMEHOST_TEST_WORKER)
+        Babylon::Polyfills::Worker::Options workerOptions{};
+        workerOptions.ScriptRoot = std::filesystem::current_path().string();
+        Babylon::Polyfills::Worker::Initialize(env, std::move(workerOptions));
+#endif
 
         auto setExitCodeCallback = Napi::Function::New(
             env, [&exitCodePromise](const Napi::CallbackInfo& info) {
@@ -810,6 +822,161 @@ TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
     {
         EXPECT_EQ("ENOTSUP", observed.code);
     }
+}
+#endif
+
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_V8)
+TEST(AppRuntime, V8FinalizersDrainAfterDispatch)
+{
+    constexpr size_t ExternalCount{32};
+    std::atomic<size_t> finalized{};
+    std::promise<void> created;
+    std::promise<void> collectionRequested;
+    std::promise<size_t> observed;
+
+    Babylon::AppRuntime runtime{};
+    runtime.Dispatch([&finalized, &created](Napi::Env env) {
+        for (size_t index{}; index < ExternalCount; ++index)
+        {
+            Napi::External<std::atomic<size_t>>::New(
+                env,
+                &finalized,
+                [](Napi::Env, std::atomic<size_t>* count) {
+                    count->fetch_add(1, std::memory_order_relaxed);
+                });
+        }
+        created.set_value();
+    });
+    created.get_future().wait();
+
+    runtime.Dispatch([&collectionRequested](Napi::Env env) {
+        Napi::GetContext(env)->GetIsolate()->LowMemoryNotification();
+        collectionRequested.set_value();
+    });
+    collectionRequested.get_future().wait();
+
+    runtime.Dispatch([&finalized, &observed](Napi::Env) {
+        observed.set_value(finalized.load(std::memory_order_relaxed));
+    });
+
+    EXPECT_EQ(observed.get_future().get(), ExternalCount);
+}
+
+TEST(AppRuntime, V8FinalizerDrainYieldsBetweenDispatcherTurns)
+{
+    constexpr size_t ExternalCount{16};
+    std::atomic<size_t> finalized{};
+    std::promise<void> created;
+    std::promise<void> collectionRequested;
+
+    Babylon::AppRuntime runtime{};
+    runtime.Dispatch([&](Napi::Env env) {
+        for (size_t index{}; index < ExternalCount; ++index)
+        {
+            Napi::External<std::atomic<size_t>>::New(
+                env,
+                &finalized,
+                [](Napi::Env, std::atomic<size_t>* count) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+                    count->fetch_add(1, std::memory_order_relaxed);
+                });
+        }
+        created.set_value();
+    });
+    created.get_future().wait();
+
+    runtime.Dispatch([&](Napi::Env env) {
+        Napi::GetContext(env)->GetIsolate()->LowMemoryNotification();
+        collectionRequested.set_value();
+    });
+    collectionRequested.get_future().wait();
+
+    const auto observeFinalized = [&]() {
+        std::promise<size_t> observed;
+        auto future = observed.get_future();
+        runtime.Dispatch([&](Napi::Env) {
+            observed.set_value(finalized.load(std::memory_order_relaxed));
+        });
+        return future.get();
+    };
+
+    auto observed = observeFinalized();
+    EXPECT_GT(observed, 0u);
+    EXPECT_LT(observed, ExternalCount);
+
+    for (size_t turn{}; turn < ExternalCount && observed < ExternalCount; ++turn)
+    {
+        observed = observeFinalized();
+    }
+    EXPECT_EQ(observed, ExternalCount);
+}
+#endif
+
+#if defined(JSRUNTIMEHOST_TEST_WORKER) && !defined(__ANDROID__) && \
+    (defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE) || defined(JSR_NAPI_ENGINE_QUICKJS) || \
+     defined(JSR_NAPI_ENGINE_V8) || defined(JSR_NAPI_ENGINE_HERMES))
+TEST(Worker, WebPlatformTests)
+{
+    struct Result
+    {
+        bool Passed{};
+        std::string Detail{};
+    };
+
+    std::promise<Result> completion;
+    std::atomic_bool completed{false};
+
+    Babylon::AppRuntime::Options runtimeOptions{};
+    runtimeOptions.UnhandledExceptionHandler = [&completion, &completed](const Napi::Error& error) {
+        if (!completed.exchange(true))
+        {
+            completion.set_value({false, Napi::GetErrorString(error)});
+        }
+    };
+
+    Babylon::AppRuntime runtime{std::move(runtimeOptions)};
+    runtime.Dispatch([&completion, &completed](Napi::Env env) {
+        Babylon::Polyfills::Scheduling::Initialize(env);
+
+        Babylon::Polyfills::Worker::Options options{};
+        options.ScriptRoot = (std::filesystem::current_path() / "WebPlatformTests").string();
+        options.ConsoleCallback = [](const char* message) {
+            std::cerr << "[Worker] " << message << std::endl;
+        };
+        Babylon::Polyfills::Worker::Initialize(env, std::move(options));
+
+#if defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE)
+        // System JSC exposes the execution-time-limit hook used to interrupt
+        // a worker stuck in top-level evaluation. Other adapters currently
+        // terminate cooperatively between dispatches, so the infinite-loop
+        // WPT regression is intentionally JSC-only for now.
+        env.Global().Set("__jsrhCanInterruptWorker", Napi::Boolean::New(env, true));
+#else
+        env.Global().Set("__jsrhCanInterruptWorker", Napi::Boolean::New(env, false));
+#endif
+
+        env.Global().Set("__jsrhWptDone", Napi::Function::New(
+            env,
+            [&completion, &completed](const Napi::CallbackInfo& info) {
+                if (!completed.exchange(true))
+                {
+                    completion.set_value({
+                        info[0].ToBoolean().Value(),
+                        info[1].ToString().Utf8Value(),
+                    });
+                }
+            },
+            "__jsrhWptDone"));
+    });
+
+    Babylon::ScriptLoader loader{runtime};
+    loader.LoadScript("app:///WebPlatformTests/runner.js");
+
+    auto future = completion.get_future();
+    ASSERT_EQ(future.wait_for(std::chrono::seconds{90}), std::future_status::ready)
+        << "Worker WPT subset timed out";
+    const auto result = future.get();
+    EXPECT_TRUE(result.Passed) << result.Detail;
 }
 #endif
 
