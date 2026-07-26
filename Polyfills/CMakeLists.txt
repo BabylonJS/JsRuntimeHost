@@ -61,6 +61,8 @@ if(JSRUNTIMEHOST_POLYFILL_COMPRESSION
     add_subdirectory(Compression
 if(JSRUNTIMEHOST_POLYFILL_WORKER
     if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI"
+if(JSRUNTIMEHOST_POLYFILL_INDEXEDDB)
+    add_subdirectory(IndexedDB)
         # The legacy JSI adapter only implements the v5-shaped C++ surface and
         # has no detachable ArrayBuffer ABI. Keep existing JSI configurations
         # buildable while the v7-capable engine adapters expose Worker.
@@ -81,6 +83,7 @@ if(JSRUNTIMEHOST_POLYFILL_WORKER
             JSRUNTIMEHOST_POLYFILL_TEXTENCODER
         foreach(_worker_dependency IN LISTS _worker_required_polyfills
             if(NOT ${_worker_dependency}
+            JSRUNTIMEHOST_POLYFILL_INDEXEDDB)
                 message(FATAL_ERROR
                     "JSRUNTIMEHOST_POLYFILL_WORKER requires ${_worker_dependency}=ON so Worker realms expose the browser baseline."
         endforeach(
