@@ -174,6 +174,9 @@ onmessage = event => {
   }
 };
 
+const abortController = new AbortController();
+abortController.abort('visualization-stop');
+
 postMessage({
   type: 'bootstrap',
   workerName: name,
@@ -191,6 +194,9 @@ postMessage({
     AbortController:
       new AbortController().signal.aborted === false,
     AbortControllerType: typeof AbortController,
+    AbortControllerPrimitiveReason:
+      abortController.signal.aborted === true &&
+      abortController.signal.reason === 'visualization-stop',
     TextEncoder:
       new TextEncoder().encode('A')[0] === 65,
     TextEncoderType: typeof TextEncoder,

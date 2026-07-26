@@ -373,6 +373,7 @@
               value.globals.fetch !== "function" ||
               value.globals.AbortController !== true ||
               value.globals.AbortControllerType !== "function" ||
+              value.globals.AbortControllerPrimitiveReason !== true ||
               value.globals.TextEncoder !== true ||
               value.globals.TextEncoderType !== "function" ||
               value.globals.BlobType !== "function" ||
