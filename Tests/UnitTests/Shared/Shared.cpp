@@ -968,6 +968,12 @@ TEST(Worker, WebPlatformTests)
                 }
             },
             "__jsrhWptDone"));
+        env.Global().Set("__jsrhWptProgress", Napi::Function::New(
+            env,
+            [](const Napi::CallbackInfo& info) {
+                std::cerr << "[Worker WPT] " << info[0].ToString().Utf8Value() << std::endl;
+            },
+            "__jsrhWptProgress"));
     });
 
     Babylon::ScriptLoader loader{runtime};

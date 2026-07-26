@@ -11,17 +11,23 @@
   let index = 0;
   let timer = 0;
 
+  function progress(name) {
+    if (typeof __jsrhWptProgress === "function") __jsrhWptProgress(name);
+  }
+
   function fail(name, detail) {
     failures.push(name + ": " + detail);
   }
 
   function finish() {
+    progress("finish");
     clearTimeout(timer);
     __jsrhWptDone(failures.length === 0, failures.join("\n"));
   }
 
   function runStructuredMessageCase() {
     const name = "/workers/support/Worker-structure-message.js";
+    progress(name);
     const worker = new Worker(name);
     const input = new ArrayBuffer(20);
     let sawPass = false;
@@ -80,6 +86,7 @@
       }
 
       const mode = modes[closeIndex++];
+      progress(name + " / " + mode);
       const worker = new Worker(name);
       let messages = 0;
       let settled = false;
@@ -133,6 +140,7 @@
 
   function runEarlyMessageCase() {
     const name = "/workers/support/Worker-early-message.js";
+    progress(name);
     const worker = new Worker(name);
     const payload = { phase: 'queued-before-start' };
     let postMessageReturned = false;
@@ -165,6 +173,7 @@
 
   function runEarlyTerminationCase() {
     const name = "/workers/support/Worker-early-message.js / terminate-before-start";
+    progress(name);
     const worker = new Worker("/workers/support/Worker-early-message.js");
     let delivered = false;
 
@@ -181,6 +190,7 @@
 
   function runTerminationDuringEvaluationCase() {
     const name = "/workers/support/Worker-run-forever.js";
+    progress(name);
     if (globalThis.__jsrhCanInterruptWorker !== true) {
       runTerminationStressCase();
       return;
@@ -222,6 +232,7 @@
       }
 
       const current = iteration;
+      progress(name + " / iteration " + current);
       const worker = new Worker(name);
       let retired = false;
       timer = setTimeout(() => {
@@ -271,6 +282,7 @@
 
   function runTerminateCase() {
     const name = "/workers/constructors/Worker/terminate.js";
+    progress(name);
     const worker = new Worker(name);
     let messages = 0;
 
@@ -301,6 +313,7 @@
 
   function runVisualizationStartupCase() {
     const name = "/workers/support/visualization-worker-smoke.js";
+    progress(name);
     const workerUrl = new URL(name, "app:///");
     const worker = new Worker(workerUrl, {
       type: "module",
@@ -412,6 +425,7 @@
     }
 
     const name = cases[index++];
+    progress(name);
     const worker = new Worker(name);
     timer = setTimeout(() => {
       worker.terminate();
