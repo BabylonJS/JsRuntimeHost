@@ -23,6 +23,8 @@ namespace Babylon::Polyfills::Internal
         Napi::Value Bytes(const Napi::CallbackInfo& info);
         Napi::Value Slice(const Napi::CallbackInfo& info);
         Napi::Value Stream(const Napi::CallbackInfo& info);
+        static Napi::Value PullStream(const Napi::CallbackInfo& info);
+        static Napi::Value CancelStream(const Napi::CallbackInfo& info);
 
         struct Segment;
         struct Data;

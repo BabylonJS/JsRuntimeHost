@@ -293,87 +293,108 @@ namespace Babylon::Polyfills::Internal
             throw Napi::TypeError::New(env, "Blob.stream() requires ReadableStream to be installed.");
         }
 
-        auto state = std::make_shared<StreamState>();
-        state->BlobData = m_data;
-
         auto source = Napi::Object::New(env);
+        auto stateOwner = Napi::External<StreamState>::New(
+            env,
+            new StreamState{m_data},
+            [](Napi::Env, StreamState* state) {
+                delete state;
+            });
+        auto state = stateOwner.Data();
+
+        // ReadableStream retains its underlying source as the receiver for the
+        // pull/cancel algorithms, so let that object own the callback state.
+        // The compile-time callback overload passes the state directly through
+        // napi_create_function. In contrast, a capturing Function::New allocates
+        // node-addon-api CallbackData and attaches it as a hidden property to
+        // every function. Besides two avoidable allocations per Blob stream,
+        // that path creates extra JSC Function structure transitions and exposed
+        // a system-WebKitGTK LeakSanitizer allocation during Worker teardown.
+        source.Set(Napi::Symbol::New(env, "Blob stream state"), stateOwner);
         source.Set("type", "bytes");
-        source.Set("pull", Napi::Function::New(env, [state](const Napi::CallbackInfo& callbackInfo) -> Napi::Value {
-            auto callbackEnv = callbackInfo.Env();
-            auto controller = callbackInfo[0].As<Napi::Object>();
-            if (!state->BlobData || state->Position >= state->BlobData->Size)
-            {
-                controller.Get("close").As<Napi::Function>().Call(controller, {});
-                state->BlobData.reset();
-                return callbackEnv.Undefined();
-            }
-
-            constexpr size_t CHUNK_SIZE = 64 * 1024;
-            const auto copyInto = [&state](std::byte* destination, size_t outputLength) {
-                auto segmentIndex = state->SegmentIndex;
-                auto segmentOffset = state->SegmentOffset;
-                size_t remaining = outputLength;
-
-                while (remaining > 0)
-                {
-                    const auto& segment = state->BlobData->Segments[segmentIndex];
-                    const auto copyLength = std::min(segment.Length - segmentOffset, remaining);
-                    std::memcpy(destination, segment.Bytes->data() + segment.Offset + segmentOffset, copyLength);
-                    destination += copyLength;
-                    remaining -= copyLength;
-                    segmentOffset += copyLength;
-                    if (segmentOffset == segment.Length)
-                    {
-                        ++segmentIndex;
-                        segmentOffset = 0;
-                    }
-                }
-
-                state->Position += outputLength;
-                state->SegmentIndex = segmentIndex;
-                state->SegmentOffset = segmentOffset;
-            };
-
-            const auto byobRequestValue = controller.Get("byobRequest");
-            if (!byobRequestValue.IsUndefined() && !byobRequestValue.IsNull())
-            {
-                const auto byobRequest = byobRequestValue.As<Napi::Object>();
-                const auto viewValue = byobRequest.Get("view");
-                if (!viewValue.IsTypedArray())
-                {
-                    throw Napi::TypeError::New(callbackEnv, "Blob.stream() received an invalid BYOB request view.");
-                }
-
-                const auto view = viewValue.As<Napi::TypedArray>();
-                const auto outputLength = std::min({CHUNK_SIZE, view.ByteLength(), state->BlobData->Size - state->Position});
-                const auto outputBuffer = view.ArrayBuffer();
-                auto destination = static_cast<std::byte*>(outputBuffer.Data()) + view.ByteOffset();
-                copyInto(destination, outputLength);
-                byobRequest.Get("respond").As<Napi::Function>().Call(byobRequest, {Napi::Number::New(callbackEnv, outputLength)});
-            }
-            else
-            {
-                const auto outputLength = std::min(CHUNK_SIZE, state->BlobData->Size - state->Position);
-                auto outputBuffer = Napi::ArrayBuffer::New(callbackEnv, outputLength);
-                copyInto(static_cast<std::byte*>(outputBuffer.Data()), outputLength);
-                auto output = Napi::Uint8Array::New(callbackEnv, outputLength, outputBuffer, 0);
-                controller.Get("enqueue").As<Napi::Function>().Call(controller, {output});
-            }
-
-            if (state->Position == state->BlobData->Size)
-            {
-                controller.Get("close").As<Napi::Function>().Call(controller, {});
-                state->BlobData.reset();
-            }
-
-            return callbackEnv.Undefined();
-        }));
-        source.Set("cancel", Napi::Function::New(env, [state](const Napi::CallbackInfo& callbackInfo) -> Napi::Value {
-            state->BlobData.reset();
-            return callbackInfo.Env().Undefined();
-        }));
+        source.Set("pull", Napi::Function::New<&Blob::PullStream>(env, "pull", state));
+        source.Set("cancel", Napi::Function::New<&Blob::CancelStream>(env, "cancel", state));
 
         return readableStreamValue.As<Napi::Function>().New({source});
+    }
+
+    Napi::Value Blob::PullStream(const Napi::CallbackInfo& info)
+    {
+        auto env = info.Env();
+        auto state = static_cast<StreamState*>(info.Data());
+        auto controller = info[0].As<Napi::Object>();
+        if (!state->BlobData || state->Position >= state->BlobData->Size)
+        {
+            controller.Get("close").As<Napi::Function>().Call(controller, {});
+            state->BlobData.reset();
+            return env.Undefined();
+        }
+
+        constexpr size_t CHUNK_SIZE = 64 * 1024;
+        const auto copyInto = [state](std::byte* destination, size_t outputLength) {
+            auto segmentIndex = state->SegmentIndex;
+            auto segmentOffset = state->SegmentOffset;
+            size_t remaining = outputLength;
+
+            while (remaining > 0)
+            {
+                const auto& segment = state->BlobData->Segments[segmentIndex];
+                const auto copyLength = std::min(segment.Length - segmentOffset, remaining);
+                std::memcpy(destination, segment.Bytes->data() + segment.Offset + segmentOffset, copyLength);
+                destination += copyLength;
+                remaining -= copyLength;
+                segmentOffset += copyLength;
+                if (segmentOffset == segment.Length)
+                {
+                    ++segmentIndex;
+                    segmentOffset = 0;
+                }
+            }
+
+            state->Position += outputLength;
+            state->SegmentIndex = segmentIndex;
+            state->SegmentOffset = segmentOffset;
+        };
+
+        const auto byobRequestValue = controller.Get("byobRequest");
+        if (!byobRequestValue.IsUndefined() && !byobRequestValue.IsNull())
+        {
+            const auto byobRequest = byobRequestValue.As<Napi::Object>();
+            const auto viewValue = byobRequest.Get("view");
+            if (!viewValue.IsTypedArray())
+            {
+                throw Napi::TypeError::New(env, "Blob.stream() received an invalid BYOB request view.");
+            }
+
+            const auto view = viewValue.As<Napi::TypedArray>();
+            const auto outputLength = std::min({CHUNK_SIZE, view.ByteLength(), state->BlobData->Size - state->Position});
+            const auto outputBuffer = view.ArrayBuffer();
+            auto destination = static_cast<std::byte*>(outputBuffer.Data()) + view.ByteOffset();
+            copyInto(destination, outputLength);
+            byobRequest.Get("respond").As<Napi::Function>().Call(byobRequest, {Napi::Number::New(env, outputLength)});
+        }
+        else
+        {
+            const auto outputLength = std::min(CHUNK_SIZE, state->BlobData->Size - state->Position);
+            auto outputBuffer = Napi::ArrayBuffer::New(env, outputLength);
+            copyInto(static_cast<std::byte*>(outputBuffer.Data()), outputLength);
+            auto output = Napi::Uint8Array::New(env, outputLength, outputBuffer, 0);
+            controller.Get("enqueue").As<Napi::Function>().Call(controller, {output});
+        }
+
+        if (state->Position == state->BlobData->Size)
+        {
+            controller.Get("close").As<Napi::Function>().Call(controller, {});
+            state->BlobData.reset();
+        }
+
+        return env.Undefined();
+    }
+
+    Napi::Value Blob::CancelStream(const Napi::CallbackInfo& info)
+    {
+        static_cast<StreamState*>(info.Data())->BlobData.reset();
+        return info.Env().Undefined();
     }
 
     bool Blob::AppendBlobPart(Data& data, const Napi::Value& blobPart)
