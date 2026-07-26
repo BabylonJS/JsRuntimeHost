@@ -310,7 +310,11 @@ namespace Babylon::Polyfills::Internal
         // every function. Besides two avoidable allocations per Blob stream,
         // that path creates extra JSC Function structure transitions and exposed
         // a system-WebKitGTK LeakSanitizer allocation during Worker teardown.
-        source.Set(Napi::Symbol::New(env, "Blob stream state"), stateOwner);
+        // Keep the owner on the internal source object with a string key.
+        // The legacy JSC Node-API adapter stringifies property keys in
+        // napi_set_property, so passing a Symbol here throws even though
+        // modern engines accept it.
+        source.Set("__jsRuntimeHostBlobStreamState", stateOwner);
         source.Set("type", "bytes");
         source.Set("pull", Napi::Function::New<&Blob::PullStream>(env, "pull", state));
         source.Set("cancel", Napi::Function::New<&Blob::CancelStream>(env, "cancel", state));
