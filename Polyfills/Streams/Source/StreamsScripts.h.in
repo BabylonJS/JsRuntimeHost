@@ -9,9 +9,10 @@ namespace Babylon::Polyfills::Internal::StreamsScripts
 (function() {
     var exports = {};
     var module = { exports: exports };
-@WEB_STREAMS_POLYFILL_SOURCE_1@
-)JSRHSTREAM";
+@WEB_STREAMS_POLYFILL_SOURCE_1@)JSRHSTREAM";
 
+    // Keep the split transparent: inserting whitespace here can divide an
+    // identifier or string literal when the vendored bundle is regenerated.
     inline constexpr char PonyfillPart2[] = R"JSRHSTREAM(@WEB_STREAMS_POLYFILL_SOURCE_2@
     return module.exports;
 })()
