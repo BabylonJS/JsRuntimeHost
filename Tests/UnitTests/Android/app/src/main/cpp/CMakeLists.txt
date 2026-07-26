@@ -87,6 +87,7 @@ target_link_libraries(UnitTestsJNI
     PRIVATE Performance
     PRIVATE Streams
     PRIVATE Compression
+    PRIVATE IndexedDB
     PRIVATE napi)
 
 if(ANDROID)

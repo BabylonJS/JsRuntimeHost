@@ -3,6 +3,8 @@
 
 #include "IndexedDBScripts.h"
 
+#include <string>
+
 namespace Babylon::Polyfills::IndexedDB
 {
     void BABYLON_API Initialize(Napi::Env env)
@@ -17,9 +19,14 @@ namespace Babylon::Polyfills::IndexedDB
 
         // IndexedDB queues database work as tasks rather than microtasks.
         Scheduling::Initialize(env);
+        std::string source;
+        for (const auto part : Internal::IndexedDBScripts::PolyfillParts)
+        {
+            source.append(part.data(), part.size());
+        }
         Napi::Eval(
             env,
-            Internal::IndexedDBScripts::Polyfill.data(),
+            source.c_str(),
             "jsruntimehost://fake-indexeddb.js");
     }
 }
