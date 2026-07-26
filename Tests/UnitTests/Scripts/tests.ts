@@ -89,6 +89,12 @@ describe("AbortController", function () {
         expect((controller.signal as any).reason).to.equal(reason);
     });
 
+    it("abort(reason) records a primitive reason", function () {
+        const controller = new AbortController();
+        controller.abort("custom reason");
+        expect((controller.signal as any).reason).to.equal("custom reason");
+    });
+
     it("abort() with no reason defaults to an AbortError", function () {
         const controller = new AbortController();
         controller.abort();
@@ -897,6 +903,21 @@ describe("fetch", function () {
         }
         expect(error, "fetch should have rejected").to.not.equal(undefined);
         expect(error.name).to.equal("AbortError");
+    });
+
+    it("should preserve a primitive abort reason when aborted in-flight", async function () {
+        this.timeout(30000);
+        const controller = new AbortController();
+        const promise = fetch("https://github.com/", { signal: controller.signal } as any);
+        controller.abort("visualization-stop");
+
+        let error: any;
+        try {
+            await promise;
+        } catch (e) {
+            error = e;
+        }
+        expect(error).to.equal("visualization-stop");
     });
 });
 

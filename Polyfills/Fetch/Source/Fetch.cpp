@@ -30,7 +30,7 @@ namespace Babylon::Polyfills::Internal
         struct AbortState
         {
             bool aborted{false};
-            Napi::Reference<Napi::Value> reason;
+            Napi::ObjectReference reasonHolder;
             Napi::ObjectReference signal;
             Napi::FunctionReference listener;
         };
@@ -379,7 +379,12 @@ namespace Babylon::Polyfills::Internal
                             if (!abortState->aborted)
                             {
                                 abortState->aborted = true;
-                                abortState->reason = Napi::Persistent(GetAbortReason(env, abortState->signal.Value()));
+                                // Node-API references cannot target primitive
+                                // values, while AbortSignal reasons can be any
+                                // JavaScript value.
+                                Napi::Object reasonHolder = Napi::Object::New(env);
+                                reasonHolder.Set("value", GetAbortReason(env, abortState->signal.Value()));
+                                abortState->reasonHolder = Napi::Persistent(reasonHolder);
                                 // Cancel the in-flight transport; the completion continuation then
                                 // rejects with the AbortError instead of a transport TypeError.
                                 request->Abort();
@@ -413,7 +418,7 @@ namespace Babylon::Polyfills::Internal
                                     {
                                         // Per the fetch spec, an aborted request rejects with the
                                         // signal's reason (an AbortError), not a network error.
-                                        deferred.Reject(abortState->reason.Value());
+                                        deferred.Reject(abortState->reasonHolder.Value().Get("value"));
                                         return;
                                     }
                                 }
