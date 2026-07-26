@@ -1,4 +1,5 @@
 #include "Fetch.h"
+#include "FetchScripts.h"
 
 #include <Babylon/JsRuntime.h>
 #include <Babylon/JsRuntimeScheduler.h>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,16 +22,6 @@ namespace Babylon::Polyfills::Internal
 {
     namespace
     {
-        // Buffered response payload shared between the Response object and any clones it produces.
-        struct ResponseData
-        {
-            int statusCode{};
-            std::string statusText;
-            std::string url;
-            std::vector<std::pair<std::string, std::string>> headers;
-            std::vector<std::byte> body;
-        };
-
         // Shared state for honoring an AbortSignal passed via init.signal. Co-owned by the "abort"
         // listener (which sets the flag, captures the reason, and cancels the transport) and the
         // completion continuation (which reports the AbortError and tears the listener down).
@@ -63,10 +55,202 @@ namespace Babylon::Polyfills::Internal
             });
         }
 
+        struct DataUrlResponse
+        {
+            std::string contentType;
+            std::string url;
+            std::vector<uint8_t> body;
+        };
+
+        bool IsAsciiWhitespace(uint8_t value)
+        {
+            return value == 0x09 || value == 0x0A || value == 0x0C || value == 0x0D || value == 0x20;
+        }
+
+        void TrimAsciiWhitespace(std::string& value)
+        {
+            const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char character) {
+                return IsAsciiWhitespace(character);
+            });
+            const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char character) {
+                return IsAsciiWhitespace(character);
+            }).base();
+            value = first < last ? std::string{first, last} : std::string{};
+        }
+
+        int HexDigitValue(char value)
+        {
+            if (value >= '0' && value <= '9')
+            {
+                return value - '0';
+            }
+            if (value >= 'a' && value <= 'f')
+            {
+                return value - 'a' + 10;
+            }
+            if (value >= 'A' && value <= 'F')
+            {
+                return value - 'A' + 10;
+            }
+            return -1;
+        }
+
+        template<typename TCallback>
+        void ForEachPercentDecodedByte(std::string_view value, TCallback&& callback)
+        {
+            for (size_t index = 0; index < value.size(); ++index)
+            {
+                if (value[index] == '%' && index + 2 < value.size())
+                {
+                    const int high = HexDigitValue(value[index + 1]);
+                    const int low = HexDigitValue(value[index + 2]);
+                    if (high >= 0 && low >= 0)
+                    {
+                        callback(static_cast<uint8_t>((high << 4) | low));
+                        index += 2;
+                        continue;
+                    }
+                }
+                callback(static_cast<uint8_t>(value[index]));
+            }
+        }
+
+        std::vector<uint8_t> PercentDecode(std::string_view value)
+        {
+            std::vector<uint8_t> decoded;
+            decoded.reserve(value.size());
+            ForEachPercentDecodedByte(value, [&decoded](uint8_t byte) {
+                decoded.push_back(byte);
+            });
+            return decoded;
+        }
+
+        int Base64DigitValue(uint8_t value)
+        {
+            if (value >= 'A' && value <= 'Z')
+            {
+                return value - 'A';
+            }
+            if (value >= 'a' && value <= 'z')
+            {
+                return value - 'a' + 26;
+            }
+            if (value >= '0' && value <= '9')
+            {
+                return value - '0' + 52;
+            }
+            if (value == '+')
+            {
+                return 62;
+            }
+            if (value == '/')
+            {
+                return 63;
+            }
+            return -1;
+        }
+
+        std::vector<uint8_t> ForgivingBase64Decode(std::string_view input)
+        {
+            size_t digitCount{};
+            size_t paddingCount{};
+            bool sawPadding{};
+            ForEachPercentDecodedByte(input, [&](uint8_t value) {
+                if (IsAsciiWhitespace(value))
+                {
+                    return;
+                }
+                if (value == '=')
+                {
+                    sawPadding = true;
+                    ++paddingCount;
+                    return;
+                }
+                if (sawPadding || Base64DigitValue(value) < 0)
+                {
+                    throw std::runtime_error{"fetch: invalid base64 data URL"};
+                }
+                ++digitCount;
+            });
+
+            const auto encodedCount = digitCount + paddingCount;
+            if ((paddingCount > 0 && (encodedCount % 4 != 0 || paddingCount > 2)) || digitCount % 4 == 1)
+            {
+                throw std::runtime_error{"fetch: invalid base64 data URL"};
+            }
+
+            std::vector<uint8_t> decoded(digitCount / 4 * 3 + digitCount % 4 * 3 / 4);
+            size_t outputIndex{};
+            uint32_t accumulator{};
+            size_t availableBits{};
+            ForEachPercentDecodedByte(input, [&](uint8_t value) {
+                if (IsAsciiWhitespace(value) || value == '=')
+                {
+                    return;
+                }
+                accumulator = (accumulator << 6) | static_cast<uint32_t>(Base64DigitValue(value));
+                availableBits += 6;
+                if (availableBits >= 8)
+                {
+                    availableBits -= 8;
+                    decoded[outputIndex++] = static_cast<uint8_t>(accumulator >> availableBits);
+                    accumulator &= (uint32_t{1} << availableBits) - 1;
+                }
+            });
+            return decoded;
+        }
+
+        std::optional<DataUrlResponse> ParseDataUrl(std::string_view url)
+        {
+            if (url.size() < 5 || !EqualsIgnoreCase(url.substr(0, 4), "data") || url[4] != ':')
+            {
+                return std::nullopt;
+            }
+
+            const auto comma = url.find(',', 5);
+            if (comma == std::string_view::npos)
+            {
+                throw std::runtime_error{"fetch: malformed data URL"};
+            }
+
+            std::string mediaType{url.substr(5, comma - 5)};
+            TrimAsciiWhitespace(mediaType);
+            bool base64 = false;
+            if (const auto semicolon = mediaType.rfind(';'); semicolon != std::string::npos)
+            {
+                std::string finalParameter{mediaType.substr(semicolon + 1)};
+                TrimAsciiWhitespace(finalParameter);
+                if (EqualsIgnoreCase(finalParameter, "base64"))
+                {
+                    mediaType.resize(semicolon);
+                    TrimAsciiWhitespace(mediaType);
+                    base64 = true;
+                }
+            }
+            if (mediaType.empty())
+            {
+                mediaType = "text/plain;charset=US-ASCII";
+            }
+            else if (mediaType.front() == ';')
+            {
+                mediaType.insert(0, "text/plain");
+            }
+
+            const auto fragment = url.find('#', comma + 1);
+            const auto payload = url.substr(comma + 1, fragment == std::string_view::npos ? std::string_view::npos : fragment - comma - 1);
+            auto decodedPayload = base64 ? ForgivingBase64Decode(payload) : PercentDecode(payload);
+
+            return DataUrlResponse{
+                std::move(mediaType),
+                std::string{url.substr(0, fragment)},
+                std::move(decodedPayload)};
+        }
+
         // Stable message used for every transport-failure rejection. Browsers and Node both keep
         // this constant (the variable detail rides on `cause`) so crash-report grouping stays
         // intact; we follow Node/undici's "fetch failed" spelling.
         constexpr const char* FETCH_FAILED_MESSAGE = "fetch failed";
+        constexpr const char* JS_FETCH_POLYFILL_EXPORTS_NAME = "fetchPolyfillExports";
 
         // Snapshot the JS call-site stack synchronously, inside fetch(), before SendAsync() hands
         // the request to a worker thread. The transport-failure rejection is otherwise built in a
@@ -157,18 +341,6 @@ namespace Babylon::Polyfills::Internal
             throw std::runtime_error{"Unsupported fetch method: " + method + " (only GET and POST are supported)"};
         }
 
-        std::optional<std::string> FindHeader(const ResponseData& data, std::string_view name)
-        {
-            for (const auto& header : data.headers)
-            {
-                if (EqualsIgnoreCase(header.first, name))
-                {
-                    return header.second;
-                }
-            }
-            return std::nullopt;
-        }
-
         void ApplyRequestHeaders(UrlLib::UrlRequest& request, const Napi::Value& headers)
         {
             if (headers.IsUndefined() || headers.IsNull())
@@ -176,169 +348,85 @@ namespace Babylon::Polyfills::Internal
                 return;
             }
 
-            Napi::Env env = headers.Env();
-
-            // Array of [name, value] pairs.
-            if (headers.IsArray())
+            const auto env = headers.Env();
+            const auto headersConstructor = env.Global().Get("Headers");
+            if (headersConstructor.IsUndefined() || headersConstructor.IsNull())
             {
-                const auto array = headers.As<Napi::Array>();
-                for (uint32_t i = 0; i < array.Length(); ++i)
-                {
-                    const auto pair = array.Get(i);
-                    if (pair.IsArray())
-                    {
-                        const auto entry = pair.As<Napi::Array>();
-                        request.SetRequestHeader(entry.Get(0u).ToString().Utf8Value(), entry.Get(1u).ToString().Utf8Value());
-                    }
-                }
-                return;
+                throw Napi::TypeError::New(env, "fetch requires Headers to be installed.");
             }
 
-            if (headers.IsObject())
+            auto normalizedHeaders = headersConstructor.As<Napi::Function>().New({headers});
+            const auto callback = Napi::Function::New(env, [&request](const Napi::CallbackInfo& info) {
+                if (info.Length() >= 2)
+                {
+                    request.SetRequestHeader(info[1].ToString().Utf8Value(), info[0].ToString().Utf8Value());
+                }
+            });
+            normalizedHeaders.Get("forEach").As<Napi::Function>().Call(normalizedHeaders, {callback});
+        }
+
+        void InitializeFetchClasses(Napi::Env env)
+        {
+            auto global = env.Global();
+            auto nativeObject = JsRuntime::NativeObject::GetFromJavaScript(env);
+            auto exportsValue = nativeObject.Get(JS_FETCH_POLYFILL_EXPORTS_NAME);
+            if (exportsValue.IsUndefined() || exportsValue.IsNull())
             {
-                const auto object = headers.As<Napi::Object>();
-
-                // Headers / Map instances expose forEach((value, key) => ...).
-                const auto forEach = object.Get("forEach");
-                if (forEach.IsFunction())
-                {
-                    const auto callback = Napi::Function::New(env, [&request](const Napi::CallbackInfo& info) {
-                        if (info.Length() >= 2)
-                        {
-                            request.SetRequestHeader(info[1].ToString().Utf8Value(), info[0].ToString().Utf8Value());
-                        }
-                    });
-                    forEach.As<Napi::Function>().Call(object, {callback});
-                    return;
-                }
-
-                // Plain object of name/value properties.
-                const auto names = object.GetPropertyNames();
-                for (uint32_t i = 0; i < names.Length(); ++i)
-                {
-                    const auto key = names.Get(i);
-                    request.SetRequestHeader(key.ToString().Utf8Value(), object.Get(key).ToString().Utf8Value());
-                }
+                exportsValue = Napi::Eval(env, FetchScripts::Polyfill, "jsruntimehost://fetch-polyfill.js");
+                nativeObject.Set(JS_FETCH_POLYFILL_EXPORTS_NAME, exportsValue);
             }
+            const auto exports = exportsValue.As<Napi::Object>();
+            const auto headers = global.Get("Headers");
+            const auto response = global.Get("Response");
+            if (headers.IsUndefined() || headers.IsNull() || response.IsUndefined() || response.IsNull())
+            {
+                global.Set("Headers", exports.Get("Headers"));
+                global.Set("Response", exports.Get("Response"));
+            }
+            nativeObject.Set("createFetchResponse", exports.Get("createFetchResponse"));
         }
 
-        Napi::Object BuildHeaders(Napi::Env env, const std::shared_ptr<ResponseData>& data)
+        template<typename THeaders>
+        Napi::Value CreateFetchResponse(
+            Napi::Env env,
+            const void* body,
+            size_t bodySize,
+            const THeaders& headers,
+            int status,
+            std::string_view statusText,
+            std::string_view url,
+            bool redirected)
         {
-            Napi::Object headers = Napi::Object::New(env);
+            auto arrayBuffer = Napi::ArrayBuffer::New(env, bodySize);
+            if (bodySize > 0)
+            {
+                std::memcpy(arrayBuffer.Data(), body, bodySize);
+            }
+            const auto bytes = Napi::Uint8Array::New(env, bodySize, arrayBuffer, 0);
 
-            headers.Set("get", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                Napi::Env env = info.Env();
-                const auto value = FindHeader(*data, info[0].ToString().Utf8Value());
-                return value ? Napi::Value{Napi::String::New(env, *value)} : Napi::Value{env.Null()};
-            }, "get"));
+            auto responseHeaders = Napi::Array::New(env, headers.size());
+            uint32_t headerIndex{};
+            for (const auto& header : headers)
+            {
+                auto pair = Napi::Array::New(env, 2);
+                pair.Set(uint32_t{0}, Napi::String::New(env, header.first));
+                pair.Set(uint32_t{1}, Napi::String::New(env, header.second));
+                responseHeaders.Set(headerIndex++, pair);
+            }
 
-            headers.Set("has", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                return Napi::Boolean::New(info.Env(), FindHeader(*data, info[0].ToString().Utf8Value()).has_value());
-            }, "has"));
+            auto init = Napi::Object::New(env);
+            init.Set("headers", responseHeaders);
+            init.Set("status", Napi::Number::New(env, status));
+            init.Set("statusText", Napi::String::New(env, statusText.data(), statusText.size()));
 
-            headers.Set("forEach", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                Napi::Env env = info.Env();
-                const auto callback = info[0].As<Napi::Function>();
-                const auto thisArg = info.Length() > 1 ? info[1] : env.Undefined();
-                for (const auto& header : data->headers)
-                {
-                    callback.Call(thisArg, {Napi::String::New(env, header.second), Napi::String::New(env, header.first)});
-                }
-                return env.Undefined();
-            }, "forEach"));
+            auto metadata = Napi::Object::New(env);
+            metadata.Set("redirected", Napi::Boolean::New(env, redirected));
+            metadata.Set("type", Napi::String::New(env, "basic"));
+            metadata.Set("url", Napi::String::New(env, url.data(), url.size()));
 
-            return headers;
-        }
-
-        Napi::Object BuildResponse(Napi::Env env, const std::shared_ptr<ResponseData>& data)
-        {
-            Napi::Object response = Napi::Object::New(env);
-
-            const bool ok = data->statusCode >= 200 && data->statusCode < 300;
-            response.Set("ok", Napi::Boolean::New(env, ok));
-            response.Set("status", Napi::Number::New(env, data->statusCode));
-            response.Set("statusText", Napi::String::New(env, data->statusText));
-            response.Set("url", Napi::String::New(env, data->url));
-            response.Set("redirected", Napi::Boolean::New(env, false));
-            response.Set("type", Napi::String::New(env, "basic"));
-            response.Set("bodyUsed", Napi::Boolean::New(env, false));
-            response.Set("headers", BuildHeaders(env, data));
-
-            response.Set("text", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                Napi::Env env = info.Env();
-                const auto deferred = Napi::Promise::Deferred::New(env);
-                std::string text{reinterpret_cast<const char*>(data->body.data()), data->body.size()};
-                deferred.Resolve(Napi::String::New(env, text));
-                return deferred.Promise();
-            }, "text"));
-
-            response.Set("arrayBuffer", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                Napi::Env env = info.Env();
-                const auto deferred = Napi::Promise::Deferred::New(env);
-                const auto arrayBuffer = Napi::ArrayBuffer::New(env, data->body.size());
-                if (!data->body.empty())
-                {
-                    std::memcpy(arrayBuffer.Data(), data->body.data(), data->body.size());
-                }
-                deferred.Resolve(arrayBuffer);
-                return deferred.Promise();
-            }, "arrayBuffer"));
-
-            response.Set("json", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                Napi::Env env = info.Env();
-                const auto deferred = Napi::Promise::Deferred::New(env);
-                std::string text{reinterpret_cast<const char*>(data->body.data()), data->body.size()};
-                const auto json = env.Global().Get("JSON").As<Napi::Object>();
-                const auto parse = json.Get("parse").As<Napi::Function>();
-                try
-                {
-                    deferred.Resolve(parse.Call(json, {Napi::String::New(env, text)}));
-                }
-                catch (const Napi::Error& error)
-                {
-                    deferred.Reject(error.Value());
-                }
-                return deferred.Promise();
-            }, "json"));
-
-            response.Set("blob", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                Napi::Env env = info.Env();
-                const auto deferred = Napi::Promise::Deferred::New(env);
-
-                // Use IsUndefined()/IsNull() rather than IsFunction() to detect the Blob
-                // polyfill: some JavaScriptCore/JSI builds classify constructor functions as
-                // typeof 'object', so napi_typeof reports napi_object and IsFunction() would
-                // incorrectly reject even when the Blob polyfill is installed.
-                const auto blobConstructor = env.Global().Get("Blob");
-                if (blobConstructor.IsUndefined() || blobConstructor.IsNull())
-                {
-                    deferred.Reject(Napi::Error::New(env, "fetch: Blob is not available in this environment").Value());
-                    return deferred.Promise();
-                }
-
-                const auto arrayBuffer = Napi::ArrayBuffer::New(env, data->body.size());
-                if (!data->body.empty())
-                {
-                    std::memcpy(arrayBuffer.Data(), data->body.data(), data->body.size());
-                }
-                const auto bytes = Napi::Uint8Array::New(env, data->body.size(), arrayBuffer, 0);
-
-                Napi::Array parts = Napi::Array::New(env, 1);
-                parts.Set(0u, bytes);
-
-                Napi::Object options = Napi::Object::New(env);
-                const auto contentType = FindHeader(*data, "content-type");
-                options.Set("type", Napi::String::New(env, contentType.value_or("")));
-
-                deferred.Resolve(blobConstructor.As<Napi::Function>().New({parts, options}));
-                return deferred.Promise();
-            }, "blob"));
-
-            response.Set("clone", Napi::Function::New(env, [data](const Napi::CallbackInfo& info) -> Napi::Value {
-                return BuildResponse(info.Env(), data);
-            }, "clone"));
-
-            return response;
+            const auto nativeObject = JsRuntime::NativeObject::GetFromJavaScript(env);
+            const auto createResponse = nativeObject.Get("createFetchResponse").As<Napi::Function>();
+            return createResponse.Call(nativeObject, {env.Global().Get("Response"), bytes, init, metadata});
         }
     }
 
@@ -347,6 +435,7 @@ namespace Babylon::Polyfills::Internal
         void Initialize(Napi::Env env)
         {
             static constexpr auto JS_FETCH_NAME = "fetch";
+            InitializeFetchClasses(env);
 
             auto fetchFunction = Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
                 Napi::Env env = info.Env();
@@ -402,6 +491,47 @@ namespace Babylon::Polyfills::Internal
 
                         headers = init.Get("headers");
                         signal = init.Get("signal");
+                    }
+
+                    if (signal.IsObject())
+                    {
+                        const auto signalObject = signal.As<Napi::Object>();
+                        if (signalObject.Get("aborted").ToBoolean().Value())
+                        {
+                            deferred.Reject(GetAbortReason(env, signalObject));
+                            return deferred.Promise();
+                        }
+                    }
+
+                    std::optional<DataUrlResponse> dataUrl;
+                    try
+                    {
+                        dataUrl = ParseDataUrl(url);
+                    }
+                    catch (const std::runtime_error& error)
+                    {
+                        deferred.Reject(Napi::TypeError::New(env, error.what()).Value());
+                        return deferred.Promise();
+                    }
+
+                    if (dataUrl)
+                    {
+                        if (method != UrlLib::UrlMethod::Get || body.has_value())
+                        {
+                            throw std::runtime_error{"fetch: data URLs only support GET requests"};
+                        }
+                        const std::vector<std::pair<std::string, std::string>> responseHeaders{
+                            {"content-type", dataUrl->contentType}};
+                        deferred.Resolve(CreateFetchResponse(
+                            env,
+                            dataUrl->body.data(),
+                            dataUrl->body.size(),
+                            responseHeaders,
+                            200,
+                            "OK",
+                            dataUrl->url,
+                            false));
+                        return deferred.Promise();
                     }
 
                     auto request = std::make_shared<UrlLib::UrlRequest>();
@@ -494,18 +624,19 @@ namespace Babylon::Polyfills::Internal
                                     return;
                                 }
 
-                                auto data = std::make_shared<ResponseData>();
-                                data->statusCode = status;
-                                data->statusText = std::string{request->StatusText()};
-                                data->url = std::string{request->ResponseUrl()};
-                                for (const auto& header : request->GetAllResponseHeaders())
-                                {
-                                    data->headers.emplace_back(header.first, header.second);
-                                }
                                 const auto responseBuffer = request->ResponseBuffer();
-                                data->body.assign(responseBuffer.begin(), responseBuffer.end());
-
-                                deferred.Resolve(BuildResponse(env, data));
+                                const auto statusText = request->StatusText();
+                                const std::string responseUrl{request->ResponseUrl()};
+                                const std::string_view finalUrl = responseUrl.empty() ? std::string_view{url} : std::string_view{responseUrl};
+                                deferred.Resolve(CreateFetchResponse(
+                                    env,
+                                    responseBuffer.data(),
+                                    responseBuffer.size(),
+                                    request->GetAllResponseHeaders(),
+                                    status,
+                                    statusText,
+                                    finalUrl,
+                                    !responseUrl.empty() && responseUrl != url));
                             })
                         .then(*scheduler, arcana::cancellation::none(),
                             [deferred, env, scheduler](const arcana::expected<void, std::exception_ptr>& result) {
@@ -525,8 +656,7 @@ namespace Babylon::Polyfills::Internal
                     deferred.Reject(Napi::Error::New(env, std::current_exception()).Value());
                 }
 
-                return deferred.Promise();
-            }, JS_FETCH_NAME);
+                return deferred.Promise(); }, JS_FETCH_NAME);
 
             if (env.Global().Get(JS_FETCH_NAME).IsUndefined())
             {
