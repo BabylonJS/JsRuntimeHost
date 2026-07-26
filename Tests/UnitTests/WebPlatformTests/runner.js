@@ -367,7 +367,8 @@
               value.globals.fetch !== "function" ||
               value.globals.AbortController !== "function" ||
               value.globals.TextEncoder !== "function") {
-            fail(name, "worker-global bootstrap surface is incomplete");
+            fail(name, "worker-global bootstrap surface is incomplete: " +
+              JSON.stringify(value));
           }
           sawBootstrap = true;
           break;
