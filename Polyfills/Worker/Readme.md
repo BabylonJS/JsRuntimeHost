@@ -10,12 +10,12 @@ Implemented surface:
   `close()`, synchronous `importScripts()`, and worker `postMessage()`
 - `EventTarget`, `Event`, `MessageEvent`, `ErrorEvent`, `DOMException`,
   `onmessage`, `onmessageerror`, and `onerror`
-- the cache-oriented IndexedDB subset commonly used by worker bundles:
-  `open()`, database/object-store creation, read/write transactions, and
-  asynchronous `get`, `getAll`, `count`, `put`, `add`, `delete`, and `clear`
-- worker-relative string and `URL` inputs to `fetch()`, plus the buffered
-  `Blob.stream()` / `ReadableStream` / `DecompressionStream` / `Response`
-  pipeline used to hydrate gzip-compressed application assets
+- the standalone in-memory IndexedDB polyfill, including object stores,
+  indexes, cursors, key ranges, upgrade/versionchange handling, transactional
+  rollback, and storage structured clone
+- worker-relative string and `URL` inputs to `fetch()`, plus the standalone
+  Streams, Blob, Fetch/Response, and Compression polyfills used by browser
+  application bundles
 - structured cloning for cyclic objects, arrays, dates, regular expressions,
   maps, sets, errors, ArrayBuffers, DataViews, typed arrays, BigInts, and
   special number values
@@ -33,19 +33,17 @@ Native JavaScriptCore class objects are normalized inside the Worker realm so
 browser-style constructor feature checks such as
 `typeof AbortController === "function"` behave as expected.
 
-The built-in IndexedDB subset is intentionally in-memory and scoped to one
-Worker lifetime. It unblocks browser cache clients, including the visualization
-integration fixture. Applications that require durable storage, indexes,
-cursors, or cross-realm database sharing should install a complete host storage
-implementation.
+IndexedDB is intentionally in-memory and scoped to one JavaScript realm. It
+provides the browser API and transactional semantics needed by worker bundles,
+including the visualization integration fixture, but not durable storage or
+cross-realm database sharing. A future persistent backend can replace it
+without changing the Worker implementation because the initializer preserves a
+host-provided `indexedDB`.
 
-The built-in streams layer is likewise a compatibility subset: fetch and Blob
-bodies are already buffered by JsRuntimeHost, so it represents each body as one
-chunk and performs gzip/deflate decompression in the dedicated worker realm.
-It supports body readers and `pipeThrough(new DecompressionStream(...))`, but
-does not yet implement general streaming backpressure or arbitrary
-`TransformStream` / `WritableStream` producers. Inflated bodies are capped at
-512 MiB.
+Streams, Blob streaming, Fetch body handling, and gzip/deflate transforms come
+from their independent polyfill targets. Worker only initializes them in
+browser-compatible dependency order; it does not carry private, reduced
+versions of those APIs.
 
 `type: "module"` accepts self-contained, script-compatible application bundles.
 JavaScriptCore's public C API has no module-loader hook, so the application's

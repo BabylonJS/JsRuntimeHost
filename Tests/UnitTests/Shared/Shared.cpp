@@ -939,6 +939,31 @@ TEST(AppRuntime, V8FinalizerDrainYieldsBetweenDispatcherTurns)
 #if defined(JSRUNTIMEHOST_TEST_WORKER) && !defined(__ANDROID__) && \
     (defined(JSR_NAPI_ENGINE_JAVASCRIPTCORE) || defined(JSR_NAPI_ENGINE_QUICKJS) || \
      defined(JSR_NAPI_ENGINE_V8) || defined(JSR_NAPI_ENGINE_HERMES))
+TEST(Worker, PreservesHostDOMException)
+{
+    std::promise<void> done;
+    Babylon::AppRuntime runtime{};
+
+    runtime.Dispatch([&done](Napi::Env env) {
+        auto global = env.Global();
+        const auto hostDOMException =
+            Napi::Function::New(env, [](const Napi::CallbackInfo&) {}, "HostDOMException");
+        global.Set("DOMException", hostDOMException);
+
+        Babylon::Polyfills::Worker::Options options{};
+        options.ScriptRoot = std::filesystem::current_path().string();
+        Babylon::Polyfills::Worker::Initialize(env, std::move(options));
+
+        // Worker is composed with independent browser polyfills. Installing
+        // its lifecycle/event glue must not invalidate exceptions created by
+        // IndexedDB (or another host implementation) before Worker starts.
+        EXPECT_TRUE(global.Get("DOMException").StrictEquals(hostDOMException));
+        done.set_value();
+    });
+
+    done.get_future().get();
+}
+
 TEST(Worker, WebPlatformTests)
 {
     struct Result
