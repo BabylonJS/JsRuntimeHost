@@ -51,6 +51,9 @@ FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
     GIT_TAG 0c991337a1160ba7a2d062bf8e342d0a66f48dc9
     EXCLUDE_FROM_ALL)
+FetchContent_Declare(zlib
+    URL "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
     GIT_TAG 93d3f7df465027f487ed37e175a0bc3012fee79e

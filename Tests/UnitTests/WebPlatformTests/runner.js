@@ -359,22 +359,38 @@
       const value = event.data;
       if (!value || typeof value.type !== "string") return;
       switch (value.type) {
+        case "integrationError":
+          fail(name, "app-derived worker integration failed: " + value.message);
+          clearTimeout(timer);
+          worker.terminate();
+          finish();
+          return;
         case "bootstrap":
           if (value.workerName !== "github-portfolio" ||
               !value.location || value.location.protocol !== "app:" ||
               value.location.pathname !== name ||
               !value.globals || value.globals.indexedDB !== "object" ||
               value.globals.fetch !== "function" ||
-              value.globals.AbortController !== "function" ||
-              value.globals.TextEncoder !== "function") {
+              value.globals.AbortController !== true ||
+              value.globals.AbortControllerType !== "function" ||
+              value.globals.TextEncoder !== true ||
+              value.globals.TextEncoderType !== "function" ||
+              value.globals.BlobType !== "function" ||
+              value.globals.URLType !== "function" ||
+              value.globals.NativeConstructorStatics !== true ||
+              value.globals.NativeConstructorInstanceof !== true ||
+              value.globals.ReadableStream !== "function" ||
+              value.globals.Response !== "function" ||
+              value.globals.DecompressionStream !== "function" ||
+              value.globals.blobStream !== "function") {
             fail(name, "worker-global bootstrap surface is incomplete: " +
               JSON.stringify(value));
           }
           sawBootstrap = true;
           break;
         case "pipelineCreated":
-          if (value.key !== expectedKey) {
-            fail(name, "IndexedDB pipeline key was corrupted");
+          if (value.key !== expectedKey || value.cacheHydrated !== true) {
+            fail(name, "relative/gzip cache hydration or IndexedDB pipeline setup failed");
           }
           sawPipeline = true;
           worker.postMessage({ type: "pipelinePlay", key: expectedKey });

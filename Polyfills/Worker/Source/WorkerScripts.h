@@ -422,6 +422,41 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
   'use strict';
   const g = globalThis;
 
+  // JavaScriptCore's Node-API class adapter exposes native constructors as
+  // constructable exotic objects, so JavaScript's typeof reports "object".
+  // Browser feature detection commonly requires "function". Wrap those
+  // constructors in this realm while retaining native instances, prototypes,
+  // and inherited static methods.
+  function normalizeNativeConstructor(name) {
+    const nativeConstructor = g[name];
+    if (!nativeConstructor || typeof nativeConstructor === 'function') return;
+    function BrowserConstructor(...args) {
+      if (!new.target) {
+        throw new TypeError(name + ' constructor must be called with new');
+      }
+      const instance = new nativeConstructor(...args);
+      if (new.target !== BrowserConstructor) {
+        Object.setPrototypeOf(instance, new.target.prototype);
+      }
+      return instance;
+    }
+    BrowserConstructor.prototype = nativeConstructor.prototype;
+    Object.setPrototypeOf(BrowserConstructor, nativeConstructor);
+    try {
+      Object.defineProperty(BrowserConstructor, 'name',
+        { value: name, configurable: true });
+    } catch (_) {}
+    g[name] = BrowserConstructor;
+  }
+
+  for (const constructorName of [
+    'AbortController', 'AbortSignal', 'Blob', 'File', 'FileReader',
+    'TextDecoder', 'TextEncoder', 'URL', 'URLSearchParams', 'WebSocket',
+    'XMLHttpRequest'
+  ]) {
+    normalizeNativeConstructor(constructorName);
+  }
+
   class WorkerGlobalScope extends EventTarget {}
   class DedicatedWorkerGlobalScope extends WorkerGlobalScope {}
   __jsrhInstallHandler(WorkerGlobalScope.prototype, 'message');
@@ -505,6 +540,229 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
     importScripts: { value(...urls) { return g.__jsrhNativeImportScripts(...urls); },
       writable: true, configurable: true }
   });
+
+  // Browser fetch resolves relative inputs against the worker's own location.
+  // The shared native fetch polyfill intentionally has no realm/base-URL
+  // knowledge, so add that worker-specific behavior here.
+  if (typeof g.fetch === 'function') {
+    const nativeFetch = g.fetch;
+    g.fetch = function(input, init) {
+      let candidate = input;
+      if (typeof input === 'string' ||
+          (typeof URL === 'function' && input instanceof URL)) {
+        candidate = String(input);
+      } else if (input && typeof input === 'object' &&
+                 typeof input.url === 'string') {
+        candidate = input.url;
+      }
+      if (typeof candidate === 'string') {
+        try { candidate = new URL(candidate, g.location.href).href; }
+        catch (_) {}
+      }
+      return nativeFetch.call(g, candidate, init);
+    };
+  }
+
+  // The visualization's prerecorded-data path uses the standard browser
+  // pipeline:
+  //   response.blob().stream().pipeThrough(new DecompressionStream('gzip'))
+  //   -> new Response(stream).blob()
+  // Existing fetch/Blob bodies are already buffered, so this compatibility
+  // layer preserves that model while exposing the Web Streams surface the
+  // bundle needs. It is intentionally a one-chunk subset, not a replacement
+  // for a general backpressure-aware streams implementation.
+  const nativeDecompress = g.__jsrhNativeDecompress;
+  try { delete g.__jsrhNativeDecompress; } catch (_) {}
+
+  const copyBytes = value => {
+    if (value instanceof ArrayBuffer) {
+      return new Uint8Array(value.slice(0));
+    }
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(new Uint8Array(
+        value.buffer, value.byteOffset, value.byteLength));
+    }
+    throw new TypeError('Stream chunks must be ArrayBuffer views');
+  };
+
+  const joinChunks = chunks => {
+    const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const result = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return result;
+  };
+
+  let streamFromBytes;
+  if (g.ReadableStream === undefined) {
+    class ReadableStream {
+      constructor(source = {}) {
+        this._locked = false;
+        const chunks = [];
+        let resolve;
+        let reject;
+        this._bytes = new Promise((accept, fail) => {
+          resolve = accept;
+          reject = fail;
+        });
+        const controller = {
+          enqueue(chunk) { chunks.push(copyBytes(chunk)); },
+          close() { resolve(joinChunks(chunks)); },
+          error(reason) { reject(reason); }
+        };
+        if (source && typeof source.start === 'function') {
+          try {
+            Promise.resolve(source.start(controller)).catch(reject);
+          } catch (error) {
+            reject(error);
+          }
+        } else {
+          resolve(new Uint8Array());
+        }
+      }
+
+      get locked() { return this._locked; }
+
+      getReader() {
+        if (this._locked) throw new TypeError('ReadableStream is locked');
+        this._locked = true;
+        const stream = this;
+        let read = false;
+        return {
+          read() {
+            if (read) return Promise.resolve({ value: undefined, done: true });
+            read = true;
+            return stream._bytes.then(value => ({ value: copyBytes(value), done: false }));
+          },
+          cancel() { return Promise.resolve(); },
+          releaseLock() { stream._locked = false; }
+        };
+      }
+
+      pipeThrough(transform) {
+        if (!transform || typeof transform.__jsrhTransform !== 'function' ||
+            !(transform.readable instanceof ReadableStream)) {
+          throw new TypeError('Unsupported TransformStream');
+        }
+        transform.readable._bytes =
+          this._bytes.then(bytes => transform.__jsrhTransform(copyBytes(bytes)));
+        return transform.readable;
+      }
+
+      cancel() { return Promise.resolve(); }
+    }
+
+    streamFromBytes = promise => {
+      const stream = new ReadableStream();
+      stream._bytes = Promise.resolve(promise).then(copyBytes);
+      return stream;
+    };
+    Object.defineProperty(g, 'ReadableStream',
+      { value: ReadableStream, writable: true, configurable: true });
+  } else {
+    // This branch is for hosts that install a fuller streams implementation
+    // before Worker. Blob.stream below should use that implementation.
+    streamFromBytes = promise => new g.ReadableStream({
+      async start(controller) {
+        controller.enqueue(copyBytes(await promise));
+        controller.close();
+      }
+    });
+  }
+
+  if (g.WritableStream === undefined) {
+    class WritableStream {}
+    Object.defineProperty(g, 'WritableStream',
+      { value: WritableStream, writable: true, configurable: true });
+  }
+
+  if (g.Blob !== undefined && typeof g.Blob.prototype.stream !== 'function') {
+    Object.defineProperty(g.Blob.prototype, 'stream', {
+      configurable: true,
+      writable: true,
+      value() { return streamFromBytes(this.arrayBuffer()); }
+    });
+  }
+
+  if (g.DecompressionStream === undefined &&
+      typeof nativeDecompress === 'function') {
+    class DecompressionStream {
+      constructor(format) {
+        format = String(format);
+        if (format !== 'gzip' && format !== 'deflate' &&
+            format !== 'deflate-raw') {
+          throw new TypeError('Unsupported compression format: ' + format);
+        }
+        this.readable = streamFromBytes(new Promise(() => {}));
+        this.writable = new g.WritableStream();
+        Object.defineProperty(this, '__jsrhTransform', {
+          value: bytes => nativeDecompress(format, bytes)
+        });
+      }
+    }
+    Object.defineProperty(g, 'DecompressionStream',
+      { value: DecompressionStream, writable: true, configurable: true });
+  }
+
+  if (g.Response === undefined) {
+    class Response {
+      constructor(body = null, init = {}) {
+        if (body instanceof g.ReadableStream) {
+          this.body = body;
+          this._bytes = body._bytes;
+        } else if (body instanceof Blob) {
+          this._bytes = body.arrayBuffer().then(copyBytes);
+          this.body = streamFromBytes(this._bytes);
+        } else if (body === null || body === undefined) {
+          this._bytes = Promise.resolve(new Uint8Array());
+          this.body = null;
+        } else if (typeof body === 'string') {
+          this._bytes = Promise.resolve(new TextEncoder().encode(body));
+          this.body = streamFromBytes(this._bytes);
+        } else {
+          this._bytes = Promise.resolve(copyBytes(body));
+          this.body = streamFromBytes(this._bytes);
+        }
+        this.status = init.status === undefined ? 200 : Number(init.status);
+        this.statusText = init.statusText === undefined ? '' : String(init.statusText);
+        this.ok = this.status >= 200 && this.status < 300;
+        this.headers = init.headers || {};
+        this.url = '';
+        this.redirected = false;
+        this.type = 'default';
+        this.bodyUsed = false;
+      }
+
+      _consume() {
+        if (this.bodyUsed) {
+          return Promise.reject(new TypeError('Response body is already used'));
+        }
+        this.bodyUsed = true;
+        return this._bytes.then(copyBytes);
+      }
+
+      arrayBuffer() {
+        return this._consume().then(bytes => bytes.buffer);
+      }
+
+      blob() {
+        return this._consume().then(bytes => new Blob([bytes]));
+      }
+
+      text() {
+        return this._consume().then(bytes => new TextDecoder().decode(bytes));
+      }
+
+      json() {
+        return this.text().then(JSON.parse);
+      }
+    }
+    Object.defineProperty(g, 'Response',
+      { value: Response, writable: true, configurable: true });
+  }
 
   // IndexedDB is available in browser workers, and the visualization bundle
   // behind https://rebeckerspecialties.github.io/webapp/visualization/

@@ -104,6 +104,11 @@ if(TARGET Worker)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/WebPlatformTests"
             "$<TARGET_FILE_DIR:UnitTests>/WebPlatformTests"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:UnitTests>/workers/support"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/WebPlatformTests/workers/support/visualization-worker-cache.json"
+            "$<TARGET_FILE_DIR:UnitTests>/workers/support/visualization-worker-cache.json"
         COMMENT "Copying pinned Web Platform Tests Worker subset")
 endif()
 

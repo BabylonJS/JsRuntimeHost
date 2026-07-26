@@ -20,16 +20,22 @@
 #include <napi/js_native_api.h>
 
 #include <atomic>
+#include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <vector>
+
+#include <zlib.h>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -205,6 +211,147 @@ namespace Babylon::Polyfills::Internal
         }
 
 #if NAPI_VERSION >= 7
+        std::vector<std::uint8_t> Decompress(const std::uint8_t* input,
+                                             std::size_t inputSize,
+                                             int windowBits)
+        {
+            if (inputSize > std::numeric_limits<uInt>::max())
+            {
+                throw std::runtime_error{"Compressed input is too large"};
+            }
+
+            z_stream stream{};
+            stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef*>(input));
+            stream.avail_in = static_cast<uInt>(inputSize);
+            const int initializeResult = inflateInit2(&stream, windowBits);
+            if (initializeResult != Z_OK)
+            {
+                throw std::runtime_error{"Unable to initialize decompression"};
+            }
+
+            struct InflateGuard
+            {
+                z_stream& Stream;
+                ~InflateGuard()
+                {
+                    inflateEnd(&Stream);
+                }
+            } guard{stream};
+
+            // DecompressionStream is exposed as a buffered compatibility
+            // subset because the existing Blob and fetch polyfills buffer
+            // their bodies as well. Cap expansion to avoid turning a corrupt
+            // or hostile cache asset into unbounded native allocation.
+            constexpr std::size_t MAX_OUTPUT_SIZE = 512u * 1024u * 1024u;
+            std::vector<std::uint8_t> output;
+            std::array<std::uint8_t, 64u * 1024u> chunk{};
+            int result{};
+            do
+            {
+                stream.next_out = reinterpret_cast<Bytef*>(chunk.data());
+                stream.avail_out = static_cast<uInt>(chunk.size());
+                result = inflate(&stream, Z_NO_FLUSH);
+                if (result != Z_OK && result != Z_STREAM_END)
+                {
+                    const std::string detail = stream.msg == nullptr ? "" :
+                        std::string{": "} + stream.msg;
+                    throw std::runtime_error{"Invalid compressed stream" + detail};
+                }
+
+                const auto produced = chunk.size() - stream.avail_out;
+                if (produced > MAX_OUTPUT_SIZE - output.size())
+                {
+                    throw std::runtime_error{"Decompressed output exceeds the 512 MiB limit"};
+                }
+                output.insert(output.end(), chunk.begin(), chunk.begin() + produced);
+            } while (result != Z_STREAM_END);
+
+            if (stream.avail_in != 0)
+            {
+                throw std::runtime_error{"Invalid compressed stream: trailing data"};
+            }
+
+            return output;
+        }
+
+        void InstallDecompression(Napi::Env env)
+        {
+            env.Global().Set("__jsrhNativeDecompress", Napi::Function::New(
+                env,
+                [](const Napi::CallbackInfo& info) -> Napi::Value {
+                    if (info.Length() < 2 || !info[0].IsString())
+                    {
+                        throw Napi::TypeError::New(
+                            info.Env(), "DecompressionStream requires a format and byte source");
+                    }
+
+                    const auto format = info[0].As<Napi::String>().Utf8Value();
+                    int windowBits{};
+                    if (format == "gzip")
+                    {
+                        windowBits = MAX_WBITS + 16;
+                    }
+                    else if (format == "deflate")
+                    {
+                        windowBits = MAX_WBITS;
+                    }
+                    else if (format == "deflate-raw")
+                    {
+                        windowBits = -MAX_WBITS;
+                    }
+                    else
+                    {
+                        throw Napi::TypeError::New(
+                            info.Env(), "Unsupported compression format: " + format);
+                    }
+
+                    const std::uint8_t* bytes{};
+                    std::size_t size{};
+                    if (info[1].IsArrayBuffer())
+                    {
+                        const auto buffer = info[1].As<Napi::ArrayBuffer>();
+                        bytes = static_cast<const std::uint8_t*>(buffer.Data());
+                        size = buffer.ByteLength();
+                    }
+                    else if (info[1].IsTypedArray())
+                    {
+                        const auto view = info[1].As<Napi::TypedArray>();
+                        const auto buffer = view.ArrayBuffer();
+                        bytes = static_cast<const std::uint8_t*>(buffer.Data()) + view.ByteOffset();
+                        size = view.ByteLength();
+                    }
+                    else if (info[1].IsDataView())
+                    {
+                        const auto view = info[1].As<Napi::DataView>();
+                        const auto buffer = view.ArrayBuffer();
+                        bytes = static_cast<const std::uint8_t*>(buffer.Data()) + view.ByteOffset();
+                        size = view.ByteLength();
+                    }
+                    else
+                    {
+                        throw Napi::TypeError::New(
+                            info.Env(), "DecompressionStream input must be an ArrayBufferView");
+                    }
+
+                    try
+                    {
+                        const auto output = Decompress(bytes, size, windowBits);
+                        const auto arrayBuffer = Napi::ArrayBuffer::New(info.Env(), output.size());
+                        if (!output.empty())
+                        {
+                            std::memcpy(arrayBuffer.Data(), output.data(), output.size());
+                        }
+                        return Napi::Uint8Array::New(
+                            info.Env(), output.size(), arrayBuffer, 0);
+                    }
+                    catch (const std::exception& error)
+                    {
+                        throw Napi::TypeError::New(info.Env(), error.what());
+                    }
+                },
+                "__jsrhNativeDecompress"));
+        }
+
         void ThrowStatus(Napi::Env env, napi_status status, const char* operation)
         {
             if (status == napi_pending_exception && env.IsExceptionPending())
@@ -543,6 +690,7 @@ namespace Babylon::Polyfills::Internal
         Babylon::Polyfills::File::Initialize(env);
         Babylon::Polyfills::TextDecoder::Initialize(env);
         Babylon::Polyfills::TextEncoder::Initialize(env);
+        InstallDecompression(env);
 
         const std::weak_ptr<State> weakState{state};
         env.Global().Set("__jsrhNativePostMessage", Napi::Function::New(

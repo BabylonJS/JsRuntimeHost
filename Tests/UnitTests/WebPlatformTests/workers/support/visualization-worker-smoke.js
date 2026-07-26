@@ -6,7 +6,7 @@
 // ES-module Worker, creates an IndexedDB-backed pipeline, and moves multiple
 // Date/Map-rich playback streams through postMessage.
 
-const databasePromise = new Promise((resolve, reject) => {
+const databaseOpenPromise = new Promise((resolve, reject) => {
   const request = indexedDB.open('visualization-worker-smoke');
   request.onupgradeneeded = () => {
     if (!request.result.objectStoreNames.contains('streams')) {
@@ -16,6 +16,53 @@ const databasePromise = new Promise((resolve, reject) => {
   request.onsuccess = () => resolve(request.result);
   request.onerror = () => reject(request.error);
 });
+
+const gzipBytes = new Uint8Array([
+  31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 171, 86, 42, 46, 41, 74,
+  77, 204, 45, 86, 178, 138, 54, 212, 49, 210, 49, 142, 173, 5,
+  0, 178, 9, 46, 120, 19, 0, 0, 0
+]);
+
+const cacheHydrationPromise = (async () => {
+  // Match the production cache path: its `${owner}.${repo}.gz` request is
+  // relative to the module worker bundle, rather than an absolute app URL.
+  const metadataResponse = await fetch('./visualization-worker-cache.json');
+  const metadata = await metadataResponse.json();
+
+  const compressedBlob = new Blob([gzipBytes]);
+  const decompressedStream = compressedBlob.stream().pipeThrough(
+    new DecompressionStream('gzip'));
+  const decompressedBlob = await new Response(decompressedStream).blob();
+  const prerecorded = JSON.parse(await decompressedBlob.text());
+
+  // WPT requires truncated, checksum-corrupt, and trailing-junk inputs to
+  // reject instead of returning a plausible prefix. Keep the native inflater
+  // from adopting that historical implementation failure mode.
+  // https://github.com/web-platform-tests/wpt/blob/57e48fbf38927e10e86e049b9b03c0e7a1686878/compression/decompression-corrupt-input.any.js
+  for (const invalidBytes of [
+    gzipBytes.slice(0, gzipBytes.length - 4),
+    new Uint8Array([...gzipBytes, 0])
+  ]) {
+    let rejected = false;
+    try {
+      const invalid = new Blob([invalidBytes]);
+      await new Response(invalid.stream().pipeThrough(
+        new DecompressionStream('gzip'))).arrayBuffer();
+    } catch (_) {
+      rejected = true;
+    }
+    if (!rejected) {
+      throw new Error('invalid gzip cache data was accepted');
+    }
+  }
+
+  return { metadata, prerecorded };
+})();
+
+const databasePromise = Promise.all([
+  databaseOpenPromise,
+  cacheHydrationPromise
+]).then(([database, cache]) => ({ database, cache }));
 
 const keyFor = config => `${config.owner}/${config.repo}`;
 const itemsPerStream = 128;
@@ -31,7 +78,7 @@ onmessage = event => {
   const message = event.data;
   switch (message.type) {
     case 'pipelineCreate':
-      databasePromise.then(database => {
+      databasePromise.then(({ database, cache }) => {
         const transaction = database.transaction('streams', 'readwrite');
         transaction.objectStore('streams').put({
           currentDate: new Date('2026-07-21T00:00:00.000Z'),
@@ -42,8 +89,19 @@ onmessage = event => {
           ]
         }, keyFor(message.config));
         transaction.oncomplete = () => {
-          postMessage({ type: 'pipelineCreated', key: keyFor(message.config) });
+          postMessage({
+            type: 'pipelineCreated',
+            key: keyFor(message.config),
+            cacheHydrated:
+              cache.metadata.source === 'relative-worker-fetch' &&
+              cache.prerecorded.streams.length === 3
+          });
         };
+      }).catch(error => {
+        postMessage({
+          type: 'integrationError',
+          message: error && error.message ? error.message : String(error)
+        });
       });
       return;
 
@@ -56,7 +114,7 @@ onmessage = event => {
       return;
 
     case 'pipelinePlay':
-      databasePromise.then(database => {
+      databasePromise.then(({ database }) => {
         const request = database.transaction('streams').objectStore('streams').get(message.key);
         request.onsuccess = () => {
           const cached = request.result;
@@ -81,6 +139,11 @@ onmessage = event => {
           });
           postMessage({ type: 'currentDate', date: cached.currentDate });
         };
+      }).catch(error => {
+        postMessage({
+          type: 'integrationError',
+          message: error && error.message ? error.message : String(error)
+        });
       });
       return;
   }
@@ -97,7 +160,26 @@ postMessage({
   globals: {
     indexedDB: typeof indexedDB,
     fetch: typeof fetch,
-    AbortController: typeof AbortController,
-    TextEncoder: typeof TextEncoder
+    // The JavaScriptCore Node-API adapter reports some native constructors as
+    // typeof "object"; exercise their browser behavior instead of asserting a
+    // backend-specific typeof result.
+    AbortController:
+      new AbortController().signal.aborted === false,
+    AbortControllerType: typeof AbortController,
+    TextEncoder:
+      new TextEncoder().encode('A')[0] === 65,
+    TextEncoderType: typeof TextEncoder,
+    BlobType: typeof Blob,
+    URLType: typeof URL,
+    NativeConstructorStatics:
+      URL.canParse('app:///cache.gz') &&
+      AbortSignal.abort().aborted === true,
+    NativeConstructorInstanceof:
+      new Blob([]) instanceof Blob &&
+      new TextEncoder() instanceof TextEncoder,
+    ReadableStream: typeof ReadableStream,
+    Response: typeof Response,
+    DecompressionStream: typeof DecompressionStream,
+    blobStream: typeof Blob.prototype.stream
   }
 });
