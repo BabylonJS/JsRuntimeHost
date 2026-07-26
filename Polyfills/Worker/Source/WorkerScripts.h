@@ -157,16 +157,24 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
   }
 
   function installHandler(target, type) {
+    const receiver = value =>
+      ((typeof value === 'object' && value !== null) || typeof value === 'function')
+        ? value
+        : target;
     Object.defineProperty(target, 'on' + type, {
       configurable: true,
       enumerable: true,
       get() {
-        const byType = handlers.get(this);
+        // JavaScriptCore can call an accessor installed directly on its
+        // engine-owned global object without an object receiver for an
+        // unqualified assignment such as `onmessage = callback`.
+        const byType = handlers.get(receiver(this));
         return byType && byType.has(type) ? byType.get(type) : null;
       },
       set(value) {
-        let byType = handlers.get(this);
-        if (!byType) handlers.set(this, byType = new Map());
+        const owner = receiver(this);
+        let byType = handlers.get(owner);
+        if (!byType) handlers.set(owner, byType = new Map());
         if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
           byType.set(type, value);
         } else {
