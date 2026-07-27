@@ -1,21 +1,20 @@
-# Pinned Worker WPT subset
+# Focused Worker conformance regressions
 
 `UPSTREAM_REVISION` records the exact
 [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt) commit used
-for this directory. `LICENSE.md`, `resources/testharness.js`, and the files
-below are copied from that revision:
+when the broader suite is run outside this repository. The WPT checkout and
+`testharness.js` are deliberately not vendored.
 
-- `workers/interfaces/DedicatedWorkerGlobalScope/EventTarget.worker.js`
-- `workers/interfaces/DedicatedWorkerGlobalScope/onmessage.worker.js`
-- `workers/interfaces/DedicatedWorkerGlobalScope/postMessage/return-value.worker.js`
-- `workers/interfaces/WorkerGlobalScope/self.any.js`
-- `workers/interfaces/WorkerUtils/importScripts/001.worker.js`
-- `workers/support/Worker-structure-message.js`
-- `workers/constructors/Worker/terminate.js`
+`workers/focused-api.js` is a small host-native port of eight assertions that
+found real gaps in the initial implementation: worker-global identity and
+readonly behavior, EventTarget removal/targeting, `onmessage` normalization and
+dispatch, `postMessage()`'s return value, and zero-argument `importScripts()`.
+The source links are kept in that file. `workers/support/Worker-structure-message.js`
+and `workers/constructors/Worker/terminate.js` are two additional focused WPT
+ports for structured transfer and termination.
 
-`self.worker.js` is a local worker-harness wrapper for `self.any.js`.
-The following focused lifecycle regressions are adapted from newer WPT and
-browser-engine fixes; each source file carries its exact upstream links:
+The remaining cases are regressions adapted from browser-engine fixes; each
+test carries the exact upstream link:
 
 - `workers/support/WorkerGlobalScope-close.js` checks that `close()` preserves
   same-task messages/errors while discarding later tasks.
@@ -26,6 +25,9 @@ browser-engine fixes; each source file carries its exact upstream links:
 - `workers/support/Worker-termination-stress.js` repeats shutdown with an
   inbound task pending, guarding the cross-thread destruction pattern fixed by
   WebKit in July 2026.
+- `runner.js` checks that a throwing structured-clone getter propagates the
+  original exception and leaves transferables attached, guarding Servo's 2025
+  exception-clearing regression.
 - `workers/support/visualization-worker-smoke.js` is a small, non-proprietary
   reproduction of the deployed rebeckerspecialties visualization worker's
   startup contract. It constructs a named module-compatible worker from a
@@ -33,10 +35,9 @@ browser-engine fixes; each source file carries its exact upstream links:
   interop startup messages, and sends multiple `Date`/`Map`/`Set`-rich
   playback streams through structured clone.
 
-`runner.js` replaces WPT's browser document/server runner: it launches the
-worker tests sequentially, consumes `testharness.js` completion records, and
-adapts the document-side structured-clone, transfer, startup, close, and
+`runner.js` launches these focused tests directly, without WPT infrastructure,
+and adapts the document-side structured-clone, transfer, startup, close, and
 termination checks to the JsRuntimeHost unit-test host. The infinite-evaluation
-case runs only when the selected engine has a native execution-interrupt hook;
-the rest of the subset remains cross-engine. The visualization smoke case is
-run last so it exercises a fresh worker after the lifecycle stress cases.
+case runs only when the selected engine has a native execution-interrupt hook.
+The visualization smoke case runs last so it exercises a fresh worker after
+the lifecycle stress cases.

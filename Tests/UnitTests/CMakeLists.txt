@@ -110,7 +110,7 @@ if(TARGET Worker)
         COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_CURRENT_SOURCE_DIR}/WebPlatformTests/workers/support/visualization-worker-cache.json"
             "$<TARGET_FILE_DIR:UnitTests>/workers/support/visualization-worker-cache.json"
-        COMMENT "Copying pinned Web Platform Tests Worker subset")
+        COMMENT "Copying focused Worker conformance regressions")
 endif()
 
 if(APPLE)

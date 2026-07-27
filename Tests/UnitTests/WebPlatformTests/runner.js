@@ -1,11 +1,7 @@
 (() => {
   const failures = [];
   const cases = [
-    "/workers/interfaces/DedicatedWorkerGlobalScope/EventTarget.worker.js",
-    "/workers/interfaces/DedicatedWorkerGlobalScope/onmessage.worker.js",
-    "/workers/interfaces/DedicatedWorkerGlobalScope/postMessage/return-value.worker.js",
-    "/workers/interfaces/WorkerGlobalScope/self.worker.js",
-    "/workers/interfaces/WorkerUtils/importScripts/001.worker.js"
+    "/workers/focused-api.js"
   ];
 
   let index = 0;
@@ -71,6 +67,39 @@
     if (input.detached !== true && input.byteLength !== 0) {
       fail(name, "transfer did not detach the sender ArrayBuffer");
     }
+  }
+
+  function runThrowingGetterCase() {
+    const name = "structured clone preserves a throwing getter exception";
+    progress(name);
+    const worker = new Worker("/workers/support/Worker-early-message.js");
+    const expected = new Error("getter sentinel");
+    const transfer = new ArrayBuffer(8);
+    let thrown;
+
+    // Servo used to clear the pending JS exception raised while reading an
+    // enumerable property and replace it with DataCloneError. Serialization
+    // must propagate the original exception and must not detach transferables
+    // after serialization has already failed.
+    // https://github.com/servo/servo/commit/26f4da824907946569fb673a249a2c9035c1d1e4
+    try {
+      worker.postMessage({
+        get value() {
+          throw expected;
+        }
+      }, [transfer]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    worker.terminate();
+    if (thrown !== expected) {
+      fail(name, "postMessage replaced or swallowed the getter exception");
+    }
+    if (transfer.detached === true || transfer.byteLength === 0) {
+      fail(name, "postMessage detached a transfer after serialization failed");
+    }
+    runStructuredMessageCase();
   }
 
   function runCloseCases() {
@@ -439,7 +468,7 @@
   function next() {
     clearTimeout(timer);
     if (index === cases.length) {
-      runStructuredMessageCase();
+      runThrowingGetterCase();
       return;
     }
 
@@ -461,13 +490,10 @@
 
     worker.onmessage = event => {
       const value = event.data;
-      if (!value || value.type !== "complete") return;
+      if (!value || value.type !== "focused-results") return;
       clearTimeout(timer);
-      if (!value.status || value.status.status !== 0) {
-        fail(name, value.status && value.status.message || "WPT harness failed");
-      }
-      for (const test of value.tests || []) {
-        if (test.status !== 0) fail(name + " / " + test.name, test.message || "failed");
+      for (const test of value.failures || []) {
+        fail(name + " / " + test.name, test.message || "failed");
       }
       worker.terminate();
       next();
