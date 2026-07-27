@@ -20,22 +20,28 @@
 namespace
 {
     // ---- Blob URL registry -------------------------------------------------------------------
-    // URL.createObjectURL/revokeObjectURL are backed by an in-memory store. The XMLHttpRequest and
-    // fetch polyfills resolve minted blob: URLs against this store (see the public
-    // Register/Revoke/TryResolveObjectURL functions below), since the underlying transport has no
-    // notion of the blob: scheme.
+    // URL.createObjectURL/revokeObjectURL are backed by an in-memory store. Consumers never read
+    // this store directly: the URL polyfill registers a blob: scheme resolver with UrlLib (see
+    // Initialize below), so fetch, XMLHttpRequest and any other UrlLib consumer resolve blob: URLs
+    // uniformly through the ordinary transport path.
     //
-    // The store is process-global rather than per-environment: the Node-API engine adapters this
-    // library targets do not all expose napi_add_env_cleanup_hook (e.g. QuickJS), so there is no
-    // portable hook on which to free per-environment state. Keys are unguessable v4 UUIDs, so
-    // sharing one store across environments is safe (a blob: URL minted in one environment is never
-    // produced in another). Entries are released by revokeObjectURL; any not revoked before the
-    // process exits are reclaimed at exit, mirroring how browsers retain blob URLs until unload.
+    // The store is process-global rather than per-environment. No Node-API engine adapter in
+    // Core/Node-API/Source implements napi_add_env_cleanup_hook, so there is no portable hook on
+    // which to free per-environment state (tracked by #215). Keys are unguessable v4 UUIDs, so
+    // sharing one store across environments is safe: a blob: URL minted in one environment is never
+    // produced in another.
     //
-    // Each entry owns its bytes through a shared_ptr, so TryResolveObjectURL hands out a reference
-    // to the immutable buffer instead of copying it on every resolve. Revoking (or process exit)
-    // drops the store's reference; the bytes are freed once any outstanding resolver has also
-    // released its shared_ptr, matching how a browser Blob's bytes stay valid for an in-flight read.
+    // Note the lifetime consequence of that workaround. A browser drops its blob URL store at
+    // unload, which corresponds to environment teardown here, not process exit. Because this store
+    // outlives the environment, an embedder that creates and destroys environments accumulates
+    // every entry that was not explicitly revoked for the life of the process. Callers should
+    // revoke object URLs when done with them; #215 would let the store release them automatically.
+    //
+    // Each entry owns its bytes through a shared_ptr shared with the Blob itself, so registering a
+    // URL does not duplicate the buffer and resolving one hands out a reference rather than a copy.
+    // Revoking drops the store's reference; the bytes are freed once any outstanding resolver has
+    // also released its shared_ptr, matching how a browser Blob's bytes stay valid for an in-flight
+    // read even if the URL is revoked mid-flight.
     struct BlobUrlEntry
     {
         std::shared_ptr<const std::vector<std::byte>> data;
@@ -839,10 +845,9 @@ namespace Babylon::Polyfills::Internal
             throw Napi::TypeError::New(env, "URL.createObjectURL: expected a Blob argument");
         }
 
-        const std::byte* data{};
-        size_t size{};
+        std::shared_ptr<const std::vector<std::byte>> data;
         std::string type;
-        if (!Polyfills::Blob::TryGetData(info[0].As<Napi::Object>(), data, size, type))
+        if (!Polyfills::Blob::TryGetData(info[0].As<Napi::Object>(), data, type))
         {
             throw Napi::TypeError::New(env, "URL.createObjectURL: argument is not a Blob");
         }
@@ -852,7 +857,7 @@ namespace Babylon::Polyfills::Internal
             type = "application/octet-stream";
         }
 
-        return Napi::String::New(env, Babylon::Polyfills::URL::RegisterObjectURL(env, data, size, std::move(type)));
+        return Napi::String::New(env, Babylon::Polyfills::URL::RegisterObjectURL(env, std::move(data), std::move(type)));
     }
 
     // Releases the store entry for the given blob: URL. Unknown or non-string arguments are ignored.
@@ -877,10 +882,10 @@ namespace Babylon::Polyfills::URL
         Internal::URLSearchParams::Initialize(env);
     }
 
-    std::string BABYLON_API RegisterObjectURL(Napi::Env, const std::byte* data, size_t size, std::string type)
+    std::string BABYLON_API RegisterObjectURL(Napi::Env, std::shared_ptr<const std::vector<std::byte>> data, std::string type)
     {
         BlobUrlEntry entry;
-        entry.data = std::make_shared<const std::vector<std::byte>>(data, data + size);
+        entry.data = std::move(data);
         entry.type = std::move(type);
 
         std::string url = GenerateObjectURL();
