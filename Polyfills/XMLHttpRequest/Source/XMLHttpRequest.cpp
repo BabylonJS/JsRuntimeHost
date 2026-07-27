@@ -186,16 +186,14 @@ namespace Babylon::Polyfills::Internal
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
     {
         const auto headerName = info[0].As<Napi::String>().Utf8Value();
-
         const auto header = m_request.GetResponseHeader(headerName);
         return header ? Napi::Value::From(Env(), header.value()) : info.Env().Null();
     }
 
     Napi::Value XMLHttpRequest::GetAllResponseHeaders(const Napi::CallbackInfo&)
     {
-        Napi::Object responseHeadersObject = Napi::Object::New(Env());
-
         auto responseHeaders = m_request.GetAllResponseHeaders();
+        Napi::Object responseHeadersObject = Napi::Object::New(Env());
 
         for (auto& iter : responseHeaders)
         {
@@ -259,8 +257,7 @@ namespace Babylon::Polyfills::Internal
 
         try
         {
-            const auto method = MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value());
-            m_request.Open(method, m_url);
+            m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
         }
         catch (const std::exception& e)
         {
