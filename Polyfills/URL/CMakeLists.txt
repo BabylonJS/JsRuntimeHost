@@ -11,7 +11,7 @@ add_library(URL ${SOURCES})
 target_include_directories(URL PUBLIC "Include")
 
 target_link_libraries(URL
-    PRIVATE Blob
+    PRIVATE BlobInternal
     PRIVATE UrlLib
     PUBLIC JsRuntime)
 

@@ -1,6 +1,7 @@
 #include "Blob.h"
 #include <Babylon/JsRuntime.h>
 #include <Babylon/Polyfills/Blob.h>
+#include <Babylon/Polyfills/BlobInternal.h>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -141,7 +142,7 @@ namespace Babylon::Polyfills::Blob
         Internal::Blob::Initialize(env);
     }
 
-    bool BABYLON_API TryGetData(const Napi::Object& object, std::shared_ptr<const std::vector<std::byte>>& outData, std::string& outType)
+    std::optional<BlobData> BABYLON_API TryGetData(const Napi::Object& object)
     {
         const auto env = object.Env();
         const auto global = env.Global();
@@ -158,25 +159,25 @@ namespace Babylon::Polyfills::Blob
         const auto blobConstructor = global.Get("Blob");
         if (!blobConstructor.IsFunction())
         {
-            return false;
+            return std::nullopt;
         }
 
         const auto blobPrototype = blobConstructor.As<Napi::Object>().Get("prototype");
         if (!blobPrototype.IsObject())
         {
-            return false;
+            return std::nullopt;
         }
 
         const auto objectConstructor = global.Get("Object");
         if (!objectConstructor.IsObject())
         {
-            return false;
+            return std::nullopt;
         }
 
         const auto getPrototypeOf = objectConstructor.As<Napi::Object>().Get("getPrototypeOf");
         if (!getPrototypeOf.IsFunction())
         {
-            return false;
+            return std::nullopt;
         }
 
         const auto getPrototypeOfFn = getPrototypeOf.As<Napi::Function>();
@@ -195,12 +196,10 @@ namespace Babylon::Polyfills::Blob
 
         if (!isBlob)
         {
-            return false;
+            return std::nullopt;
         }
 
         const auto* blob = Internal::Blob::Unwrap(object);
-        outData = blob->Data();
-        outType = blob->Type();
-        return true;
+        return BlobData{blob->Data(), blob->Type()};
     }
 }
