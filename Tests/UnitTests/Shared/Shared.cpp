@@ -22,6 +22,10 @@
 #include <iostream>
 #include <thread>
 
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_V8)
+#include <napi/env.h>
+#endif
+
 namespace
 {
     const char* EnumToString(Babylon::Polyfills::Console::LogLevel logLevel)
@@ -278,6 +282,36 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     testThread.join();
 }
+
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_V8)
+TEST(AppRuntime, V8FinalizersDrainAfterDispatch)
+{
+    constexpr size_t ExternalCount{32};
+    std::atomic<size_t> finalized{};
+    std::promise<size_t> observed;
+
+    Babylon::AppRuntime runtime{};
+    runtime.Dispatch([&finalized](Napi::Env env) {
+        for (size_t index{}; index < ExternalCount; ++index)
+        {
+            Napi::External<std::atomic<size_t>>::New(
+                env,
+                &finalized,
+                [](Napi::Env, std::atomic<size_t>* count) {
+                    count->fetch_add(1, std::memory_order_relaxed);
+                });
+        }
+    });
+    runtime.Dispatch([](Napi::Env env) {
+        Napi::GetContext(env)->GetIsolate()->LowMemoryNotification();
+    });
+    runtime.Dispatch([&finalized, &observed](Napi::Env) {
+        observed.set_value(finalized.load(std::memory_order_relaxed));
+    });
+
+    EXPECT_EQ(observed.get_future().get(), ExternalCount);
+}
+#endif
 
 // The V8JSI Node-API shim does not implement napi_create_dataview /
 // napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
