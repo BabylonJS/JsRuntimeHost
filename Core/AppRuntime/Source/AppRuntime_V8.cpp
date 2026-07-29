@@ -122,8 +122,11 @@ namespace Babylon
         Module::Instance().Platform().UnregisterHost(v8::Isolate::GetCurrent());
     }
 
-    void AppRuntime::DrainMicrotasks(Napi::Env)
+    void AppRuntime::DrainMicrotasks(Napi::Env env)
     {
         // V8 auto-drains microtasks. Foreground tasks run on AppRuntime's dispatcher.
+        // N-API finalizers deferred by a V8 garbage collection still require a safe
+        // host callback boundary.
+        Napi::DrainFinalizers(env);
     }
 }

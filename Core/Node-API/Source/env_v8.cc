@@ -16,6 +16,19 @@ namespace Napi
     env_ptr->DeleteMe();
   }
 
+  void DrainFinalizers(Env env)
+  {
+    napi_env env_ptr{env};
+
+    // Finalizers can mutate this queue, so continue until it is empty.
+    while (!env_ptr->pending_finalizers.empty())
+    {
+      auto* finalizer = *env_ptr->pending_finalizers.begin();
+      env_ptr->pending_finalizers.erase(finalizer);
+      finalizer->Finalize();
+    }
+  }
+
   v8::Local<v8::Context> GetContext(Env env)
   {
     napi_env env_ptr{env};
