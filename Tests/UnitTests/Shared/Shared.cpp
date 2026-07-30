@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <future>
 #include <iostream>
+#include <string>
 #include <thread>
 
 namespace
@@ -110,6 +111,40 @@ TEST(JavaScript, All)
             },
             "napiGetPropertyNames");
         env.Global().Set("napiGetPropertyNames", getPropertyNamesCallback);
+
+#ifndef JSRUNTIMEHOST_NAPI_ENGINE_JSI
+        // `Napi::Object::GetPropertyNames` can only be reached through an
+        // already-constructed `Napi::Object`, so it cannot exercise the
+        // `ToObject` coercion that `napi_get_property_names` performs on its
+        // argument. Expose the C entry point directly for those cases. The JSI
+        // backend implements the `Napi::` C++ surface straight on top of JSI and
+        // has no C Node-API at all, so this global is left undefined there and
+        // the coercion tests skip themselves.
+        auto getPropertyNamesRawCallback = Napi::Function::New(
+            env, [](const Napi::CallbackInfo& info) -> Napi::Value {
+                napi_env rawEnv{info.Env()};
+                napi_value result{};
+                const napi_status status{napi_get_property_names(rawEnv, info[0], &result)};
+                if (status != napi_ok)
+                {
+                    // A failed call may or may not have left a JavaScript
+                    // exception pending; surface either as a thrown error so
+                    // that the script tests can assert on it uniformly.
+                    bool isExceptionPending{};
+                    if (napi_is_exception_pending(rawEnv, &isExceptionPending) == napi_ok && isExceptionPending)
+                    {
+                        napi_value error{};
+                        napi_get_and_clear_last_exception(rawEnv, &error);
+                    }
+
+                    throw Napi::Error::New(info.Env(), "napi_get_property_names failed with status " + std::to_string(status));
+                }
+
+                return Napi::Value{rawEnv, result};
+            },
+            "napiGetPropertyNamesRaw");
+        env.Global().Set("napiGetPropertyNamesRaw", getPropertyNamesRawCallback);
+#endif
     });
 
     Babylon::ScriptLoader loader{runtime};

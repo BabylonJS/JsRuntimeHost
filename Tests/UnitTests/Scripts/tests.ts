@@ -8,6 +8,7 @@ Mocha.reporter('spec');
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
 declare const napiGetPropertyNames: (object: any) => string[];
+declare const napiGetPropertyNamesRaw: (object: any) => string[];
 
 
 describe("AbortController", function () {
@@ -1713,6 +1714,41 @@ describe("napi_get_property_names (#216)", function () {
         if (forInHonoursShadowing) {
             expect(napiGetPropertyNames(object)).to.deep.equal(forIn(object));
         }
+    });
+
+    // `Napi::Object::GetPropertyNames` requires an object, so the coercion the
+    // C entry point performs on its argument is only reachable through
+    // `napiGetPropertyNamesRaw`. That global is undefined on the JSI backend,
+    // which implements the `Napi::` C++ surface directly on JSI and has no C
+    // Node-API to call.
+    const describeCoercion = typeof napiGetPropertyNamesRaw === "function" ? describe : describe.skip;
+
+    describeCoercion("argument coercion", function () {
+        it("wraps a string primitive and reports its indices", function () {
+            expect(napiGetPropertyNamesRaw("ab")).to.deep.equal(["0", "1"]);
+        });
+
+        it("wraps a number primitive, which has no enumerable properties", function () {
+            expect(napiGetPropertyNamesRaw(42)).to.deep.equal([]);
+        });
+
+        it("wraps a boolean primitive, which has no enumerable properties", function () {
+            expect(napiGetPropertyNamesRaw(true)).to.deep.equal([]);
+        });
+
+        it("still reports the prototype chain of a real object", function () {
+            const object = Object.create({ inherited: 1 });
+            object.own = 2;
+            expect(napiGetPropertyNamesRaw(object)).to.deep.equal(["own", "inherited"]);
+        });
+
+        it("fails for null", function () {
+            expect(() => napiGetPropertyNamesRaw(null)).to.throw();
+        });
+
+        it("fails for undefined", function () {
+            expect(() => napiGetPropertyNamesRaw(undefined)).to.throw();
+        });
     });
 });
 
