@@ -50,4 +50,8 @@ namespace Babylon
     {
         // JSI/V8 backed JSI auto-drains microtasks per scope.
     }
+
+    void AppRuntime::DrainPostDispatchWork(Napi::Env)
+    {
+    }
 }

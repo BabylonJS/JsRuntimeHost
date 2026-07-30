@@ -113,11 +113,15 @@ namespace Babylon
         isolate->Dispose();
     }
 
-    void AppRuntime::DrainMicrotasks(Napi::Env env)
+    void AppRuntime::DrainMicrotasks(Napi::Env)
     {
-        // V8 auto-drains microtasks at the end of each script/callback when
-        // using the default MicrotasksPolicy. N-API finalizers deferred by a
-        // V8 garbage collection still require a safe host callback boundary.
+        // V8 auto-drains microtasks at the end of each script/callback.
+    }
+
+    void AppRuntime::DrainPostDispatchWork(Napi::Env env)
+    {
+        // N-API finalizers deferred by a V8 garbage collection require a safe
+        // host boundary, but should not monopolize a dispatcher turn.
         Napi::DrainFinalizers(env);
     }
 }
