@@ -101,6 +101,7 @@ TEST(JavaScript, All)
         env.Global().Set("setExitCode", setExitCodeCallback);
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
+        env.Global().Set("napiEngine", Napi::Value::From(env, JSRUNTIMEHOST_NAPI_ENGINE));
 
         // Exposes napi_get_property_names, via its C++ wrapper, so that the
         // script tests can compare it against `for...in`. See
