@@ -101,6 +101,16 @@ TEST(JavaScript, All)
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
         env.Global().Set("hostEngine", Napi::Value::From(env, NAPI_JAVASCRIPT_ENGINE));
+
+        // Exposes napi_get_property_names, via its C++ wrapper, so that the
+        // script tests can compare it against `for...in`. See
+        // https://github.com/BabylonJS/JsRuntimeHost/issues/216.
+        auto getPropertyNamesCallback = Napi::Function::New(
+            env, [](const Napi::CallbackInfo& info) -> Napi::Value {
+                return info[0].As<Napi::Object>().GetPropertyNames();
+            },
+            "napiGetPropertyNames");
+        env.Global().Set("napiGetPropertyNames", getPropertyNamesCallback);
     });
 
     Babylon::ScriptLoader loader{runtime};

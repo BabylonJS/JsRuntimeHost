@@ -1,4 +1,5 @@
 #include "js_native_api_javascriptcore.h"
+#include "js_native_api_shared.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -964,13 +965,13 @@ napi_status napi_get_property_names(napi_env env,
                                     napi_value object,
                                     napi_value* result) {
   CHECK_ENV(env);
+  CHECK_ARG(env, object);
   CHECK_ARG(env, result);
 
-  napi_value global{}, object_ctor{}, function{};
-  CHECK_NAPI(napi_get_global(env, &global));
-  CHECK_NAPI(napi_get_named_property(env, global, "Object", &object_ctor));
-  CHECK_NAPI(napi_get_named_property(env, object_ctor, "getOwnPropertyNames", &function));
-  CHECK_NAPI(napi_call_function(env, object_ctor, function, 0, nullptr, result));
+  // JavaScriptCore's `JSObjectCopyPropertyNames` walks the prototype chain but
+  // silently drops properties shadowed by a non-enumerable own property, so use
+  // the shared prototype-chain walk instead.
+  CHECK_NAPI(napi_shared::GetEnumerablePropertyNames(env, object, result));
 
   return napi_ok;
 }
