@@ -75,6 +75,18 @@ namespace napi_shared {
     std::unordered_set<std::string> shadowed{};
     std::string key{};
 
+    // `ToObject` is what the specification (and the V8 implementation) applies
+    // to the argument, so a primitive is wrapped and its properties reported.
+    // `null` and `undefined` have no wrapper, and V8 reports that as
+    // `napi_object_expected`; check explicitly rather than relying on
+    // `napi_coerce_to_object`, whose behaviour for those two values differs
+    // between engines (QuickJS yields an empty object, JavaScriptCore throws).
+    napi_valuetype type{};
+    RETURN_IF_NOT_OK(napi_typeof(env, object, &type));
+    if (type == napi_null || type == napi_undefined) {
+      return napi_object_expected;
+    }
+
     napi_value current{};
     RETURN_IF_NOT_OK(napi_coerce_to_object(env, object, &current));
 
