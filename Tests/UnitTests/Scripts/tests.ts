@@ -1637,6 +1637,14 @@ describe("napi_get_property_names (#216)", function () {
         return keys;
     }
 
+    // Some engines' own `for...in` does not implement the shadowing rule that
+    // the tests below rely on -- Hermes reports an inherited property that a
+    // non-enumerable own property is supposed to hide. Probe for that rather
+    // than name engines, and only use `for...in` as an oracle where it holds.
+    const shadowingProbe = Object.create({ probe: 1 });
+    Object.defineProperty(shadowingProbe, "probe", { value: 2, enumerable: false });
+    const forInHonoursShadowing = forIn(shadowingProbe).length === 0;
+
     it("returns own enumerable string keys", function () {
         expect(napiGetPropertyNames({ a: 1, b: 2 })).to.deep.equal(["a", "b"]);
     });
@@ -1701,8 +1709,10 @@ describe("napi_get_property_names (#216)", function () {
         object[Symbol("s")] = 4;
         Object.defineProperty(object, "deep", { value: 5, enumerable: false });
 
-        expect(napiGetPropertyNames(object)).to.deep.equal(forIn(object));
         expect(napiGetPropertyNames(object)).to.deep.equal(["own", "middle"]);
+        if (forInHonoursShadowing) {
+            expect(napiGetPropertyNames(object)).to.deep.equal(forIn(object));
+        }
     });
 });
 
