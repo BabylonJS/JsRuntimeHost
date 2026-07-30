@@ -1329,13 +1329,16 @@ napi_status napi_get_prototype(napi_env env,
                                napi_value object,
                                napi_value* result) {
   CHECK_ENV(env);
+  CHECK_ARG(env, object);
   CHECK_ARG(env, result);
 
-  JSValueRef exception{};
-  JSObjectRef prototype{JSValueToObject(env->context, JSObjectGetPrototype(env->context, ToJSObject(env, object)), &exception)};
-  CHECK_JSC(env, exception);
+  // `JSObjectGetPrototype` already yields a JSValueRef, and that value is
+  // `null` at the top of a prototype chain. Running it through
+  // `JSValueToObject` threw "TypeError: null is not an object" there instead of
+  // reporting the end of the chain, which made the chain impossible to walk.
+  // V8 likewise returns the raw prototype value.
+  *result = ToNapi(JSObjectGetPrototype(env->context, ToJSObject(env, object)));
 
-  *result = ToNapi(prototype);
   return napi_ok;
 }
 
