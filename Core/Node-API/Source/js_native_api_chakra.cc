@@ -1,4 +1,5 @@
 #include "js_native_api_chakra.h"
+#include "js_native_api_shared.h"
 #include <napi/js_native_api.h>
 #include <array>
 #include <cassert>
@@ -678,11 +679,13 @@ napi_status napi_get_property_names(napi_env env,
                                     napi_value object,
                                     napi_value* result) {
   CHECK_ENV(env);
+  CHECK_ARG(env, object);
   CHECK_ARG(env, result);
-  JsValueRef obj = reinterpret_cast<JsValueRef>(object);
-  JsValueRef propertyNames;
-  CHECK_JSRT(env, JsGetOwnPropertyNames(obj, &propertyNames));
-  *result = reinterpret_cast<napi_value>(propertyNames);
+
+  // `JsGetOwnPropertyNames` is own-only and includes non-enumerable properties,
+  // so use the shared prototype-chain walk instead.
+  CHECK_NAPI(napi_shared::GetEnumerablePropertyNames(env, object, result));
+
   return napi_ok;
 }
 

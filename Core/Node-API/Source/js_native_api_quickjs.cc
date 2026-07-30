@@ -1,4 +1,5 @@
 #include "js_native_api_quickjs.h"
+#include "js_native_api_shared.h"
 #include <napi/js_native_api.h>
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -1394,27 +1395,11 @@ napi_status napi_get_property_names(napi_env env, napi_value object, napi_value*
   CHECK_ENV(env);
   CHECK_ARG(env, object);
   CHECK_ARG(env, result);
-  
-  JSValue jsObject = ToJSValue(object);
-  
-  JSPropertyEnum* ptab;
-  uint32_t plen;
-  
-  if (JS_GetOwnPropertyNames(env->context, &ptab, &plen, jsObject, 
-      JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
-    return napi_set_last_error(env, napi_generic_failure);
-  }
-  
-  JSValue arr = JS_NewArray(env->context);
-  
-  for (uint32_t i = 0; i < plen; i++) {
-    JSValue name = JS_AtomToString(env->context, ptab[i].atom);
-    JS_SetPropertyUint32(env->context, arr, i, name);
-  }
-  
-  JS_FreePropertyEnum(env->context, ptab, plen);
-  
-  *result = FromJSValue(env, arr);
+
+  // `JS_GetOwnPropertyNames` is own-only, so use the shared prototype-chain
+  // walk instead.
+  CHECK_NAPI(napi_shared::GetEnumerablePropertyNames(env, object, result));
+
   napi_clear_last_error(env);
   return napi_ok;
 }

@@ -7,6 +7,7 @@ Mocha.reporter('spec');
 
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
+declare const napiGetPropertyNames: (object: any) => string[];
 
 
 describe("AbortController", function () {
@@ -1617,6 +1618,91 @@ describe("napi class prototype isolation (#172)", function () {
         } finally {
             delete proto[KEY];
         }
+    });
+});
+
+
+describe("napi_get_property_names (#216)", function () {
+    // Regression coverage for #216: napi_get_property_names must report the
+    // enumerable string-keyed properties of an object *and its prototype
+    // chain*, i.e. exactly what `for...in` visits. JavaScriptCore used to throw
+    // outright, while ChakraCore and QuickJS only reported own properties
+    // (ChakraCore additionally reported non-enumerable ones).
+
+    function forIn(object: any): string[] {
+        const keys: string[] = [];
+        for (const key in object) {
+            keys.push(key);
+        }
+        return keys;
+    }
+
+    it("returns own enumerable string keys", function () {
+        expect(napiGetPropertyNames({ a: 1, b: 2 })).to.deep.equal(["a", "b"]);
+    });
+
+    it("includes enumerable properties inherited from the prototype chain", function () {
+        const object = Object.create({ inherited: 1 });
+        object.own = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["own", "inherited"]);
+    });
+
+    it("excludes non-enumerable own properties", function () {
+        const object = { visible: 1 };
+        Object.defineProperty(object, "hidden", { value: 2, enumerable: false });
+        expect(napiGetPropertyNames(object)).to.deep.equal(["visible"]);
+    });
+
+    it("excludes symbol keys", function () {
+        const object: any = { a: 1 };
+        object[Symbol("s")] = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["a"]);
+    });
+
+    it("reports a shadowed inherited property only once", function () {
+        const object = Object.create({ shared: 1 });
+        object.shared = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["shared"]);
+    });
+
+    it("omits an inherited property shadowed by a non-enumerable own property", function () {
+        const object = Object.create({ shared: 1 });
+        Object.defineProperty(object, "shared", { value: 2, enumerable: false });
+        expect(napiGetPropertyNames(object)).to.deep.equal([]);
+    });
+
+    it("excludes class methods, which are non-enumerable", function () {
+        class Point {
+            x: number;
+            y: number;
+            constructor() {
+                this.x = 1;
+                this.y = 2;
+            }
+            length(): number {
+                return 0;
+            }
+        }
+        expect(napiGetPropertyNames(new Point())).to.deep.equal(["x", "y"]);
+    });
+
+    it("reports array indices as strings and omits the non-enumerable length", function () {
+        expect(napiGetPropertyNames(["a", "b"])).to.deep.equal(["0", "1"]);
+    });
+
+    it("matches for...in over a multi-level prototype chain", function () {
+        const grandparent = { deep: 0 };
+        const parent: any = Object.create(grandparent);
+        parent.middle = 1;
+        Object.defineProperty(parent, "hiddenMiddle", { value: 2, enumerable: false });
+
+        const object: any = Object.create(parent);
+        object.own = 3;
+        object[Symbol("s")] = 4;
+        Object.defineProperty(object, "deep", { value: 5, enumerable: false });
+
+        expect(napiGetPropertyNames(object)).to.deep.equal(forIn(object));
+        expect(napiGetPropertyNames(object)).to.deep.equal(["own", "middle"]);
     });
 });
 
