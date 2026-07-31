@@ -1345,9 +1345,25 @@ napi_status napi_get_prototype(napi_env env,
   // `JSValueToObject` threw "TypeError: null is not an object" there instead of
   // reporting the end of the chain, which made the chain impossible to walk.
   // V8 likewise returns the raw prototype value.
-  *result = ToNapi(JSObjectGetPrototype(env->context, ToJSObject(env, object)));
+  //
+  // The conversion belongs on the argument rather than the result. V8 coerces
+  // there (`CHECK_TO_OBJECT`), so a primitive yields its wrapper's prototype
+  // and only `null`/`undefined` are rejected. Passing the argument straight to
+  // `ToJSObject` instead would assert in debug and, in release, reinterpret a
+  // non-object `JSValueRef` as a `JSObjectRef` -- so a primitive was undefined
+  // behaviour rather than a status.
+  const JSValueRef value{ToJSValue(object)};
+  if (JSValueIsNull(env->context, value) || JSValueIsUndefined(env->context, value)) {
+    return napi_set_last_error(env, napi_object_expected);
+  }
 
-  return napi_ok;
+  JSValueRef exception{};
+  const JSObjectRef self{JSValueToObject(env->context, value, &exception)};
+  CHECK_JSC(env, exception);
+
+  *result = ToNapi(JSObjectGetPrototype(env->context, self));
+
+  return napi_clear_last_error(env);
 }
 
 napi_status napi_create_object(napi_env env, napi_value* result) {
