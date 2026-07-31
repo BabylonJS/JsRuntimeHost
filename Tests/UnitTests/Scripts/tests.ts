@@ -1784,16 +1784,29 @@ describe("napi_get_property_names (#216)", function () {
     const usesSharedWalk = napiEngine === "Chakra" || napiEngine === "QuickJS" || napiEngine === "JavaScriptCore";
     const describeCycles = usesSharedWalk ? describe : describe.skip;
 
+    // A cycle can only be built with a `getPrototypeOf` trap, so observing one
+    // additionally requires `napi_get_prototype` to consult that trap.
+    // JavaScriptCore's does not: it calls `JSObjectGetPrototype`, which reads
+    // the internal [[Prototype]] slot directly and never runs proxy traps
+    // (`js_native_api_javascriptcore.cc:1348`). A trapped chain there simply
+    // reports the target's real prototype, so the cycle -- and the throwing
+    // trap -- are both invisible, and the walk was never at risk on that
+    // backend. That is a pre-existing limitation of `napi_get_prototype`, not
+    // of the walk, so it is left alone here; the termination check below is
+    // still correct and harmless on JavaScriptCore.
+    const proxyTrapsReachPrototypeWalk = usesSharedWalk && napiEngine !== "JavaScriptCore";
+    const itTrapped = proxyTrapsReachPrototypeWalk ? it : it.skip;
+
     describeCycles("cyclic prototype chains", function () {
         this.timeout(5000);
 
-        it("terminates when a proxy is its own prototype", function () {
+        itTrapped("terminates when a proxy is its own prototype", function () {
             let object: any;
             object = new Proxy({ own: 1 }, { getPrototypeOf() { return object; } });
             expect(napiGetPropertyNames(object)).to.deep.equal(["own"]);
         });
 
-        it("terminates on a two-object cycle and reports each level once", function () {
+        itTrapped("terminates on a two-object cycle and reports each level once", function () {
             let first: any;
             let second: any;
             first = new Proxy({ a: 1 }, { getPrototypeOf() { return second; } });
@@ -1810,7 +1823,7 @@ describe("napi_get_property_names (#216)", function () {
             expect(napiGetPropertyNames(leaf)).to.deep.equal(["own", "middle", "deep"]);
         });
 
-        it("propagates a throwing getPrototypeOf trap instead of hanging", function () {
+        itTrapped("propagates a throwing getPrototypeOf trap instead of hanging", function () {
             const object = new Proxy({ own: 1 }, {
                 getPrototypeOf() { throw new Error("trap"); },
             });

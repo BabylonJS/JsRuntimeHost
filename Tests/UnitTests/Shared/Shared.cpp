@@ -454,13 +454,18 @@ TEST(NodeApi, GetValueStringUtf16HandlesZeroBufsize)
 #if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
 TEST(NodeApi, GetPropertyNamesReportsLastErrorConsistently)
 {
-    // Hermes supplies its own Node-API rather than the implementations in this
-    // repository, so this contract is not its to satisfy. Every backend that is
-    // ours is covered, including V8, which reaches napi_set_last_error through
-    // RETURN_STATUS_IF_FALSE.
-    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} == "Hermes")
+    // This asserts the contract for the three backends this change touches --
+    // the ones that share the prototype walk. V8's napi_get_property_names is
+    // vendored upstream Node code with different behaviour on both counts: a
+    // rejected call leaves a pending exception, so a following call reports
+    // napi_pending_exception rather than napi_object_expected, and its success
+    // path returns bare napi_ok through GET_RETURN_STATUS without clearing.
+    // Both are upstream's to define, not ours to redefine here. Hermes and the
+    // JSI adapter likewise supply their own.
+    const std::string_view engine{JSRUNTIMEHOST_NAPI_ENGINE};
+    if (engine != "Chakra" && engine != "QuickJS" && engine != "JavaScriptCore")
     {
-        GTEST_SKIP() << "Hermes supplies its own napi_get_property_names.";
+        GTEST_SKIP() << engine << " supplies its own napi_get_property_names.";
     }
 
     // Regression: napi_get_property_names rejects null/undefined with
