@@ -13,7 +13,7 @@ namespace napi_shared {
   //
   // V8 gets this from a single `GetPropertyNames` call configured with
   // `kIncludePrototypes | ONLY_ENUMERABLE | SKIP_SYMBOLS`. JavaScriptCore,
-  // ChakraCore and QuickJS have no equivalent, so this walks the prototype
+  // Chakra and QuickJS have no equivalent, so this walks the prototype
   // chain explicitly. See https://github.com/BabylonJS/JsRuntimeHost/issues/216.
   //
   // `object` is coerced with `napi_coerce_to_object`, as V8's `CHECK_TO_OBJECT`

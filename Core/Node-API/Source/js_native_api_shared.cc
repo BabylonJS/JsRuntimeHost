@@ -111,11 +111,18 @@ namespace napi_shared {
         }
       }
 
-      napi_value ownNames{};
-      RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getOwnPropertyNames, 1, &current, &ownNames));
-      RETURN_IF_NOT_OK(AddAll(env, ownNames, shadowed));
+      napi_value next{};
+      RETURN_IF_NOT_OK(napi_get_prototype(env, current, &next));
 
-      RETURN_IF_NOT_OK(napi_get_prototype(env, current, &current));
+      bool hasNextLevel{};
+      RETURN_IF_NOT_OK(IsObjectLike(env, next, hasNextLevel));
+      if (hasNextLevel) {
+        napi_value ownNames{};
+        RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getOwnPropertyNames, 1, &current, &ownNames));
+        RETURN_IF_NOT_OK(AddAll(env, ownNames, shadowed));
+      }
+
+      current = next;
     }
 
     *result = names;

@@ -1628,8 +1628,8 @@ describe("napi_get_property_names (#216)", function () {
     // Regression coverage for #216: napi_get_property_names must report the
     // enumerable string-keyed properties of an object *and its prototype
     // chain*, i.e. exactly what `for...in` visits. JavaScriptCore used to throw
-    // outright, while ChakraCore and QuickJS only reported own properties
-    // (ChakraCore additionally reported non-enumerable ones).
+    // outright, while Chakra and QuickJS only reported own properties
+    // (Chakra additionally reported non-enumerable ones).
 
     function forIn(object: any): string[] {
         const keys: string[] = [];
@@ -1643,6 +1643,7 @@ describe("napi_get_property_names (#216)", function () {
     // the tests below rely on -- Hermes reports an inherited property that a
     // non-enumerable own property is supposed to hide. Probe for that rather
     // than name engines, and only use `for...in` as an oracle where it holds.
+    // https://github.com/BabylonJS/JsRuntimeHost/issues/219 tracks the gap.
     const shadowingProbe = Object.create({ probe: 1 });
     Object.defineProperty(shadowingProbe, "probe", { value: 2, enumerable: false });
     const forInHonoursShadowing = forIn(shadowingProbe).length === 0;
@@ -1729,8 +1730,16 @@ describe("napi_get_property_names (#216)", function () {
         // the Hermes dependency itself -- and it rejects primitives outright
         // rather than applying ToObject. Hermes is an experimental engine here,
         // so assert the specified behaviour everywhere it is ours to control and
-        // skip the wrapping cases on Hermes rather than weakening them.
+        // skip the wrapping cases on Hermes rather than weakening them. The
+        // upstream gap is tracked by
+        // https://github.com/BabylonJS/JsRuntimeHost/issues/219.
         const describePrimitives = napiEngine === "Hermes" ? describe.skip : describe;
+
+        if (napiEngine === "Hermes") {
+            it("rejects primitives instead of applying ToObject (upstream gap)", function () {
+                expect(() => napiGetPropertyNamesRaw("ab")).to.throw();
+            });
+        }
 
         describePrimitives("of a primitive", function () {
             it("wraps a string primitive and reports its indices", function () {
