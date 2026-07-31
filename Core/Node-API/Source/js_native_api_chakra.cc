@@ -683,9 +683,18 @@ napi_status napi_get_property_names(napi_env env,
   CHECK_ARG(env, result);
 
   // `JsGetOwnPropertyNames` is own-only and includes non-enumerable properties,
-  // so use the shared prototype-chain walk instead.
-  CHECK_NAPI(napi_shared::GetEnumerablePropertyNames(env, object, result));
+  // so use the shared prototype-chain walk instead. It is written against the
+  // public `napi_*` surface and so cannot reach `napi_set_last_error`; do it
+  // here, since `CHECK_NAPI` only propagates the status and the preceding call
+  // inside the walk will have cleared the last error. The success path likewise
+  // has to clear it, so that a rejection recorded by an earlier call does not
+  // survive as the last error of a call that succeeded.
+  const napi_status status{napi_shared::GetEnumerablePropertyNames(env, object, result)};
+  if (status != napi_ok) {
+    return napi_set_last_error(env, status);
+  }
 
+  napi_clear_last_error(env);
   return napi_ok;
 }
 

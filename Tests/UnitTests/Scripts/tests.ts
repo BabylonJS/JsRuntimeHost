@@ -1769,6 +1769,54 @@ describe("napi_get_property_names (#216)", function () {
             expect(() => napiGetPropertyNamesRaw(undefined)).to.throw();
         });
     });
+
+    // A `getPrototypeOf` Proxy trap may put an object back onto its own
+    // prototype chain -- no specification invariant forbids it -- which makes
+    // the chain cyclic. V8 collects keys recursively and so terminates with a
+    // `RangeError`; the shared walk is iterative and used to spin forever,
+    // burning CPU in native code with no way for script or the test timeout to
+    // interrupt it.
+    //
+    // These only apply to the backends that use the shared walk. V8 and Hermes
+    // bring their own key collection, and the JSI adapter forwards to
+    // `jsi::Object::getPropertyNames`, so their behaviour here is not ours to
+    // specify.
+    const usesSharedWalk = napiEngine === "Chakra" || napiEngine === "QuickJS" || napiEngine === "JavaScriptCore";
+    const describeCycles = usesSharedWalk ? describe : describe.skip;
+
+    describeCycles("cyclic prototype chains", function () {
+        this.timeout(5000);
+
+        it("terminates when a proxy is its own prototype", function () {
+            let object: any;
+            object = new Proxy({ own: 1 }, { getPrototypeOf() { return object; } });
+            expect(napiGetPropertyNames(object)).to.deep.equal(["own"]);
+        });
+
+        it("terminates on a two-object cycle and reports each level once", function () {
+            let first: any;
+            let second: any;
+            first = new Proxy({ a: 1 }, { getPrototypeOf() { return second; } });
+            second = new Proxy({ b: 2 }, { getPrototypeOf() { return first; } });
+            expect(napiGetPropertyNames(first)).to.deep.equal(["a", "b"]);
+        });
+
+        it("still reports a long acyclic chain in full", function () {
+            const base = { deep: 1 };
+            const middle = Object.create(base);
+            middle.middle = 2;
+            const leaf = Object.create(middle);
+            leaf.own = 3;
+            expect(napiGetPropertyNames(leaf)).to.deep.equal(["own", "middle", "deep"]);
+        });
+
+        it("propagates a throwing getPrototypeOf trap instead of hanging", function () {
+            const object = new Proxy({ own: 1 }, {
+                getPrototypeOf() { throw new Error("trap"); },
+            });
+            expect(() => napiGetPropertyNames(object)).to.throw();
+        });
+    });
 });
 
 

@@ -21,6 +21,7 @@
 #include <future>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace
@@ -446,6 +447,64 @@ TEST(NodeApi, GetValueStringUtf16HandlesZeroBufsize)
 
     EXPECT_TRUE(zeroSafe.get_future().get());
     EXPECT_TRUE(normalWorks.get_future().get());
+}
+#endif
+
+// The V8JSI shim has no C Node-API at all, so this only builds elsewhere.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, GetPropertyNamesReportsLastErrorConsistently)
+{
+    // Hermes supplies its own Node-API rather than the implementations in this
+    // repository, so this contract is not its to satisfy. Every backend that is
+    // ours is covered, including V8, which reaches napi_set_last_error through
+    // RETURN_STATUS_IF_FALSE.
+    if (std::string_view{JSRUNTIMEHOST_NAPI_ENGINE} == "Hermes")
+    {
+        GTEST_SKIP() << "Hermes supplies its own napi_get_property_names.";
+    }
+
+    // Regression: napi_get_property_names rejects null/undefined with
+    // napi_object_expected, but the shared walk is written against the public
+    // napi_* surface and cannot reach napi_set_last_error. CHECK_NAPI only
+    // propagates the status, and the napi_typeof performed just before the
+    // rejection clears the last error on success, so the returned status and
+    // napi_get_last_error_info() disagreed: the caller saw
+    // napi_object_expected while the recorded error code was still napi_ok.
+    // Node-API's contract is that the two agree.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> nullConsistent;
+    std::promise<bool> undefinedConsistent;
+    std::promise<bool> successClears;
+
+    runtime.Dispatch([&nullConsistent, &undefinedConsistent, &successClears](Napi::Env env) {
+        napi_env nenv{env};
+
+        const auto check = [nenv](napi_value value) {
+            napi_value names{nullptr};
+            const napi_status status{napi_get_property_names(nenv, value, &names)};
+
+            const napi_extended_error_info* info{nullptr};
+            napi_get_last_error_info(nenv, &info);
+
+            return status == napi_object_expected && info != nullptr && info->error_code == status;
+        };
+
+        nullConsistent.set_value(check(napi_value{env.Null()}));
+        undefinedConsistent.set_value(check(napi_value{env.Undefined()}));
+
+        // The success path must leave no stale error behind.
+        napi_value names{nullptr};
+        const napi_status status{napi_get_property_names(nenv, napi_value{Napi::Object::New(env)}, &names)};
+
+        const napi_extended_error_info* info{nullptr};
+        napi_get_last_error_info(nenv, &info);
+        successClears.set_value(status == napi_ok && info != nullptr && info->error_code == napi_ok);
+    });
+
+    EXPECT_TRUE(nullConsistent.get_future().get());
+    EXPECT_TRUE(undefinedConsistent.get_future().get());
+    EXPECT_TRUE(successClears.get_future().get());
 }
 #endif
 

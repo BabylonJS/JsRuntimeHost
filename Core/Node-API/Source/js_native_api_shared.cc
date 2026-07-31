@@ -50,6 +50,21 @@ namespace napi_shared {
 
       return napi_ok;
     }
+
+    // Whether `value` is strictly equal to something already in `seen`.
+    napi_status Contains(napi_env env, const std::vector<napi_value>& seen, napi_value value, bool& result) {
+      for (const napi_value candidate : seen) {
+        bool equal{};
+        RETURN_IF_NOT_OK(napi_strict_equals(env, candidate, value, &equal));
+        if (equal) {
+          result = true;
+          return napi_ok;
+        }
+      }
+
+      result = false;
+      return napi_ok;
+    }
   }
 
   napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result) {
@@ -73,6 +88,7 @@ namespace napi_shared {
     uint32_t nameCount{};
 
     std::unordered_set<std::string> shadowed{};
+    std::vector<napi_value> visited{};
     std::string key{};
 
     // `ToObject` is what the specification (and the V8 implementation) applies
@@ -96,6 +112,24 @@ namespace napi_shared {
       if (!isObjectLike) {
         break;
       }
+
+      // A `getPrototypeOf` Proxy trap can return an object that is already on
+      // the chain -- nothing in the specification forbids it, so
+      // `Object.getPrototypeOf(p) === p` is reachable from script -- which
+      // makes this walk cyclic. V8 recurses and so terminates with a
+      // `RangeError`; this loop is iterative and would spin forever.
+      //
+      // Stopping at the repeat is exact rather than a bail-out: every level
+      // adds its own property names to `shadowed` before the walk continues,
+      // so a level visited a second time can only re-encounter names that are
+      // already shadowed. Breaking here therefore yields the same result the
+      // non-terminating walk converges on.
+      bool alreadyVisited{};
+      RETURN_IF_NOT_OK(Contains(env, visited, current, alreadyVisited));
+      if (alreadyVisited) {
+        break;
+      }
+      visited.push_back(current);
 
       napi_value ownEnumerableNames{};
       RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, keys, 1, &current, &ownEnumerableNames));
