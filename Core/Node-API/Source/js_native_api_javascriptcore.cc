@@ -968,9 +968,13 @@ napi_status napi_get_property_names(napi_env env,
   CHECK_ARG(env, object);
   CHECK_ARG(env, result);
 
-  // JavaScriptCore's `JSObjectCopyPropertyNames` walks the prototype chain but
-  // silently drops properties shadowed by a non-enumerable own property, so use
-  // the shared prototype-chain walk instead. It is written against the public
+  // JavaScriptCore's `JSObjectCopyPropertyNames` walks the prototype chain, but
+  // it does not apply the shadowing rule: `JSObject::getPropertyNames` calls
+  // `getOwnPropertyNames` per level with `DontEnumPropertiesMode::Exclude`, so
+  // a non-enumerable own property is never added to the array and so cannot
+  // suppress a same-named enumerable property further up the chain. The
+  // inherited name is reported where `for...in` correctly omits it. Use the
+  // shared prototype-chain walk instead. It is written against the public
   // `napi_*` surface and so cannot reach `napi_set_last_error`; do it here,
   // since `CHECK_NAPI` only propagates the status and the preceding call inside
   // the walk will have cleared the last error. The success path likewise has to
