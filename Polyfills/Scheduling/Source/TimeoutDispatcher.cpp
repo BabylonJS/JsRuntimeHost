@@ -208,40 +208,67 @@ namespace Babylon::Polyfills::Internal
 
             if (function)
             {
-                function->Call({});
+                try
+                {
+                    function->Call({});
+                }
+                catch (const Napi::Error& error)
+                {
+                    // A throwing tick must not silently stop the interval, which
+                    // is both the pre-existing behavior and what browsers do.
+                    // Re-arm first, then re-raise the error as a pending JS
+                    // exception so JsRuntime::Dispatch still surfaces it.
+                    if (interval.has_value())
+                    {
+                        Rearm(id, sequence, scheduledTime, *interval);
+                    }
+
+                    error.ThrowAsJavaScriptException();
+                    return;
+                }
             }
 
-            if (!interval.has_value())
+            if (interval.has_value())
             {
-                return;
-            }
-
-            // Re-arm only now that the callback has completed. Anchor the next
-            // deadline to the previous scheduled time so a long-running callback
-            // does not accumulate drift, but never schedule into the past.
-            std::unique_lock<std::recursive_mutex> lk{m_mutex};
-            const auto it = m_idMap.find(id);
-            if (it == m_idMap.end() || it->second->sequence != sequence)
-            {
-                // Cleared from within its own callback.
-                return;
-            }
-
-            const auto now = Now();
-            auto nextTime = scheduledTime + *interval;
-            if (nextTime < now)
-            {
-                nextTime = now;
-            }
-
-            const auto earliestTime = m_timeMap.empty() ? TimePoint::max() : m_timeMap.cbegin()->second->time;
-            it->second->time = nextTime;
-            m_timeMap.insert({nextTime, it->second.get()});
-
-            if (nextTime <= earliestTime)
-            {
-                m_condVariable.notify_one();
+                Rearm(id, sequence, scheduledTime, *interval);
             }
         });
+    }
+
+    // Re-arms a repeating timeout. Called on the JS thread once the callback has
+    // returned, so a repeating timeout can never have more than one invocation
+    // queued at a time.
+    void TimeoutDispatcher::Rearm(TimeoutId id, uint64_t sequence, TimePoint scheduledTime, std::chrono::milliseconds interval)
+    {
+        std::unique_lock<std::recursive_mutex> lk{m_mutex};
+
+        const auto it = m_idMap.find(id);
+        if (it == m_idMap.end() || it->second->sequence != sequence)
+        {
+            // Cleared from within its own callback, or the id has since been
+            // reused by an unrelated timeout.
+            return;
+        }
+
+        // Anchor the next deadline to the previous scheduled time so that a long
+        // running callback does not accumulate drift, but never schedule into the
+        // past.
+        const auto now = Now();
+        auto nextTime = scheduledTime + interval;
+        if (nextTime < now)
+        {
+            nextTime = now;
+        }
+
+        const auto earliestTime = m_timeMap.empty() ? TimePoint::max() : m_timeMap.cbegin()->second->time;
+        it->second->time = nextTime;
+        m_timeMap.insert({nextTime, it->second.get()});
+
+        if (nextTime <= earliestTime)
+        {
+            // The timer thread parks while m_timeMap is empty, which is the case
+            // whenever this timeout was the only one pending.
+            m_condVariable.notify_one();
+        }
     }
 }

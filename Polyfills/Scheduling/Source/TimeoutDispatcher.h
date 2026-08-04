@@ -33,6 +33,7 @@ namespace Babylon::Polyfills::Internal
         TimeoutId NextTimeoutId();
         void ThreadFunction();
         void CallFunction(TimeoutId id, uint64_t sequence);
+        void Rearm(TimeoutId id, uint64_t sequence, TimePoint scheduledTime, std::chrono::milliseconds interval);
 
         Babylon::JsRuntime& m_runtime;
         std::recursive_mutex m_mutex{};
