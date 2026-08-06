@@ -39,6 +39,23 @@ namespace Babylon::Polyfills::Internal
         Napi::Value GetErrorCode(const Napi::CallbackInfo& info);
         Napi::Value GetErrorDetail(const Napi::CallbackInfo& info);
 
+        // Indices into XMLHttpRequest::EVENT_TYPE_NAMES; used to instantiate the `on<event>`
+        // property accessors below without needing a distinct method per event type.
+        enum class EventIndex : size_t
+        {
+            ReadyStateChange = 0,
+            Load = 1,
+            Error = 2,
+            LoadEnd = 3,
+            Abort = 4,
+            Count = 5,
+        };
+
+        static const char* const EVENT_TYPE_NAMES[static_cast<size_t>(EventIndex::Count)];
+
+        template<EventIndex Index> Napi::Value GetEventHandler(const Napi::CallbackInfo& info);
+        template<EventIndex Index> void SetEventHandler(const Napi::CallbackInfo& info, const Napi::Value& value);
+
         void AddEventListener(const Napi::CallbackInfo& info);
         void RemoveEventListener(const Napi::CallbackInfo& info);
         void Abort(const Napi::CallbackInfo& info);
@@ -53,5 +70,9 @@ namespace Babylon::Polyfills::Internal
         JsRuntimeScheduler m_runtimeScheduler;
         ReadyState m_readyState{ReadyState::Unsent};
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
+        // The DOM `on<event>` handler properties (onreadystatechange, onload, ...). These are
+        // kept separate from m_eventHandlerRefs because they have assignment semantics -- setting
+        // one replaces the previous handler -- whereas addEventListener accumulates.
+        std::unordered_map<std::string, Napi::FunctionReference> m_onEventHandlerRefs;
     };
 }
