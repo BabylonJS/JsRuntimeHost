@@ -184,6 +184,106 @@ describe("XMLHTTPRequest", function () {
         expect(result.readyState).to.equal(4);
     });
 
+    it("should invoke the 'onreadystatechange' handler property", async function () {
+        // Regression test: the on<event> handler properties were not implemented, so
+        // `xhr.onreadystatechange = fn` set an ordinary expando property that was never
+        // invoked and callers waited forever for a callback that could never fire.
+        this.timeout(30000);
+        const result = await new Promise<{ states: number[]; status: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const states: number[] = [];
+            const guard = setTimeout(() => reject(new Error("onreadystatechange never reached readyState 4 within 25s")), 25000);
+            xhr.onreadystatechange = () => {
+                states.push(xhr.readyState);
+                if (xhr.readyState === 4) {
+                    clearTimeout(guard);
+                    resolve({ states, status: xhr.status });
+                }
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.states).to.include(4);
+        expect(result.status).to.equal(200);
+    });
+
+    it("should invoke the 'onload' and 'onloadend' handler properties on success", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ loadFired: boolean; loadEndFired: boolean; errorFired: boolean }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let loadFired = false;
+            let errorFired = false;
+            const guard = setTimeout(() => reject(new Error("onloadend did not fire within 25s")), 25000);
+            xhr.onload = () => { loadFired = true; };
+            xhr.onerror = () => { errorFired = true; };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ loadFired, loadEndFired: true, errorFired });
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.loadFired).to.equal(true);
+        expect(result.loadEndFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
+    });
+
+    it("should invoke the 'onerror' handler property for HTTP 404", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ errorFired: boolean; loadFired: boolean; status: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let errorFired = false;
+            let loadFired = false;
+            const guard = setTimeout(() => reject(new Error("onloadend did not fire within 25s")), 25000);
+            xhr.onerror = () => { errorFired = true; };
+            xhr.onload = () => { loadFired = true; };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ errorFired, loadFired, status: xhr.status });
+            };
+            xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
+            xhr.send();
+        });
+        expect(result.status).to.equal(404);
+        expect(result.errorFired).to.equal(true);
+        expect(result.loadFired).to.equal(false);
+    });
+
+    it("should let an on<event> property be read back, replaced, and cleared", async function () {
+        const xhr = new XMLHttpRequest();
+        expect(xhr.onload).to.equal(null);
+
+        const first = () => { };
+        xhr.onload = first;
+        expect(xhr.onload).to.equal(first);
+
+        // Assignment replaces rather than accumulates, unlike addEventListener.
+        const second = () => { };
+        xhr.onload = second;
+        expect(xhr.onload).to.equal(second);
+
+        xhr.onload = null;
+        expect(xhr.onload).to.equal(null);
+    });
+
+    it("should invoke both an on<event> property and addEventListener handlers", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.onload = () => { order.push("onload"); };
+            xhr.addEventListener("load", () => { order.push("listener"); });
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ order });
+            });
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.have.members(["onload", "listener"]);
+    });
+
     it("should expose errorCode/errorDetail diagnostics after a transport failure", async function () {
         this.timeout(30000);
         const xhr: any = await createRequest("GET", "http://127.0.0.1:1/");

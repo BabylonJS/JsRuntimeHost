@@ -59,7 +59,46 @@ namespace Babylon::Polyfills::Internal
             constexpr const char* ReadyStateChange = "readystatechange";
             constexpr const char* LoadEnd = "loadend";
             constexpr const char* Error = "error";
+            constexpr const char* Load = "load";
+            constexpr const char* Abort = "abort";
         }
+    }
+
+    const char* const XMLHttpRequest::EVENT_TYPE_NAMES[static_cast<size_t>(XMLHttpRequest::EventIndex::Count)] = {
+        EventType::ReadyStateChange,
+        EventType::Load,
+        EventType::Error,
+        EventType::LoadEnd,
+        EventType::Abort,
+    };
+
+    template<XMLHttpRequest::EventIndex Index>
+    Napi::Value XMLHttpRequest::GetEventHandler(const Napi::CallbackInfo&)
+    {
+        const auto it = m_onEventHandlerRefs.find(EVENT_TYPE_NAMES[static_cast<size_t>(Index)]);
+        if (it == m_onEventHandlerRefs.end())
+        {
+            return Env().Null();
+        }
+
+        return it->second.Value();
+    }
+
+    template<XMLHttpRequest::EventIndex Index>
+    void XMLHttpRequest::SetEventHandler(const Napi::CallbackInfo& info, const Napi::Value& value)
+    {
+        const char* eventType = EVENT_TYPE_NAMES[static_cast<size_t>(Index)];
+
+        // Assigning null/undefined clears the handler, matching the DOM behavior where
+        // `xhr.onload = null` detaches the previously assigned handler.
+        if (!value.IsFunction())
+        {
+            m_onEventHandlerRefs.erase(eventType);
+            return;
+        }
+
+        m_onEventHandlerRefs[eventType] = Napi::Persistent(value.As<Napi::Function>());
+        (void)info;
     }
 
     void XMLHttpRequest::Initialize(Napi::Env env)
@@ -88,6 +127,15 @@ namespace Babylon::Polyfills::Internal
                 // to tell a DNS failure from a refused connection or a missing local asset.
                 InstanceAccessor("errorCode", &XMLHttpRequest::GetErrorCode, nullptr),
                 InstanceAccessor("errorDetail", &XMLHttpRequest::GetErrorDetail, nullptr),
+                // DOM `on<event>` handler properties. Without these, `xhr.onreadystatechange = fn`
+                // silently sets an ordinary expando property that is never invoked, so code written
+                // against the standard XMLHttpRequest API waits forever for a callback that can
+                // never fire.
+                InstanceAccessor("onreadystatechange", &XMLHttpRequest::GetEventHandler<EventIndex::ReadyStateChange>, &XMLHttpRequest::SetEventHandler<EventIndex::ReadyStateChange>),
+                InstanceAccessor("onload", &XMLHttpRequest::GetEventHandler<EventIndex::Load>, &XMLHttpRequest::SetEventHandler<EventIndex::Load>),
+                InstanceAccessor("onerror", &XMLHttpRequest::GetEventHandler<EventIndex::Error>, &XMLHttpRequest::SetEventHandler<EventIndex::Error>),
+                InstanceAccessor("onloadend", &XMLHttpRequest::GetEventHandler<EventIndex::LoadEnd>, &XMLHttpRequest::SetEventHandler<EventIndex::LoadEnd>),
+                InstanceAccessor("onabort", &XMLHttpRequest::GetEventHandler<EventIndex::Abort>, &XMLHttpRequest::SetEventHandler<EventIndex::Abort>),
                 InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
                 InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
                 InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
@@ -322,11 +370,16 @@ namespace Babylon::Polyfills::Internal
                 {
                     RaiseEvent(EventType::Error);
                 }
+                else
+                {
+                    RaiseEvent(EventType::Load);
+                }
                 RaiseEvent(EventType::LoadEnd);
 
                 // Assume the XMLHttpRequest will only be used for a single request and clear the event handlers.
                 // Single use seems to be the standard pattern, and we need to release our strong refs to event handlers.
                 m_eventHandlerRefs.clear();
+                m_onEventHandlerRefs.clear();
             });
     }
 
@@ -348,6 +401,13 @@ namespace Babylon::Polyfills::Internal
             {
                 eventHandlerRef.Call({});
             }
+        }
+
+        // The DOM dispatches the `on<event>` handler alongside any addEventListener handlers.
+        const auto onIt = m_onEventHandlerRefs.find(eventType);
+        if (onIt != m_onEventHandlerRefs.end())
+        {
+            onIt->second.Call({});
         }
     }
 }
