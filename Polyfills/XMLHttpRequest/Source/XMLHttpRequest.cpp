@@ -89,8 +89,10 @@ namespace Babylon::Polyfills::Internal
     {
         const char* eventType = EVENT_TYPE_NAMES[static_cast<size_t>(Index)];
 
-        // Assigning null/undefined clears the handler, matching the DOM behavior where
-        // `xhr.onload = null` detaches the previously assigned handler.
+        // `EventHandler` attributes are declared [LegacyTreatNonObjectAsNull] in WebIDL, so a
+        // non-callable assignment is coerced to null rather than throwing: `xhr.onload = 0`
+        // leaves `xhr.onload === null`. We extend that to non-callable objects too -- storing a
+        // value we could never invoke would only defer the failure to dispatch time.
         if (!value.IsFunction())
         {
             m_onEventHandlerRefs.erase(eventType);
@@ -296,6 +298,10 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Abort(const Napi::CallbackInfo&)
     {
+        // Record the caller's intent so the in-flight continuation reports this as an abort
+        // rather than a transport error. If no request is in flight this is inert, matching the
+        // DOM, where abort() on an unsent request produces no observable events.
+        m_aborted = true;
         m_request.Abort();
     }
 
@@ -366,7 +372,13 @@ namespace Babylon::Polyfills::Internal
                 const bool failed = result.has_error() || statusCode < 200 || statusCode >= 300;
 
                 SetReadyState(ReadyState::Done);
-                if (failed)
+                if (m_aborted)
+                {
+                    // A cancelled request is not a transport failure: the DOM reports it as
+                    // 'abort' + 'loadend' and never raises 'error'.
+                    RaiseEvent(EventType::Abort);
+                }
+                else if (failed)
                 {
                     RaiseEvent(EventType::Error);
                 }
@@ -393,21 +405,44 @@ namespace Babylon::Polyfills::Internal
     {
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::RaiseEvent [" << eventType << "] [" << m_url << "]").str();
         arcana::trace_region raiseEventRegion{traceName.c_str()};
+
+        Napi::Env env = Env();
+
+        // Snapshot the handlers before dispatching. A handler may call addEventListener,
+        // removeEventListener, or reassign an on<event> property while it runs, which would
+        // otherwise reallocate the vector or rehash the map out from under this dispatch.
+        // (Mirrors FileReader::Dispatch.)
+        std::vector<Napi::Function> handlers{};
+
+        const auto onIt = m_onEventHandlerRefs.find(eventType);
+        if (onIt != m_onEventHandlerRefs.end() && !onIt->second.IsEmpty())
+        {
+            handlers.push_back(onIt->second.Value());
+        }
+
         const auto it = m_eventHandlerRefs.find(eventType);
         if (it != m_eventHandlerRefs.end())
         {
-            const auto& eventHandlerRefs = it->second;
-            for (const auto& eventHandlerRef : eventHandlerRefs)
+            handlers.reserve(handlers.size() + it->second.size());
+            for (const auto& eventHandlerRef : it->second)
             {
-                eventHandlerRef.Call({});
+                if (!eventHandlerRef.IsEmpty())
+                {
+                    handlers.push_back(eventHandlerRef.Value());
+                }
             }
         }
 
-        // The DOM dispatches the `on<event>` handler alongside any addEventListener handlers.
-        const auto onIt = m_onEventHandlerRefs.find(eventType);
-        if (onIt != m_onEventHandlerRefs.end())
+        for (const auto& handler : handlers)
         {
-            onIt->second.Call({});
+            handler.Call({});
+
+            // A throwing handler must not abort the remaining dispatch, and the exception must
+            // not escape into the native completion continuation that called us.
+            if (env.IsExceptionPending())
+            {
+                env.GetAndClearPendingException();
+            }
         }
     }
 }

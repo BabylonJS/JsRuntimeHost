@@ -69,6 +69,8 @@ namespace Babylon::Polyfills::Internal
         UrlLib::UrlRequest m_request{};
         JsRuntimeScheduler m_runtimeScheduler;
         ReadyState m_readyState{ReadyState::Unsent};
+        // Set by abort(); makes the in-flight continuation report 'abort' instead of 'error'.
+        bool m_aborted{false};
         std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
         // The DOM `on<event>` handler properties (onreadystatechange, onload, ...). These are
         // kept separate from m_eventHandlerRefs because they have assignment semantics -- setting

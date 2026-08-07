@@ -266,6 +266,53 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.onload).to.equal(null);
     });
 
+    it("should coerce a non-callable on<event> assignment to null", function () {
+        // EventHandler attributes are [LegacyTreatNonObjectAsNull] in WebIDL: assigning a
+        // non-callable value clears the handler rather than throwing a TypeError.
+        const xhr: any = new XMLHttpRequest();
+        xhr.onload = () => { };
+        expect(xhr.onload).to.not.equal(null);
+
+        xhr.onload = 0;
+        expect(xhr.onload).to.equal(null);
+
+        xhr.onload = () => { };
+        xhr.onload = "not a function";
+        expect(xhr.onload).to.equal(null);
+
+        xhr.onload = () => { };
+        xhr.onload = undefined;
+        expect(xhr.onload).to.equal(null);
+    });
+
+    it("should fire 'abort' rather than 'error' when a request is aborted", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ abortFired: boolean; errorFired: boolean; loadFired: boolean; loadEndFired: boolean }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let abortFired = false;
+            let errorFired = false;
+            let loadFired = false;
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.onabort = () => { abortFired = true; };
+            xhr.onerror = () => { errorFired = true; };
+            xhr.onload = () => { loadFired = true; };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ abortFired, errorFired, loadFired, loadEndFired: true });
+            };
+            xhr.open("GET", "https://github.com/");
+            xhr.send();
+            xhr.abort();
+        });
+        // loadend must always settle the request, whatever the outcome.
+        expect(result.loadEndFired).to.equal(true);
+        // The abort was requested before the transfer could complete, so it must be reported
+        // as an abort -- never as a transport error, and never as a successful load.
+        expect(result.abortFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
+        expect(result.loadFired).to.equal(false);
+    });
+
     it("should invoke both an on<event> property and addEventListener handlers", async function () {
         this.timeout(30000);
         const result = await new Promise<{ order: string[] }>((resolve, reject) => {
