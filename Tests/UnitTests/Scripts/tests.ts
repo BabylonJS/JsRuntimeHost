@@ -387,6 +387,27 @@ describe("XMLHTTPRequest", function () {
         expect(result.calls).to.equal(2);
     });
 
+    it("should treat a duplicate addEventListener registration as a no-op", async function () {
+        // Per DOM, re-adding an identical (type, callback) pair is a silent no-op rather than an
+        // error, and the listener stays registered once, so it is dispatched once.
+        this.timeout(30000);
+        const result = await new Promise<{ calls: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let calls = 0;
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            const handler = () => { calls++; };
+            xhr.addEventListener("load", handler);
+            expect(() => xhr.addEventListener("load", handler)).to.not.throw();
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ calls });
+            });
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.calls).to.equal(1);
+    });
+
     it("should not let removeEventListener remove an on<event> handler", async function () {
         // The property is cleared by assigning null, not by removeEventListener.
         this.timeout(30000);

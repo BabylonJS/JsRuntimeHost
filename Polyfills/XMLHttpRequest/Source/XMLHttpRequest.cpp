@@ -292,10 +292,14 @@ namespace Babylon::Polyfills::Internal
         {
             // Deliberately skips the `on<event>` entry: `xhr.onload = f` followed by
             // `xhr.addEventListener("load", f)` is two independent registrations, and a browser
-            // calls `f` twice rather than rejecting the second.
+            // calls `f` twice rather than collapsing them.
             if (!listener.isEventHandler && listener.callback.Value() == eventHandler)
             {
-                throw Napi::Error::New(info.Env(), "Cannot add the same event handler twice");
+                // Per DOM, re-adding an identical (type, callback, capture) triple is a silent
+                // no-op rather than an error: "If eventTarget's event listener list does not
+                // contain an event listener whose type is listener's type [...] then append
+                // listener". The listener stays registered once and is dispatched once.
+                return;
             }
         }
 
