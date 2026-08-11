@@ -159,27 +159,34 @@ describe("XMLHTTPRequest", function () {
         expect(notFoundXhr.statusText).to.equal("Not Found");
     });
 
-    it("should fire 'error' event for a remote URL that returns HTTP 404", async function () {
+    it("should fire 'load' rather than 'error' for a remote URL that returns HTTP 404", async function () {
         // Regression test: previously the success-only continuation in XMLHttpRequest::Send
-        // skipped 'error' on async failures including non-2xx HTTP responses, so onerror
-        // observers never ran. See https://github.com/BabylonJS/JsRuntimeHost/pull/165.
+        // skipped the completion events entirely on async failures, so observers never ran.
+        // See https://github.com/BabylonJS/JsRuntimeHost/pull/165.
+        //
+        // A 404 is a *completed* HTTP transaction, so per spec it dispatches 'load' and callers
+        // branch on xhr.status inside the handler; 'error' is reserved for transport-level
+        // failures, which report status 0.
         this.timeout(30000);
-        const result = await new Promise<{ errorFired: boolean; loadendFired: boolean; status: number; readyState: number }>((resolve, reject) => {
+        const result = await new Promise<{ errorFired: boolean; loadFired: boolean; loadendFired: boolean; status: number; readyState: number }>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             let errorFired = false;
+            let loadFired = false;
             let loadendFired = false;
-            const guard = setTimeout(() => reject(new Error("XHR neither errored nor loadended within 25s")), 25000);
+            const guard = setTimeout(() => reject(new Error("XHR neither loaded nor loadended within 25s")), 25000);
             xhr.addEventListener("error", () => { errorFired = true; });
+            xhr.addEventListener("load", () => { loadFired = true; });
             xhr.addEventListener("loadend", () => {
                 loadendFired = true;
                 clearTimeout(guard);
-                resolve({ errorFired, loadendFired, status: xhr.status, readyState: xhr.readyState });
+                resolve({ errorFired, loadFired, loadendFired, status: xhr.status, readyState: xhr.readyState });
             });
             xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
             xhr.send();
         });
         expect(result.status).to.equal(404);
-        expect(result.errorFired).to.equal(true);
+        expect(result.loadFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
         expect(result.loadendFired).to.equal(true);
         expect(result.readyState).to.equal(4);
     });
@@ -228,7 +235,9 @@ describe("XMLHTTPRequest", function () {
         expect(result.errorFired).to.equal(false);
     });
 
-    it("should invoke the 'onerror' handler property for HTTP 404", async function () {
+    it("should invoke the 'onload' handler property, not 'onerror', for HTTP 404", async function () {
+        // 'error' means the transfer never completed. A 404 completed and carries a status, so
+        // the load handler runs and inspects xhr.status.
         this.timeout(30000);
         const result = await new Promise<{ errorFired: boolean; loadFired: boolean; status: number }>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -245,8 +254,8 @@ describe("XMLHTTPRequest", function () {
             xhr.send();
         });
         expect(result.status).to.equal(404);
-        expect(result.errorFired).to.equal(true);
-        expect(result.loadFired).to.equal(false);
+        expect(result.loadFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
     });
 
     it("should let an on<event> property be read back, replaced, and cleared", async function () {
@@ -313,14 +322,18 @@ describe("XMLHTTPRequest", function () {
         expect(result.loadFired).to.equal(false);
     });
 
-    it("should invoke both an on<event> property and addEventListener handlers", async function () {
+    it("should dispatch on<event> properties and addEventListener handlers in registration order", async function () {
+        // on<event> handlers and addEventListener listeners share one list per event type, so
+        // dispatch follows registration order across both styles rather than running all the
+        // on<event> handlers first.
         this.timeout(30000);
         const result = await new Promise<{ order: string[] }>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             const order: string[] = [];
             const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.addEventListener("load", () => { order.push("first"); });
             xhr.onload = () => { order.push("onload"); };
-            xhr.addEventListener("load", () => { order.push("listener"); });
+            xhr.addEventListener("load", () => { order.push("last"); });
             xhr.addEventListener("loadend", () => {
                 clearTimeout(guard);
                 resolve({ order });
@@ -328,7 +341,70 @@ describe("XMLHTTPRequest", function () {
             xhr.open("GET", "app:///Scripts/symlink_target.js");
             xhr.send();
         });
-        expect(result.order).to.have.members(["onload", "listener"]);
+        expect(result.order).to.deep.equal(["first", "onload", "last"]);
+    });
+
+    it("should keep an on<event> handler's position in the dispatch order when reassigned", async function () {
+        // Per HTML the internal listener is registered on first set and reused thereafter ("If
+        // eventHandler's listener is not null, then return"), so reassigning the property must
+        // not move it to the end of the list.
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.onload = () => { order.push("replaced"); };
+            xhr.addEventListener("load", () => { order.push("listener"); });
+            xhr.onload = () => { order.push("onload"); };
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ order });
+            });
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["onload", "listener"]);
+    });
+
+    it("should invoke a function registered both as an on<event> property and via addEventListener twice", async function () {
+        // These are two independent registrations, so the duplicate-registration check must not
+        // see the on<event> entry: a browser calls the shared function once for each.
+        this.timeout(30000);
+        const result = await new Promise<{ calls: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let calls = 0;
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            const handler = () => { calls++; };
+            xhr.onload = handler;
+            xhr.addEventListener("load", handler);
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ calls });
+            });
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.calls).to.equal(2);
+    });
+
+    it("should not let removeEventListener remove an on<event> handler", async function () {
+        // The property is cleared by assigning null, not by removeEventListener.
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            const handler = () => { order.push("onload"); };
+            xhr.onload = handler;
+            xhr.removeEventListener("load", handler);
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ order });
+            });
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["onload"]);
     });
 
     it("should expose errorCode/errorDetail diagnostics after a transport failure", async function () {
