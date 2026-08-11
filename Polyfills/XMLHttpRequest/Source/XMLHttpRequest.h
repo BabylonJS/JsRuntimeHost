@@ -65,16 +65,24 @@ namespace Babylon::Polyfills::Internal
         void SetReadyState(ReadyState readyState);
         void RaiseEvent(const char* eventType);
 
+        // A registered event listener. `isEventHandler` marks the single entry owned by the
+        // matching `on<event>` property; every other entry came from addEventListener. Both
+        // kinds share one list per event type because that is what the DOM specifies: dispatch
+        // follows registration order, so `addEventListener("load", a)` then `xhr.onload = b`
+        // calls `a` then `b`, and reassigning `onload` keeps its original position rather than
+        // moving to the end ("If eventHandler's listener is not null, then return").
+        struct Listener
+        {
+            Napi::FunctionReference callback;
+            bool isEventHandler;
+        };
+
         std::string m_url{};
         UrlLib::UrlRequest m_request{};
         JsRuntimeScheduler m_runtimeScheduler;
         ReadyState m_readyState{ReadyState::Unsent};
         // Set by abort(); makes the in-flight continuation report 'abort' instead of 'error'.
         bool m_aborted{false};
-        std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
-        // The DOM `on<event>` handler properties (onreadystatechange, onload, ...). These are
-        // kept separate from m_eventHandlerRefs because they have assignment semantics -- setting
-        // one replaces the previous handler -- whereas addEventListener accumulates.
-        std::unordered_map<std::string, Napi::FunctionReference> m_onEventHandlerRefs;
+        std::unordered_map<std::string, std::vector<Listener>> m_listeners;
     };
 }
