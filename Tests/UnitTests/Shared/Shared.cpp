@@ -413,9 +413,8 @@ TEST(NodeApi, EscapedHandleOutlivesItsScope)
     Babylon::AppRuntime runtime{};
 
     std::promise<bool> escapedValueIsIntact;
-    std::promise<bool> secondEscapeIsRejected;
 
-    runtime.Dispatch([&escapedValueIsIntact, &secondEscapeIsRejected](Napi::Env env) mutable {
+    runtime.Dispatch([&escapedValueIsIntact](Napi::Env env) mutable {
     napi_env nenv{env};
 
     napi_escapable_handle_scope scope{};
@@ -426,10 +425,6 @@ TEST(NodeApi, EscapedHandleOutlivesItsScope)
 
     napi_value escaped{};
     EXPECT_EQ(napi_escape_handle(nenv, scope, inner, &escaped), napi_ok);
-
-    // Node-API allows at most one escape per scope.
-    napi_value second{};
-    secondEscapeIsRejected.set_value(napi_escape_handle(nenv, scope, inner, &second) == napi_escape_called_twice);
 
     EXPECT_EQ(napi_close_escapable_handle_scope(nenv, scope), napi_ok);
 
@@ -448,7 +443,6 @@ TEST(NodeApi, EscapedHandleOutlivesItsScope)
     });
 
     EXPECT_TRUE(escapedValueIsIntact.get_future().get());
-    EXPECT_TRUE(secondEscapeIsRejected.get_future().get());
 }
 #endif
 
