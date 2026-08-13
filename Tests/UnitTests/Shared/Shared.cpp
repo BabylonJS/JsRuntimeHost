@@ -417,16 +417,34 @@ TEST(NodeApi, EscapedHandleOutlivesItsScope)
     runtime.Dispatch([&escapedValueIsIntact](Napi::Env env) mutable {
     napi_env nenv{env};
 
+    // Assertions stay on the test thread: the dispatched lambda reports through the
+    // promise and returns early on failure so the waiter can never deadlock.
     napi_escapable_handle_scope scope{};
-    EXPECT_EQ(napi_open_escapable_handle_scope(nenv, &scope), napi_ok);
+    if (napi_open_escapable_handle_scope(nenv, &scope) != napi_ok)
+    {
+        escapedValueIsIntact.set_value(false);
+        return;
+    }
 
     napi_value inner{};
-    EXPECT_EQ(napi_create_string_utf8(nenv, "escape me", NAPI_AUTO_LENGTH, &inner), napi_ok);
+    if (napi_create_string_utf8(nenv, "escape me", NAPI_AUTO_LENGTH, &inner) != napi_ok)
+    {
+        escapedValueIsIntact.set_value(false);
+        return;
+    }
 
     napi_value escaped{};
-    EXPECT_EQ(napi_escape_handle(nenv, scope, inner, &escaped), napi_ok);
+    if (napi_escape_handle(nenv, scope, inner, &escaped) != napi_ok)
+    {
+        escapedValueIsIntact.set_value(false);
+        return;
+    }
 
-    EXPECT_EQ(napi_close_escapable_handle_scope(nenv, scope), napi_ok);
+    if (napi_close_escapable_handle_scope(nenv, scope) != napi_ok)
+    {
+        escapedValueIsIntact.set_value(false);
+        return;
+    }
 
     // Allocate through the parent scope so a dangling escaped handle is likely to
     // have been reused by the time it is read back.
