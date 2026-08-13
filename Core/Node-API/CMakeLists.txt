@@ -266,6 +266,15 @@ add_library(napi ${SOURCES})
 target_include_directories(napi ${INCLUDE_DIRECTORIES})
 target_link_libraries(napi ${LINK_LIBRARIES})
 
+# The Chakra and JavaScriptCore shims implement napi_escape_handle as a pass
+# through that returns the escapee without tracking scopes, so they always report
+# napi_ok and cannot report napi_escape_called_twice. Published as an INTERFACE
+# definition so every consumer sees it without each test target repeating the
+# engine check.
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra" OR NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
+    target_compile_definitions(napi INTERFACE JSRUNTIMEHOST_NAPI_ESCAPE_HANDLE_IS_PASSTHROUGH)
+endif()
+
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Hermes")
     # Apply Hermes-specific warning suppressions ONLY to env_hermes.cc so
     # they don't relax the rules for the rest of the napi sources.

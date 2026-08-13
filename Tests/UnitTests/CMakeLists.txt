@@ -52,13 +52,6 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
     target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_JSI)
 endif()
 
-# The Chakra and JavaScriptCore shims implement napi_escape_handle as a pass
-# through that does not track scopes, so they cannot report
-# napi_escape_called_twice and SecondEscapeIsRejected is compiled out there.
-if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra" OR NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
-    target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ESCAPE_HANDLE_IS_PASSTHROUGH)
-endif()
-
 target_link_libraries(UnitTests
     PRIVATE AppRuntime
     PRIVATE Console
