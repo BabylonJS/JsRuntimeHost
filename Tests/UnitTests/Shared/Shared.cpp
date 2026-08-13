@@ -401,6 +401,55 @@ TEST(NodeApi, GetValueStringUtf16HandlesZeroBufsize)
     EXPECT_TRUE(zeroSafe.get_future().get());
     EXPECT_TRUE(normalWorks.get_future().get());
 }
+
+// Regression: a handle returned by napi_escape_handle must stay alive after its
+// escapable scope is closed. The escaped handle is stored in the parent scope, so
+// closing the scope must not free it along with the scope's own handles. This is the
+// contract Napi::ObjectReference::Get relies on, which in turn is what
+// Napi::Error::Message and Napi::Error::what use, so getting it wrong turns any
+// report of a native error message into a use-after-free.
+TEST(NodeApi, EscapedHandleOutlivesItsScope)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> escapedValueIsIntact;
+    std::promise<bool> secondEscapeIsRejected;
+
+    runtime.Dispatch([&escapedValueIsIntact, &secondEscapeIsRejected](Napi::Env env) mutable {
+    napi_env nenv{env};
+
+    napi_escapable_handle_scope scope{};
+    EXPECT_EQ(napi_open_escapable_handle_scope(nenv, &scope), napi_ok);
+
+    napi_value inner{};
+    EXPECT_EQ(napi_create_string_utf8(nenv, "escape me", NAPI_AUTO_LENGTH, &inner), napi_ok);
+
+    napi_value escaped{};
+    EXPECT_EQ(napi_escape_handle(nenv, scope, inner, &escaped), napi_ok);
+
+    // Node-API allows at most one escape per scope.
+    napi_value second{};
+    secondEscapeIsRejected.set_value(napi_escape_handle(nenv, scope, inner, &second) == napi_escape_called_twice);
+
+    EXPECT_EQ(napi_close_escapable_handle_scope(nenv, scope), napi_ok);
+
+    // Allocate through the parent scope so a dangling escaped handle is likely to
+    // have been reused by the time it is read back.
+    for (int i = 0; i < 32; ++i)
+    {
+        napi_value filler{};
+        napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+    }
+
+    char buffer[32]{};
+    size_t copied{0};
+    const napi_status status{napi_get_value_string_utf8(nenv, escaped, buffer, sizeof(buffer), &copied)};
+    escapedValueIsIntact.set_value(status == napi_ok && copied == 9 && std::string{buffer} == "escape me");
+    });
+
+    EXPECT_TRUE(escapedValueIsIntact.get_future().get());
+    EXPECT_TRUE(secondEscapeIsRejected.get_future().get());
+}
 #endif
 
 int RunTests()
