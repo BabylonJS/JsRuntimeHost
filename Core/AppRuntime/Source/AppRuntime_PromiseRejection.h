@@ -17,10 +17,33 @@ namespace Babylon::Internal
     // that support rejection tracking (V8, JavaScriptCore) include this header.
     inline Napi::Error ToError(Napi::Env env, napi_value reason)
     {
-        const Napi::Value value{env, reason};
-        return value.IsObject()
-            ? Napi::Error{env, reason}
-            : Napi::Error::New(env, value.ToString().Utf8Value());
+        try
+        {
+            bool isError{false};
+            if (napi_is_error(env, reason, &isError) == napi_ok && isError)
+            {
+                return Napi::Error{env, reason};
+            }
+
+            // Not a native Error, but an object carrying a string `message` is error-like enough to
+            // pass through with its message and stack intact -- a reason from another realm, or a
+            // polyfill's own error type. Testing only for "is an object" would also let a plain
+            // object such as `{code: 42}` through, and that yields an error whose message is empty.
+            const Napi::Value value{env, reason};
+            if (value.IsObject() && value.As<Napi::Object>().Get("message").IsString())
+            {
+                return Napi::Error{env, reason};
+            }
+
+            return Napi::Error::New(env, value.ToString().Utf8Value());
+        }
+        catch (...)
+        {
+            // Both the property read and the string conversion run script (getters, toString) and so
+            // can throw. This is called from engine callbacks, where an escaping C++ exception would
+            // unwind through the engine's own frames, so it must not propagate.
+            return Napi::Error::New(env, "unhandled promise rejection with a reason that could not be converted to an error");
+        }
     }
 
     // Engine-agnostic bookkeeping for engines that report an unhandled rejection immediately and a
