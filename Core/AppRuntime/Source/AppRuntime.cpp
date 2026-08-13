@@ -130,6 +130,18 @@ namespace Babylon
     {
         // The reason is wrapped into a Napi::Error by the engine implementation (the napi_value ->
         // Napi::Value bridge is shim-specific), so this just forwards to the embedder's handler.
-        m_options.UnhandledExceptionHandler(error);
+        //
+        // The handler is embedder code and may throw. JavaScriptCore reports rejections from inside
+        // an engine callback, where an escaping C++ exception would unwind through the engine's own
+        // frames; on the V8 path it would reach Dispatch, whose catch-all aborts the process. There
+        // is nothing useful left to do with a failure to report a failure, so it is swallowed:
+        // diagnostics must never be what takes the process down.
+        try
+        {
+            m_options.UnhandledExceptionHandler(error);
+        }
+        catch (...)
+        {
+        }
     }
 }
