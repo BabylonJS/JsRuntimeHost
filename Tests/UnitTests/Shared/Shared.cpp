@@ -462,6 +462,179 @@ TEST(NodeApi, EscapedHandleOutlivesItsScope)
 
     EXPECT_TRUE(escapedValueIsIntact.get_future().get());
 }
+
+// Regression: two escapable scopes open at once, both escaping before either closes,
+// then closed innermost first. An implementation that stores an escaped handle by
+// inserting it into the middle of the handle stack shifts every entry above it,
+// silently invalidating the start index the still-open inner scope was handed. Closing
+// the inner scope then keeps the wrong slot and frees the inner escaped handle,
+// reintroducing the dangling napi_value this fix is about.
+TEST(NodeApi, NestedEscapableScopesBothEscape)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> bothValuesIntact;
+
+    runtime.Dispatch([&bothValuesIntact](Napi::Env env) mutable {
+    napi_env nenv{env};
+
+    const auto fail = [&bothValuesIntact]() { bothValuesIntact.set_value(false); };
+
+    napi_escapable_handle_scope outerScope{};
+    if (napi_open_escapable_handle_scope(nenv, &outerScope) != napi_ok)
+    {
+        return fail();
+    }
+
+    // Give the outer scope handles of its own, so the inner scope starts at a
+    // different index and the shifting bug is observable.
+    for (int i = 0; i < 4; ++i)
+    {
+        napi_value outerFiller{};
+        if (napi_create_string_utf8(nenv, "outer filler", NAPI_AUTO_LENGTH, &outerFiller) != napi_ok)
+        {
+            return fail();
+        }
+    }
+
+    napi_value outerSource{};
+    if (napi_create_string_utf8(nenv, "outer value", NAPI_AUTO_LENGTH, &outerSource) != napi_ok)
+    {
+        return fail();
+    }
+
+    napi_escapable_handle_scope innerScope{};
+    if (napi_open_escapable_handle_scope(nenv, &innerScope) != napi_ok)
+    {
+        return fail();
+    }
+
+    napi_value innerSource{};
+    if (napi_create_string_utf8(nenv, "inner value", NAPI_AUTO_LENGTH, &innerSource) != napi_ok)
+    {
+        return fail();
+    }
+
+    // Inner escapes first, then the still-open outer scope escapes.
+    napi_value innerEscaped{};
+    if (napi_escape_handle(nenv, innerScope, innerSource, &innerEscaped) != napi_ok)
+    {
+        return fail();
+    }
+
+    napi_value outerEscaped{};
+    if (napi_escape_handle(nenv, outerScope, outerSource, &outerEscaped) != napi_ok)
+    {
+        return fail();
+    }
+
+    // Close innermost first, as the scopes must be.
+    if (napi_close_escapable_handle_scope(nenv, innerScope) != napi_ok)
+    {
+        return fail();
+    }
+
+    // The inner escaped handle now belongs to the outer scope and must still read
+    // back while that scope is open. Churn allocations first: a wrongly freed handle
+    // only reads back wrong once its block has been reused, so allocate enough to
+    // make that near certain rather than a matter of luck.
+    for (int i = 0; i < 512; ++i)
+    {
+        napi_value filler{};
+        napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+    }
+
+    char innerBuffer[32]{};
+    size_t innerCopied{0};
+    if (napi_get_value_string_utf8(nenv, innerEscaped, innerBuffer, sizeof(innerBuffer), &innerCopied) != napi_ok ||
+        std::string{innerBuffer} != "inner value")
+    {
+        return fail();
+    }
+
+    if (napi_close_escapable_handle_scope(nenv, outerScope) != napi_ok)
+    {
+        return fail();
+    }
+
+    for (int i = 0; i < 512; ++i)
+    {
+        napi_value filler{};
+        napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+    }
+
+    char outerBuffer[32]{};
+    size_t outerCopied{0};
+    const napi_status status{napi_get_value_string_utf8(nenv, outerEscaped, outerBuffer, sizeof(outerBuffer), &outerCopied)};
+    bothValuesIntact.set_value(status == napi_ok && std::string{outerBuffer} == "outer value");
+    });
+
+    EXPECT_TRUE(bothValuesIntact.get_future().get());
+}
+
+// Node-API permits at most one escape per escapable scope. The second call must be
+// rejected with napi_escape_called_twice, and must leave the first escaped handle
+// untouched rather than replacing or freeing it.
+TEST(NodeApi, SecondEscapeIsRejected)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> secondEscapeRejected;
+    std::promise<bool> firstValueIntact;
+
+    runtime.Dispatch([&secondEscapeRejected, &firstValueIntact](Napi::Env env) mutable {
+    napi_env nenv{env};
+
+    const auto fail = [&secondEscapeRejected, &firstValueIntact]() {
+        secondEscapeRejected.set_value(false);
+        firstValueIntact.set_value(false);
+    };
+
+    napi_escapable_handle_scope scope{};
+    if (napi_open_escapable_handle_scope(nenv, &scope) != napi_ok)
+    {
+        return fail();
+    }
+
+    napi_value first{};
+    napi_value second{};
+    if (napi_create_string_utf8(nenv, "first", NAPI_AUTO_LENGTH, &first) != napi_ok ||
+        napi_create_string_utf8(nenv, "second", NAPI_AUTO_LENGTH, &second) != napi_ok)
+    {
+        return fail();
+    }
+
+    napi_value firstEscaped{};
+    if (napi_escape_handle(nenv, scope, first, &firstEscaped) != napi_ok)
+    {
+        return fail();
+    }
+
+    napi_value secondEscaped{};
+    secondEscapeRejected.set_value(
+        napi_escape_handle(nenv, scope, second, &secondEscaped) == napi_escape_called_twice);
+
+    if (napi_close_escapable_handle_scope(nenv, scope) != napi_ok)
+    {
+        firstValueIntact.set_value(false);
+        return;
+    }
+
+    for (int i = 0; i < 32; ++i)
+    {
+        napi_value filler{};
+        napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+    }
+
+    char buffer[32]{};
+    size_t copied{0};
+    const napi_status status{napi_get_value_string_utf8(nenv, firstEscaped, buffer, sizeof(buffer), &copied)};
+    firstValueIntact.set_value(status == napi_ok && std::string{buffer} == "first");
+    });
+
+    EXPECT_TRUE(secondEscapeRejected.get_future().get());
+    EXPECT_TRUE(firstValueIntact.get_future().get());
+}
 #endif
 
 int RunTests()
