@@ -116,11 +116,14 @@ namespace Napi
 
             // Handles escaped from scopes that were never closed are held aside
             // rather than on the stack, so free them here too.
-            for (auto& entry : env_ptr->escaped_handles)
+            for (auto& entry : env_ptr->escapable_scopes)
             {
-                JS_FreeValue(env_ptr->context, *entry.second);
+                if (entry.second.escaped)
+                {
+                    JS_FreeValue(env_ptr->context, *entry.second.escaped);
+                }
             }
-            env_ptr->escaped_handles.clear();
+            env_ptr->escapable_scopes.clear();
 
             // Run the cycle collector so napi_wrap finalizers (which
             // destroy C++ wrapper objects and release any embedded

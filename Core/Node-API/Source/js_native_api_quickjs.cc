@@ -1917,9 +1917,13 @@ napi_status napi_open_escapable_handle_scope(napi_env env, napi_escapable_handle
   CHECK_ENV(env);
   CHECK_ARG(env, result);
   
-  // Same as regular handle scope for QuickJS
   env->current_scope_start = env->handle_scope_stack.size();
-  *result = reinterpret_cast<napi_escapable_handle_scope>(env->current_scope_start + 1);
+  
+  // The token is a counter, not a position: scopes opened with no handle allocated
+  // between them share a position and would otherwise be indistinguishable.
+  const size_t token = ++env->next_escapable_scope_token;
+  env->escapable_scopes.emplace(token, napi_env__::EscapableScope{env->current_scope_start, nullptr});
+  *result = reinterpret_cast<napi_escapable_handle_scope>(token);
   
   napi_clear_last_error(env);
   return napi_ok;
@@ -1929,7 +1933,12 @@ napi_status napi_close_escapable_handle_scope(napi_env env, napi_escapable_handl
   CHECK_ENV(env);
   CHECK_ARG(env, scope);
   
-  size_t scope_start = reinterpret_cast<size_t>(scope) - 1;
+  const auto it = env->escapable_scopes.find(reinterpret_cast<size_t>(scope));
+  if (it == env->escapable_scopes.end()) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  
+  const size_t scope_start = it->second.scope_start;
   
   for (size_t i = scope_start; i < env->handle_scope_stack.size(); i++) {
     JS_FreeValue(env->context, *env->handle_scope_stack[i]);
@@ -1941,11 +1950,10 @@ napi_status napi_close_escapable_handle_scope(napi_env env, napi_escapable_handl
   // stored on the stack. Now that this scope's own handles are gone it can be
   // pushed on: it lands at scope_start, which belongs to the parent scope, so it
   // outlives this close and is freed when the parent closes.
-  const auto escaped = env->escaped_handles.find(scope_start);
-  if (escaped != env->escaped_handles.end()) {
-    env->handle_scope_stack.push_back(std::move(escaped->second));
-    env->escaped_handles.erase(escaped);
+  if (it->second.escaped) {
+    env->handle_scope_stack.push_back(std::move(it->second.escaped));
   }
+  env->escapable_scopes.erase(it);
   
   env->current_scope_start = scope_start;
   
@@ -1959,24 +1967,22 @@ napi_status napi_escape_handle(napi_env env, napi_escapable_handle_scope scope, 
   CHECK_ARG(env, escapee);
   CHECK_ARG(env, result);
   
-  // Get the scope start index
-  size_t scope_start = reinterpret_cast<size_t>(scope) - 1;
+  const auto it = env->escapable_scopes.find(reinterpret_cast<size_t>(scope));
+  if (it == env->escapable_scopes.end()) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
   
   // Node-API allows napi_escape_handle to be called at most once per scope.
-  if (env->escaped_handles.find(scope_start) != env->escaped_handles.end()) {
+  if (it->second.escaped) {
     return napi_set_last_error(env, napi_escape_called_twice);
   }
   
   // Duplicate the JSValue to create a new handle that will outlive the current scope
   JSValue escapedValue = JS_DupValue(env->context, ToJSValue(escapee));
   
-  // Hold the handle aside until the scope closes, rather than inserting it into
-  // handle_scope_stack here. An insert would shift every entry above scope_start,
-  // which silently invalidates the recorded start of any nested scope that is still
-  // open -- closing that scope would then keep the wrong slot and free this handle.
   auto holder = std::make_unique<JSValue>(escapedValue);
   *result = reinterpret_cast<napi_value>(holder.get());
-  env->escaped_handles.emplace(scope_start, std::move(holder));
+  it->second.escaped = std::move(holder);
   
   napi_clear_last_error(env);
   return napi_ok;
