@@ -1929,8 +1929,9 @@ napi_status napi_open_escapable_handle_scope(
   napi_escapable_handle_scope* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
-  *result = reinterpret_cast<napi_escapable_handle_scope>(
-    ++env->next_escapable_scope_token);
+  const size_t token = ++env->next_escapable_scope_token;
+  env->open_escapable_scopes.emplace(token, false);
+  *result = reinterpret_cast<napi_escapable_handle_scope>(token);
   return napi_ok;
 }
 
@@ -1940,7 +1941,11 @@ napi_status napi_close_escapable_handle_scope(
   napi_escapable_handle_scope scope) {
   CHECK_ENV(env);
   CHECK_ARG(env, scope);
-  env->escaped_scopes.erase(reinterpret_cast<size_t>(scope));
+  const auto it = env->open_escapable_scopes.find(reinterpret_cast<size_t>(scope));
+  if (it == env->open_escapable_scopes.end()) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  env->open_escapable_scopes.erase(it);
   return napi_ok;
 }
 
@@ -1955,9 +1960,14 @@ napi_status napi_escape_handle(napi_env env,
   CHECK_ARG(env, scope);
   CHECK_ARG(env, escapee);
   CHECK_ARG(env, result);
-  if (!env->escaped_scopes.insert(reinterpret_cast<size_t>(scope)).second) {
+  const auto it = env->open_escapable_scopes.find(reinterpret_cast<size_t>(scope));
+  if (it == env->open_escapable_scopes.end()) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  if (it->second) {
     return napi_set_last_error(env, napi_escape_called_twice);
   }
+  it->second = true;
   *result = escapee;
   return napi_ok;
 }

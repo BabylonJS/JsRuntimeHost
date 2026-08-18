@@ -1940,6 +1940,14 @@ napi_status napi_close_escapable_handle_scope(napi_env env, napi_escapable_handl
   
   const size_t scope_start = it->second.scope_start;
   
+  // A scope closed out of LIFO order would leave scope_start past the end of the
+  // stack, and resize would then grow it with null entries that the next close
+  // dereferences. Node-API forbids that ordering, so report it rather than
+  // corrupting the stack.
+  if (scope_start > env->handle_scope_stack.size()) {
+    return napi_set_last_error(env, napi_handle_scope_mismatch);
+  }
+  
   for (size_t i = scope_start; i < env->handle_scope_stack.size(); i++) {
     JS_FreeValue(env->context, *env->handle_scope_stack[i]);
   }
