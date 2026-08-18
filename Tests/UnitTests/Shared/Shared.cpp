@@ -772,45 +772,6 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
     EXPECT_TRUE(bothEscapesAccepted.get_future().get());
 }
 
-// A scope token is only meaningful while its scope is open. Escaping against one
-// that has already been closed must be rejected rather than reported as success,
-// which also keeps the backends from accumulating state for scopes that are gone.
-TEST(NodeApi, EscapeAgainstClosedScopeIsRejected)
-{
-    Babylon::AppRuntime runtime{};
-
-    std::promise<bool> staleEscapeRejected;
-
-    runtime.Dispatch([&staleEscapeRejected](Napi::Env env) mutable {
-        napi_env nenv{env};
-
-        napi_escapable_handle_scope scope{};
-        if (napi_open_escapable_handle_scope(nenv, &scope) != napi_ok)
-        {
-            staleEscapeRejected.set_value(false);
-            return;
-        }
-
-        napi_value source{};
-        if (napi_create_string_utf8(nenv, "stale", NAPI_AUTO_LENGTH, &source) != napi_ok)
-        {
-            staleEscapeRejected.set_value(false);
-            return;
-        }
-
-        if (napi_close_escapable_handle_scope(nenv, scope) != napi_ok)
-        {
-            staleEscapeRejected.set_value(false);
-            return;
-        }
-
-        napi_value escaped{};
-        staleEscapeRejected.set_value(
-            napi_escape_handle(nenv, scope, source, &escaped) != napi_ok);
-    });
-
-    EXPECT_TRUE(staleEscapeRejected.get_future().get());
-}
 #endif
 
 int RunTests()

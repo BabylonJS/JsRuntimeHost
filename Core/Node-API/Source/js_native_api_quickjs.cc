@@ -1885,6 +1885,12 @@ napi_status napi_open_handle_scope(napi_env env, napi_handle_scope* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
   
+  // This token is a position in handle_scope_stack, not an identity: scopes opened
+  // with no handle allocated between them get the same value. That is sufficient
+  // here because the token is only ever used to work out where to truncate, and two
+  // closes truncating to the same index is a no-op. Do not key per-scope state on
+  // it -- napi_open_escapable_handle_scope did exactly that and the colliding
+  // scopes shared one entry; it uses a counter for that reason.
   env->current_scope_start = env->handle_scope_stack.size();
   *result = reinterpret_cast<napi_handle_scope>(env->current_scope_start + 1);
   
