@@ -220,11 +220,23 @@ TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
     runtime.Dispatch([&result](Napi::Env env) mutable {
         std::string failures{};
 
+        // Napi::Object::DefineProperty and Napi::PropertyDescriptor do not exist in the JSI
+        // Node-API port, so go through JS's own Object.defineProperty, which every engine has.
+        // Redefining is also why plain Set will not do: once `console` is an accessor without
+        // a setter, assigning to it is either silently dropped or a throw.
+        auto objectCtor = env.Global().Get("Object").As<Napi::Object>();
+        auto defineProperty = objectCtor.Get("defineProperty").As<Napi::Function>();
+        auto defineConsole = [&env, &defineProperty](Napi::Object descriptor) {
+            descriptor.Set("configurable", Napi::Boolean::New(env, true));
+            defineProperty.Call({env.Global(), Napi::String::New(env, "console"), descriptor});
+        };
+
         // A `console` accessor that throws.
-        env.Global().DefineProperty(Napi::PropertyDescriptor::Accessor(
-            env, env.Global(), "console", [](const Napi::CallbackInfo& info) -> Napi::Value {
-                throw Napi::Error::New(info.Env(), "console getter threw");
-            }, napi_configurable));
+        auto getterDescriptor = Napi::Object::New(env);
+        getterDescriptor.Set("get", Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
+            throw Napi::Error::New(info.Env(), "console getter threw");
+        }));
+        defineConsole(getterDescriptor);
 
         try
         {
@@ -245,7 +257,9 @@ TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
         console.Set("warn", Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
             throw Napi::Error::New(info.Env(), "warn threw");
         }));
-        env.Global().DefineProperty(Napi::PropertyDescriptor::Value("console", console, napi_configurable));
+        auto valueDescriptor = Napi::Object::New(env);
+        valueDescriptor.Set("value", console);
+        defineConsole(valueDescriptor);
 
         try
         {
