@@ -206,6 +206,11 @@ TEST(JsConsoleLogger, NoConsoleIsNotFatal)
     SUCCEED();
 }
 
+// The V8JSI Node-API shim aborts the process on any JS exception raised through a native
+// property access ("Fatal error in v8::ToLocalChecked: Empty MaybeLocal"), so it dies inside
+// env.Global().Get("console") before LogMethod can guard anything. Nothing JsConsoleLogger
+// does can survive that, so exercise this on the other backends only.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
 TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
 {
     // Every step of the log path runs script the host does not control: `console` and the
@@ -285,6 +290,7 @@ TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
 
     EXPECT_EQ(result.get_future().get(), "");
 }
+#endif
 
 TEST(Console, CaptureCurrentJsStack)
 {
