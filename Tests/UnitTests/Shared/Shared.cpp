@@ -206,6 +206,67 @@ TEST(JsConsoleLogger, NoConsoleIsNotFatal)
     SUCCEED();
 }
 
+TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
+{
+    // Every step of the log path runs script the host does not control: `console` and the
+    // method can be accessors that throw, and the call itself is arbitrary user code. If
+    // any of that escaped -- as a C++ exception at the call site, or as an exception left
+    // pending on `env` to surface at some unrelated later point -- a diagnostic helper
+    // would be corrupting whatever the caller was doing.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<std::string> result;
+
+    runtime.Dispatch([&result](Napi::Env env) mutable {
+        std::string failures{};
+
+        // A `console` accessor that throws.
+        env.Global().DefineProperty(Napi::PropertyDescriptor::Accessor(
+            env, env.Global(), "console", [](const Napi::CallbackInfo& info) -> Napi::Value {
+                throw Napi::Error::New(info.Env(), "console getter threw");
+            }, napi_configurable));
+
+        try
+        {
+            Babylon::JsConsoleLogger::LogWarn(env, "swallowed");
+        }
+        catch (...)
+        {
+            failures += "throwing console getter escaped as a C++ exception; ";
+        }
+        if (env.IsExceptionPending())
+        {
+            (void)env.GetAndClearPendingException();
+            failures += "throwing console getter left a pending exception; ";
+        }
+
+        // A `console.warn` that throws when called.
+        auto console = Napi::Object::New(env);
+        console.Set("warn", Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
+            throw Napi::Error::New(info.Env(), "warn threw");
+        }));
+        env.Global().DefineProperty(Napi::PropertyDescriptor::Value("console", console, napi_configurable));
+
+        try
+        {
+            Babylon::JsConsoleLogger::LogWarn(env, "swallowed");
+        }
+        catch (...)
+        {
+            failures += "throwing console.warn escaped as a C++ exception; ";
+        }
+        if (env.IsExceptionPending())
+        {
+            (void)env.GetAndClearPendingException();
+            failures += "throwing console.warn left a pending exception; ";
+        }
+
+        result.set_value(failures);
+    });
+
+    EXPECT_EQ(result.get_future().get(), "");
+}
+
 TEST(Console, CaptureCurrentJsStack)
 {
     // Regression: Console::CaptureCurrentJsStack must return a non-empty stack when called from
