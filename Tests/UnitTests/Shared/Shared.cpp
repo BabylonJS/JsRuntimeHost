@@ -220,12 +220,21 @@ TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
     runtime.Dispatch([&result](Napi::Env env) mutable {
         std::string failures{};
 
+        // Everything here is built out of plain JS rather than Node-API host functions.
         // Napi::Object::DefineProperty and Napi::PropertyDescriptor do not exist in the JSI
-        // Node-API port, so go through JS's own Object.defineProperty, which every engine has.
+        // port at all, and throwing out of a Napi::Function callback aborts the process there
+        // ("Fatal error in v8::ToLocalChecked"), so the throwers have to be real JS functions.
         // Redefining is also why plain Set will not do: once `console` is an accessor without
         // a setter, assigning to it is either silently dropped or a throw.
+        auto functionCtor = env.Global().Get("Function").As<Napi::Function>();
         auto objectCtor = env.Global().Get("Object").As<Napi::Object>();
         auto defineProperty = objectCtor.Get("defineProperty").As<Napi::Function>();
+
+        auto makeThrower = [&env, &functionCtor](const char* what) {
+            return functionCtor
+                .New({Napi::String::New(env, std::string{"throw new Error('"} + what + "');")})
+                .As<Napi::Function>();
+        };
         auto defineConsole = [&env, &defineProperty](Napi::Object descriptor) {
             descriptor.Set("configurable", Napi::Boolean::New(env, true));
             defineProperty.Call({env.Global(), Napi::String::New(env, "console"), descriptor});
@@ -233,9 +242,7 @@ TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
 
         // A `console` accessor that throws.
         auto getterDescriptor = Napi::Object::New(env);
-        getterDescriptor.Set("get", Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
-            throw Napi::Error::New(info.Env(), "console getter threw");
-        }));
+        getterDescriptor.Set("get", makeThrower("console getter threw"));
         defineConsole(getterDescriptor);
 
         try
@@ -254,9 +261,7 @@ TEST(JsConsoleLogger, ThrowingConsoleLeavesNoPendingException)
 
         // A `console.warn` that throws when called.
         auto console = Napi::Object::New(env);
-        console.Set("warn", Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
-            throw Napi::Error::New(info.Env(), "warn threw");
-        }));
+        console.Set("warn", makeThrower("warn threw"));
         auto valueDescriptor = Napi::Object::New(env);
         valueDescriptor.Set("value", console);
         defineConsole(valueDescriptor);
