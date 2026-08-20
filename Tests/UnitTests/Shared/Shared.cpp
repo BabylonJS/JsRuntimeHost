@@ -1,5 +1,6 @@
 #include "Shared.h"
 #include <Babylon/AppRuntime.h>
+#include <Babylon/JsConsoleLogger.h>
 #include <Babylon/ScriptLoader.h>
 #include <Babylon/Polyfills/AbortController.h>
 #include <Babylon/Polyfills/Console.h>
@@ -21,6 +22,8 @@
 #include <future>
 #include <iostream>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -137,6 +140,70 @@ TEST(Console, Log)
     });
 
     done.get_future().get();
+}
+
+TEST(JsConsoleLogger, RoutesToConsole)
+{
+    // JsConsoleLogger exists so native diagnostics land wherever the host has pointed the
+    // JS console. On Android and iOS there is no attached terminal, so a message written to
+    // stdout/stderr instead reaches nobody.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<void> done;
+    std::vector<std::pair<Babylon::Polyfills::Console::LogLevel, std::string>> received;
+
+    runtime.Dispatch([&received](Napi::Env env) mutable {
+        Babylon::Polyfills::Console::Initialize(env, [&received](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
+            received.emplace_back(logLevel, message);
+        });
+
+        Babylon::JsConsoleLogger::LogInfo(env, "info message");
+        Babylon::JsConsoleLogger::LogWarn(env, "warn message");
+        Babylon::JsConsoleLogger::LogError(env, "error message");
+    });
+
+    Babylon::ScriptLoader loader{runtime};
+    loader.Dispatch([&done](auto) {
+        done.set_value();
+    });
+    done.get_future().get();
+
+    ASSERT_EQ(received.size(), 3u);
+    EXPECT_EQ(received[0].first, Babylon::Polyfills::Console::LogLevel::Log);
+    EXPECT_EQ(received[0].second, "info message");
+    EXPECT_EQ(received[1].first, Babylon::Polyfills::Console::LogLevel::Warn);
+    EXPECT_EQ(received[1].second, "warn message");
+    EXPECT_EQ(received[2].first, Babylon::Polyfills::Console::LogLevel::Error);
+    EXPECT_EQ(received[2].second, "error message");
+}
+
+TEST(JsConsoleLogger, NoConsoleIsNotFatal)
+{
+    // Every method is documented as a no-op when there is no console object, or no such
+    // method on it. Nothing here installs the Console polyfill.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<void> done;
+
+    runtime.Dispatch([](Napi::Env env) mutable {
+        Babylon::JsConsoleLogger::LogInfo(env, "dropped");
+        Babylon::JsConsoleLogger::LogWarn(env, "dropped");
+        Babylon::JsConsoleLogger::LogError(env, "dropped");
+
+        // A console whose methods are not functions must be tolerated too.
+        auto console = Napi::Object::New(env);
+        console.Set("warn", Napi::Number::New(env, 42));
+        env.Global().Set("console", console);
+        Babylon::JsConsoleLogger::LogWarn(env, "dropped");
+    });
+
+    Babylon::ScriptLoader loader{runtime};
+    loader.Dispatch([&done](auto) {
+        done.set_value();
+    });
+    done.get_future().get();
+
+    SUCCEED();
 }
 
 TEST(Console, CaptureCurrentJsStack)

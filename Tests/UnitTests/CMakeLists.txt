@@ -65,6 +65,7 @@ target_link_libraries(UnitTests
     PRIVATE WebSocket
     PRIVATE gtest_main
     PRIVATE Foundation
+    PRIVATE JsRuntime
     PRIVATE Blob
     PRIVATE File
     PRIVATE Performance

@@ -1,6 +1,8 @@
 set(SOURCES
+    "Include/Babylon/JsConsoleLogger.h"
     "Include/Babylon/JsRuntime.h"
     "Include/Babylon/JsRuntimeScheduler.h"
+    "Source/JsConsoleLogger.cpp"
     "Source/JsRuntime.cpp")
 
 add_library(JsRuntime ${SOURCES})
