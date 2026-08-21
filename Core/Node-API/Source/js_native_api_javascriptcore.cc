@@ -1,4 +1,5 @@
 #include "js_native_api_javascriptcore.h"
+#include "js_native_api_type_tag.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -273,12 +274,17 @@ namespace {
 
     template<typename T>
     static T* Query(napi_env env, JSObjectRef obj, JSValueRef* exception) {
-      const auto hasSentinel{JSObjectHasPropertyForKey(env->context, obj, T::GetKey(env), exception)};
-      if (*exception || !hasSentinel) {
+      // Own property only. JSObjectHasPropertyForKey searches the prototype
+      // chain, so Object.create(realInstance) used to resolve to the real
+      // instance's sentinel and unwrap to its native pointer.
+      const JSValueRef key{T::GetKey(env)};
+      const JSValueRef hasSentinelValue{JSObjectCallAsFunction(
+        env->context, env->has_own_property_function, obj, 1, &key, exception)};
+      if (*exception || !JSValueToBoolean(env->context, hasSentinelValue)) {
         return nullptr;
       }
 
-      JSValueRef sentinelValue{JSObjectGetPropertyForKey(env->context, obj, T::GetKey(env), exception)};
+      JSValueRef sentinelValue{JSObjectGetPropertyForKey(env->context, obj, key, exception)};
       if (*exception) {
         return nullptr;
       }
@@ -835,6 +841,30 @@ void napi_env__::deinit_refs() {
 void napi_env__::init_symbol(JSValueRef &symbol, const char *description) {
   symbol = JSValueMakeSymbol(context, JSString(description));
   JSValueProtect(context, symbol);
+}
+
+JSObjectRef napi_env__::resolve_has_own_property(JSGlobalContextRef context) {
+  JSValueRef exception{};
+
+  JSValueRef objectCtor{JSObjectGetProperty(
+    context, JSContextGetGlobalObject(context), JSString("Object"), &exception)};
+  JSValueRef prototype{exception == nullptr
+    ? JSObjectGetProperty(context, JSValueToObject(context, objectCtor, &exception), JSString("prototype"), &exception)
+    : nullptr};
+  JSValueRef hasOwnProperty{exception == nullptr
+    ? JSObjectGetProperty(context, JSValueToObject(context, prototype, &exception), JSString("hasOwnProperty"), &exception)
+    : nullptr};
+
+  JSObjectRef function{exception == nullptr && hasOwnProperty != nullptr
+    ? JSValueToObject(context, hasOwnProperty, &exception)
+    : nullptr};
+
+  if (exception != nullptr || function == nullptr || !JSObjectIsFunction(context, function)) {
+    throw std::runtime_error{"Napi::Attach: failed to resolve Object.prototype.hasOwnProperty"};
+  }
+
+  JSValueProtect(context, function);
+  return function;
 }
 
 void napi_env__::deinit_symbol(JSValueRef symbol) {
@@ -2018,6 +2048,126 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   info->Data(nullptr);
   info->RemoveFinalizers();
 
+  return napi_ok;
+}
+
+// Type tags
+//
+// The tag lives in a WeakMap reachable only from napi_env__ (see
+// js_native_api_type_tag.h). Non-object inputs are coerced exactly as the V8
+// port's CHECK_TO_OBJECT does, so all engines agree on those edge cases.
+static napi_status EnsureTypeTagMap(napi_env env) {
+  if (env->type_tag_map != nullptr) {
+    return napi_ok;
+  }
+
+  JSValueRef exception{};
+
+  JSValueRef weakMapValue{JSObjectGetProperty(
+    env->context, JSContextGetGlobalObject(env->context), JSString("WeakMap"), &exception)};
+  CHECK_JSC(env, exception);
+
+  JSObjectRef weakMapCtor{JSValueToObject(env->context, weakMapValue, &exception)};
+  CHECK_JSC(env, exception);
+  RETURN_STATUS_IF_FALSE(env, JSObjectIsConstructor(env->context, weakMapCtor), napi_generic_failure);
+
+  JSObjectRef map{JSObjectCallAsConstructor(env->context, weakMapCtor, 0, nullptr, &exception)};
+  CHECK_JSC(env, exception);
+
+  const char* names[3]{"get", "set", "has"};
+  JSObjectRef methods[3]{};
+  for (int i = 0; i < 3; ++i) {
+    JSValueRef method{JSObjectGetProperty(env->context, map, JSString(names[i]), &exception)};
+    CHECK_JSC(env, exception);
+    methods[i] = JSValueToObject(env->context, method, &exception);
+    CHECK_JSC(env, exception);
+    RETURN_STATUS_IF_FALSE(env, JSObjectIsFunction(env->context, methods[i]), napi_generic_failure);
+  }
+
+  // The map is unreachable from the JS heap, so it needs an explicit root.
+  JSValueProtect(env->context, map);
+  JSValueProtect(env->context, methods[0]);
+  JSValueProtect(env->context, methods[1]);
+  JSValueProtect(env->context, methods[2]);
+
+  env->type_tag_map = map;
+  env->type_tag_get = methods[0];
+  env->type_tag_set = methods[1];
+  env->type_tag_has = methods[2];
+  return napi_ok;
+}
+
+napi_status napi_type_tag_object(napi_env env,
+                                 napi_value object,
+                                 const napi_type_tag* type_tag) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, object);
+  CHECK_ARG(env, type_tag);
+
+  CHECK_NAPI(EnsureTypeTagMap(env));
+
+  JSValueRef exception{};
+  JSObjectRef target{JSValueToObject(env->context, ToJSValue(object), &exception)};
+  CHECK_JSC(env, exception);
+
+  JSValueRef args[2]{target, nullptr};
+
+  JSValueRef tagged{JSObjectCallAsFunction(
+    env->context, env->type_tag_has, env->type_tag_map, 1, args, &exception)};
+  CHECK_JSC(env, exception);
+  RETURN_STATUS_IF_FALSE(env, !JSValueToBoolean(env->context, tagged), napi_invalid_arg);
+
+  char hex[napi_type_tag_util::kHexLength + 1];
+  napi_type_tag_util::ToHex(type_tag, hex);
+
+  args[1] = JSValueMakeString(env->context, JSString(hex, napi_type_tag_util::kHexLength));
+  JSObjectCallAsFunction(env->context, env->type_tag_set, env->type_tag_map, 2, args, &exception);
+  CHECK_JSC(env, exception);
+
+  return napi_ok;
+}
+
+napi_status napi_check_object_type_tag(napi_env env,
+                                       napi_value object,
+                                       const napi_type_tag* type_tag,
+                                       bool* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, object);
+  CHECK_ARG(env, type_tag);
+  CHECK_ARG(env, result);
+
+  *result = false;
+
+  JSValueRef exception{};
+  JSObjectRef target{JSValueToObject(env->context, ToJSValue(object), &exception)};
+  CHECK_JSC(env, exception);
+
+  // Nothing has been tagged yet, so nothing can match.
+  if (env->type_tag_map == nullptr) {
+    return napi_ok;
+  }
+
+  JSValueRef args[1]{target};
+  JSValueRef stored{JSObjectCallAsFunction(
+    env->context, env->type_tag_get, env->type_tag_map, 1, args, &exception)};
+  CHECK_JSC(env, exception);
+
+  if (!JSValueIsString(env->context, stored)) {
+    return napi_ok;
+  }
+
+  JSString storedString{JSString::Attach(JSValueToStringCopy(env->context, stored, &exception))};
+  CHECK_JSC(env, exception);
+
+  char actual[napi_type_tag_util::kHexLength + 1]{};
+  size_t written{};
+  storedString.CopyToUTF8(actual, sizeof(actual), &written);
+
+  char expected[napi_type_tag_util::kHexLength + 1];
+  napi_type_tag_util::ToHex(type_tag, expected);
+
+  *result = written == napi_type_tag_util::kHexLength &&
+            std::memcmp(actual, expected, napi_type_tag_util::kHexLength) == 0;
   return napi_ok;
 }
 

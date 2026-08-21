@@ -758,10 +758,11 @@ class Symbol : public Name {
 
 class TypeTaggable : public Value {
  public:
-#if NAPI_VERSION >= 8
+  // [BABYLON-NATIVE-ADDITION]: exposed unconditionally, see napi_type_tag in
+  // js_native_api_types.h.
   void TypeTag(const napi_type_tag* type_tag) const;
   bool CheckTypeTag(const napi_type_tag* type_tag) const;
-#endif  // NAPI_VERSION >= 8
+
  protected:
   TypeTaggable();
   TypeTaggable(napi_env env, napi_value value);
