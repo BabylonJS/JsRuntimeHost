@@ -248,7 +248,14 @@ namespace Babylon
         // Nudge the dispatcher whenever V8 posts foreground work for this isolate, so the
         // pump in DrainMicrotasks gets a chance to run it even when the app is otherwise
         // idle (no render loop, no timers). The flag collapses bursts of posts into a single
-        // pending wake-up; it is cleared once that wake-up has been serviced.
+        // pending wake-up.
+        //
+        // The flag must be cleared in the dispatched callback, which Dispatch runs *before*
+        // DrainMicrotasks pumps. Clearing it afterwards instead would lose wake-ups: a task
+        // posted between the pump draining the queue and the flag being cleared would find
+        // the flag still set, skip the dispatch, and then sit in the queue with nothing
+        // scheduled to pump it. Clearing first can only ever cost one redundant no-op
+        // dispatch, because such a post is already covered by the pump that follows.
         auto wakePending = std::make_shared<std::atomic_bool>(false);
         Module::Instance().Platform().SetWake(isolate, [this, wakePending]() {
             if (wakePending->exchange(true))
