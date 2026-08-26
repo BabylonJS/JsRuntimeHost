@@ -2,6 +2,16 @@
 #include <napi/env.h>
 
 #include <libplatform/libplatform.h>
+#include <v8-version.h>
+
+// Android builds against V8 11.0, desktop against 11.9. A few v8::Platform members below do not
+// exist in 11.0, and overriding a method the base class does not declare is a hard error, so they
+// are gated. Where a member is gated out, v8::Platform's own default is used instead of forwarding
+// to the inner platform; all of them are optional hooks whose defaults are benign (null allocator,
+// null blocking scope, clock values derived from CurrentClockTimeMillis).
+#define JSRH_V8_AT_LEAST(major, minor) \
+    (V8_MAJOR_VERSION > (major) || (V8_MAJOR_VERSION == (major) && V8_MINOR_VERSION >= (minor)))
+
 
 #ifdef ENABLE_V8_INSPECTOR
 #include <V8InspectorAgent.h>
@@ -74,17 +84,24 @@ namespace Babylon
             }
 
             v8::PageAllocator* GetPageAllocator() override { return m_inner->GetPageAllocator(); }
+#if JSRH_V8_AT_LEAST(11, 9)
             v8::ThreadIsolatedAllocator* GetThreadIsolatedAllocator() override { return m_inner->GetThreadIsolatedAllocator(); }
+#endif
             v8::ZoneBackingAllocator* GetZoneBackingAllocator() override { return m_inner->GetZoneBackingAllocator(); }
             void OnCriticalMemoryPressure() override { m_inner->OnCriticalMemoryPressure(); }
             int NumberOfWorkerThreads() override { return m_inner->NumberOfWorkerThreads(); }
 
             std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(v8::Isolate* isolate) override
             {
-                return GetForegroundTaskRunner(isolate, v8::TaskPriority::kUserBlocking);
+                return WrapForegroundTaskRunner(isolate);
             }
 
-            std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(v8::Isolate* isolate, v8::TaskPriority priority) override;
+#if JSRH_V8_AT_LEAST(11, 9)
+            std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(v8::Isolate* isolate, v8::TaskPriority) override
+            {
+                return WrapForegroundTaskRunner(isolate);
+            }
+#endif
 
             void CallOnWorkerThread(std::unique_ptr<v8::Task> task) override { m_inner->CallOnWorkerThread(std::move(task)); }
             void CallBlockingTaskOnWorkerThread(std::unique_ptr<v8::Task> task) override { m_inner->CallBlockingTaskOnWorkerThread(std::move(task)); }
@@ -93,17 +110,25 @@ namespace Babylon
             bool IdleTasksEnabled(v8::Isolate* isolate) override { return m_inner->IdleTasksEnabled(isolate); }
             std::unique_ptr<v8::JobHandle> PostJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> jobTask) override { return m_inner->PostJob(priority, std::move(jobTask)); }
             std::unique_ptr<v8::JobHandle> CreateJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> jobTask) override { return m_inner->CreateJob(priority, std::move(jobTask)); }
+#if JSRH_V8_AT_LEAST(11, 9)
             std::unique_ptr<v8::ScopedBlockingCall> CreateBlockingScope(v8::BlockingType blockingType) override { return m_inner->CreateBlockingScope(blockingType); }
+#endif
             double MonotonicallyIncreasingTime() override { return m_inner->MonotonicallyIncreasingTime(); }
+#if JSRH_V8_AT_LEAST(11, 9)
             int64_t CurrentClockTimeMilliseconds() override { return m_inner->CurrentClockTimeMilliseconds(); }
+#endif
             double CurrentClockTimeMillis() override { return m_inner->CurrentClockTimeMillis(); }
+#if JSRH_V8_AT_LEAST(11, 9)
             double CurrentClockTimeMillisecondsHighResolution() override { return m_inner->CurrentClockTimeMillisecondsHighResolution(); }
+#endif
             StackTracePrinter GetStackTracePrinter() override { return m_inner->GetStackTracePrinter(); }
             v8::TracingController* GetTracingController() override { return m_inner->GetTracingController(); }
             void DumpWithoutCrashing() override { m_inner->DumpWithoutCrashing(); }
             v8::HighAllocationThroughputObserver* GetHighAllocationThroughputObserver() override { return m_inner->GetHighAllocationThroughputObserver(); }
 
         private:
+            std::shared_ptr<v8::TaskRunner> WrapForegroundTaskRunner(v8::Isolate* isolate);
+
             std::unique_ptr<v8::Platform> m_inner;
             std::mutex m_mutex;
             std::map<v8::Isolate*, std::function<void()>> m_wakes;
@@ -159,12 +184,12 @@ namespace Babylon
             v8::Isolate* m_isolate;
         };
 
-        std::shared_ptr<v8::TaskRunner> DispatchingPlatform::GetForegroundTaskRunner(v8::Isolate* isolate, v8::TaskPriority)
+        std::shared_ptr<v8::TaskRunner> DispatchingPlatform::WrapForegroundTaskRunner(v8::Isolate* isolate)
         {
-            // The priority-aware overload is not implemented by libplatform's DefaultPlatform in
-            // this V8 version - the base class default returns nullptr - so always ask the inner
-            // platform for the plain per-isolate runner. The wrapper is cached because V8 calls
-            // this often and hands the result around by pointer.
+            // Always ask the inner platform for the plain per-isolate runner: libplatform's
+            // DefaultPlatform does not implement the priority-aware overload in either V8 version
+            // we build against. The wrapper is cached because V8 calls this often and hands the
+            // result around by pointer.
             std::scoped_lock lock{m_mutex};
             auto& runner = m_taskRunners[isolate];
             if (!runner)
