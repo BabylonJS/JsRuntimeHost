@@ -13,6 +13,7 @@
 #include <system_error>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #include <Windows.h>
@@ -50,6 +51,10 @@ namespace
         std::future<void> Completion{};
         std::thread Reader{};
     };
+
+    // Drain futures retained after Stop() times out and detaches the reader.
+    // Start() reaps these before installing a new redirection.
+    std::vector<std::future<void>> g_outstandingDrains{};
 
 #if defined(_WIN32)
     void IgnoreInvalidParameter(
@@ -221,63 +226,74 @@ namespace
 
     void Drain(int readFd, int originalFd, Stream stream)
     {
-        constexpr size_t MAX_PLATFORM_LINE_SIZE{3800};
-        std::array<char, 1024> buffer{};
-        std::string pending{};
+            // Cap mirrored lines below typical platform limits:
+            // OutputDebugStringA (~4 KiB practical), Android logcat (~4 KiB),
+            // and Apple os_log payload limits. Leave headroom under 4096.
+            constexpr size_t MAX_PLATFORM_LINE_SIZE{3800};
+            std::array<char, 1024> buffer{};
+            std::string pending{};
 
-        for (;;)
-        {
-            const auto count = Read(readFd, buffer.data(), buffer.size());
-            if (count == 0)
-            {
-                break;
-            }
-            if (count < 0)
-            {
-                if (errno == EINTR)
-                {
-                    continue;
-                }
-                break;
-            }
-
-            const size_t size = static_cast<size_t>(count);
-            if (originalFd >= 0)
-            {
-                (void)WriteAll(originalFd, buffer.data(), size);
-            }
-
-            pending.append(buffer.data(), size);
             for (;;)
             {
-                const size_t newline = pending.find('\n');
-                if (newline != std::string::npos)
-                {
-                    EmitLine(stream, pending.substr(0, newline));
-                    pending.erase(0, newline + 1);
-                }
-                else if (pending.size() >= MAX_PLATFORM_LINE_SIZE)
-                {
-                    EmitLine(stream, pending.substr(0, MAX_PLATFORM_LINE_SIZE));
-                    pending.erase(0, MAX_PLATFORM_LINE_SIZE);
-                }
-                else
+                const auto count = Read(readFd, buffer.data(), buffer.size());
+                if (count == 0)
                 {
                     break;
                 }
+                if (count < 0)
+                {
+                    if (errno == EINTR)
+                    {
+                        continue;
+                    }
+                    break;
+                }
+
+                const size_t size = static_cast<size_t>(count);
+                if (originalFd >= 0)
+                {
+                    (void)WriteAll(originalFd, buffer.data(), size);
+                }
+
+                pending.append(buffer.data(), size);
+
+                // Consume complete lines via a start index so we only memmove once
+                // per read batch instead of on every newline.
+                size_t start = 0;
+                for (;;)
+                {
+                    const size_t newline = pending.find('\n', start);
+                    if (newline != std::string::npos)
+                    {
+                        EmitLine(stream, pending.substr(start, newline - start));
+                        start = newline + 1;
+                    }
+                    else if (pending.size() - start >= MAX_PLATFORM_LINE_SIZE)
+                    {
+                        EmitLine(stream, pending.substr(start, MAX_PLATFORM_LINE_SIZE));
+                        start += MAX_PLATFORM_LINE_SIZE;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                if (start != 0)
+                {
+                    pending.erase(0, start);
+                }
+            }
+
+            if (!pending.empty())
+            {
+                EmitLine(stream, std::move(pending));
+            }
+            (void)Close(readFd);
+            if (originalFd >= 0)
+            {
+                (void)Close(originalFd);
             }
         }
-
-        if (!pending.empty())
-        {
-            EmitLine(stream, std::move(pending));
-        }
-        (void)Close(readFd);
-        if (originalFd >= 0)
-        {
-            (void)Close(originalFd);
-        }
-    }
 
     bool OccupyTarget(int target)
     {
@@ -491,23 +507,54 @@ namespace
             }
             else
             {
-                channel.Reader.detach();
-                restored = false;
+                        // Detach so Stop can return, but keep the future so Start()
+                        // can refuse a restart until this drain actually finishes.
+                        // Otherwise a second Start() would spin up concurrent drains
+                        // and duplicate/out-of-order platform logging.
+                        g_outstandingDrains.push_back(std::move(channel.Completion));
+                        channel.Reader.detach();
+                        restored = false;
+                    }
+                }
+                channel = {};
+                return restored;
             }
-        }
-        channel = {};
-        return restored;
-    }
-#endif
 
-    std::mutex g_mutex{};
-    bool g_started{};
-    bool g_exitHandlerRegistered{};
-#if defined(_WIN32) || defined(__ANDROID__) || defined(__APPLE__)
-    Channel g_stdout{};
-    Channel g_stderr{};
-#endif
-}
+            // Drop completed drains; optionally wait up to `timeout` for the rest.
+            // Returns true only when no outstanding drains remain.
+            bool ReapOutstandingDrains(std::chrono::milliseconds timeout)
+            {
+                const auto deadline = std::chrono::steady_clock::now() + timeout;
+                while (!g_outstandingDrains.empty())
+                {
+                    auto& front = g_outstandingDrains.front();
+                    const auto remaining = deadline - std::chrono::steady_clock::now();
+                    if (remaining <= std::chrono::milliseconds::zero())
+                    {
+                        if (front.wait_for(std::chrono::milliseconds::zero()) != std::future_status::ready)
+                        {
+                            return false;
+                        }
+                    }
+                    else if (front.wait_for(remaining) != std::future_status::ready)
+                    {
+                        return false;
+                    }
+
+                    g_outstandingDrains.erase(g_outstandingDrains.begin());
+                }
+                return true;
+            }
+        #endif
+
+        std::mutex g_mutex{};
+            bool g_started{};
+            bool g_exitHandlerRegistered{};
+        #if defined(_WIN32) || defined(__ANDROID__) || defined(__APPLE__)
+            Channel g_stdout{};
+            Channel g_stderr{};
+        #endif
+        }
 
 namespace Babylon::StandardStreamLogger
 {
@@ -520,21 +567,29 @@ namespace Babylon::StandardStreamLogger
         }
 
 #if defined(_WIN32) || defined(__ANDROID__) || defined(__APPLE__)
-        std::cout.flush();
-        std::cerr.flush();
-        std::fflush(stdout);
-        std::fflush(stderr);
+            // A prior Stop() may have detached drain threads after timeout. Do not
+            // redirect again until those finish; otherwise concurrent drains can
+            // duplicate platform logs against the restored (or newly teed) streams.
+            if (!ReapOutstandingDrains(std::chrono::seconds{2}))
+            {
+                return false;
+            }
 
-        if (!StartChannel(g_stdout, 1, Stream::Output))
-        {
-            return false;
-        }
-        if (!StartChannel(g_stderr, 2, Stream::Error))
-        {
-            (void)StopChannel(g_stdout);
-            return false;
-        }
-#endif
+            std::cout.flush();
+            std::cerr.flush();
+            std::fflush(stdout);
+            std::fflush(stderr);
+
+            if (!StartChannel(g_stdout, 1, Stream::Output))
+            {
+                return false;
+            }
+            if (!StartChannel(g_stderr, 2, Stream::Error))
+            {
+                (void)StopChannel(g_stdout);
+                return false;
+            }
+    #endif
 
         if (!g_exitHandlerRegistered)
         {

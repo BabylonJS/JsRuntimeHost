@@ -24,5 +24,14 @@ namespace Babylon::StandardStreamLogger
      */
     bool BABYLON_API Stop();
 
-    bool BABYLON_API IsStarted();
-}
+        /**
+         * Returns whether Start() has successfully begun process-wide forwarding and
+         * Stop() has not yet completed.
+         *
+         * This is the logical started flag, not a live probe of the underlying file
+         * descriptors. On platforms that leave stdout/stderr unchanged (plain Linux
+         * and other non-Android Unix hosts), Start() still succeeds and IsStarted()
+         * reports true even though no redirection was installed.
+         */
+        bool BABYLON_API IsStarted();
+    }

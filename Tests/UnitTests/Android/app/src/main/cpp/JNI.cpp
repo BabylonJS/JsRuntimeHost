@@ -31,7 +31,12 @@ Java_com_jsruntimehost_unittests_Native_javaScriptTests(JNIEnv* env, jclass claz
     auto testResult = RunTests();
 
     const bool loggerStopped = Babylon::StandardStreamLogger::Stop();
+        if (!loggerStopped)
+        {
+            __android_log_write(ANDROID_LOG_ERROR, "JsRuntimeHost",
+                "Failed to stop standard-stream forwarding (restore or drain timeout).");
+        }
 
-    java::websocket::WebSocketClient::DestructJavaWebSocketClass(env);
-    return loggerStopped ? testResult : -1;
-}
+        java::websocket::WebSocketClient::DestructJavaWebSocketClass(env);
+        return loggerStopped ? testResult : -1;
+    }
