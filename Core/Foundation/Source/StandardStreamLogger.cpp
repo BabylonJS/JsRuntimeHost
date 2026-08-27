@@ -18,6 +18,7 @@
 #include <Windows.h>
 #include <fcntl.h>
 #include <io.h>
+#include <share.h>
 #elif defined(__ANDROID__)
 #include <android/log.h>
 #include <fcntl.h>
@@ -87,7 +88,36 @@ namespace
 
     int CreatePipe(int fds[2])
     {
-        return ::_pipe(fds, 4096, _O_BINARY | _O_NOINHERIT);
+        // UWP's CRT does not expose _pipe. CreatePipe + _open_osfhandle works on
+        // desktop Win32 and UWP, and keeps the ends non-inheritable.
+        SECURITY_ATTRIBUTES attributes{};
+        attributes.nLength = sizeof(attributes);
+        attributes.bInheritHandle = FALSE;
+
+        HANDLE readHandle{INVALID_HANDLE_VALUE};
+        HANDLE writeHandle{INVALID_HANDLE_VALUE};
+        if (!::CreatePipe(&readHandle, &writeHandle, &attributes, 4096))
+        {
+            return -1;
+        }
+
+        fds[0] = ::_open_osfhandle(reinterpret_cast<intptr_t>(readHandle), _O_BINARY);
+        if (fds[0] < 0)
+        {
+            (void)::CloseHandle(readHandle);
+            (void)::CloseHandle(writeHandle);
+            return -1;
+        }
+
+        fds[1] = ::_open_osfhandle(reinterpret_cast<intptr_t>(writeHandle), _O_BINARY);
+        if (fds[1] < 0)
+        {
+            (void)::_close(fds[0]);
+            (void)::CloseHandle(writeHandle);
+            return -1;
+        }
+
+        return 0;
     }
 
     intptr_t GetOsHandle(int fd)
@@ -249,14 +279,19 @@ namespace
     bool OccupyTarget(int target)
     {
 #if defined(_WIN32)
-        const int nullFd = ::_open("NUL", _O_WRONLY | _O_BINARY);
+        // Prefer the secure CRT form; UWP treats the deprecated _open as an error.
+        int nullFd{-1};
+        if (::_sopen_s(&nullFd, "NUL", _O_WRONLY | _O_BINARY, _SH_DENYNO, 0) != 0)
+        {
+            return false;
+        }
 #else
         const int nullFd = ::open("/dev/null", O_WRONLY);
-#endif
         if (nullFd < 0)
         {
             return false;
         }
+#endif
         if (nullFd == target)
         {
             return true;

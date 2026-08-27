@@ -179,10 +179,11 @@ TEST(StandardStreamLogger, Lifecycle)
     const bool isStarted = Babylon::StandardStreamLogger::IsStarted();
     const bool secondStart = Babylon::StandardStreamLogger::Start();
 
+    // Only exercise stdout here. iOS CI captures simctl launch stderr as the
+    // process exit code (`2> /tmp/exitCode`), so writing to stderr would corrupt
+    // that handshake even when the tests themselves succeed.
     std::fputs("StandardStreamLogger stdout test", stdout);
     std::fflush(stdout);
-    std::fputs("StandardStreamLogger stderr test\n", stderr);
-    std::fflush(stderr);
 
     const bool stopped = Babylon::StandardStreamLogger::Stop();
     const std::string captured = capture.ReadAndRestore();
