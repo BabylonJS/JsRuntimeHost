@@ -159,7 +159,10 @@ namespace
         {
             return -1;
         }
-        if (::fcntl(fds[0], F_SETFD, FD_CLOEXEC) != 0)
+        // Mark both ends CLOEXEC. Leaving the write end inheritable would let a
+        // concurrent exec keep the pipe open and delay Drain()'s EOF on Stop().
+        if (::fcntl(fds[0], F_SETFD, FD_CLOEXEC) != 0 ||
+            ::fcntl(fds[1], F_SETFD, FD_CLOEXEC) != 0)
         {
             const int error = errno;
             (void)::close(fds[0]);
