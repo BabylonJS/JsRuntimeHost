@@ -1,17 +1,22 @@
 #include "StandardStreamLoggerPlatform.h"
 
 #include <android/log.h>
+#include <cerrno>
+#include <cstdint>
 #include <string>
 
-// Android mirrors drained lines to logcat. The tee/redirect machinery is shared
-// with Apple via StandardStreamLogger_Posix.inl.
-#define SSL_WRITE_PLATFORM(stream, line)                                      \
-    do                                                                        \
-    {                                                                         \
-        const int priority = (stream) == Stream::Error                        \
-            ? ANDROID_LOG_ERROR                                               \
-            : ANDROID_LOG_INFO;                                               \
-        __android_log_write(priority, "JsRuntimeHost", (line).c_str());       \
-    } while (0)
+#include <fcntl.h>
+#include <unistd.h>
 
-#include "StandardStreamLogger_Posix.inl"
+namespace
+{
+#include "StandardStreamLogger_PosixOps.inl"
+
+    void OsWritePlatform(bool isError, const std::string& line)
+    {
+        const int priority = isError ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO;
+        __android_log_write(priority, "JsRuntimeHost", line.c_str());
+    }
+}
+
+#include "StandardStreamLogger_Shared.inl"

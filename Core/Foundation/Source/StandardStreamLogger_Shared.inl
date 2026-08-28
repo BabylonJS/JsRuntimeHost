@@ -1,5 +1,18 @@
-// Shared POSIX redirection body for Android and Apple.
-// The including TU must define SSL_WRITE_PLATFORM(stream, line) before include.
+// Shared stdout/stderr tee + drain implementation.
+//
+// Platform TUs define these in the enclosing anonymous namespace, then include:
+//   struct ChannelPlatformState { ... };
+//   int OsDuplicate(int fd);
+//   int OsDuplicateTo(int source, int target);
+//   int OsClose(int fd);
+//   int64_t OsRead(int fd, void* data, size_t size);
+//   int64_t OsWrite(int fd, const void* data, size_t size);
+//   int OsCreatePipe(int fds[2]);
+//   bool OsOccupyTarget(int target);
+//   void OsWritePlatform(bool isError, const std::string& line);
+//   bool OsOnStartChannel(ChannelPlatformState& state, int target, bool isError);
+//   bool OsOnRedirected(ChannelPlatformState& state, int target);
+//   bool OsOnRestore(ChannelPlatformState& state, int target);
 
 #include <array>
 #include <cerrno>
@@ -14,9 +27,6 @@
 #include <utility>
 #include <vector>
 
-#include <fcntl.h>
-#include <unistd.h>
-
 namespace
 {
     enum class Stream
@@ -29,69 +39,22 @@ namespace
     {
         int Target{-1};
         int Original{-1};
+        ChannelPlatformState Platform{};
         std::future<void> Completion{};
         std::thread Reader{};
     };
 
+    // Drain futures retained after Stop() times out and detaches the reader.
+    // Start() reaps these before installing a new redirection.
     std::vector<std::future<void>> g_outstandingDrains{};
     Channel g_stdout{};
     Channel g_stderr{};
-
-    int Duplicate(int fd)
-    {
-        return ::dup(fd);
-    }
-
-    int DuplicateTo(int source, int target)
-    {
-        return ::dup2(source, target) < 0 ? -1 : 0;
-    }
-
-    int Close(int fd)
-    {
-        return ::close(fd);
-    }
-
-    int64_t Read(int fd, void* data, size_t size)
-    {
-        return ::read(fd, data, size);
-    }
-
-    int64_t Write(int fd, const void* data, size_t size)
-    {
-        return ::write(fd, data, size);
-    }
-
-    int CreatePipe(int fds[2])
-    {
-        if (::pipe(fds) != 0)
-        {
-            return -1;
-        }
-        // Mark both ends CLOEXEC. Leaving the write end inheritable would let a
-        // concurrent exec keep the pipe open and delay Drain()'s EOF on Stop().
-        if (::fcntl(fds[0], F_SETFD, FD_CLOEXEC) != 0 ||
-            ::fcntl(fds[1], F_SETFD, FD_CLOEXEC) != 0)
-        {
-            const int error = errno;
-            (void)::close(fds[0]);
-            (void)::close(fds[1]);
-            errno = error;
-            return -1;
-        }
-        return 0;
-    }
-
-    void WritePlatform(Stream stream, const std::string& line)
-    {
-        SSL_WRITE_PLATFORM(stream, line);
-    }
 
     bool WriteAll(int fd, const char* data, size_t size)
     {
         while (size != 0)
         {
-            const auto written = Write(fd, data, size);
+            const auto written = OsWrite(fd, data, size);
             if (written > 0)
             {
                 data += written;
@@ -113,20 +76,20 @@ namespace
         {
             line.pop_back();
         }
-        WritePlatform(stream, line);
+        OsWritePlatform(stream == Stream::Error, line);
     }
 
     void Drain(int readFd, int originalFd, Stream stream)
     {
-        // Cap mirrored lines below typical platform limits:
-        // Android logcat (~4 KiB) and Apple os_log payloads. Leave headroom under 4096.
+        // Cap mirrored lines below typical platform limits (~4 KiB for
+        // OutputDebugStringA / logcat / os_log). Leave headroom under 4096.
         constexpr size_t MAX_PLATFORM_LINE_SIZE{3800};
         std::array<char, 1024> buffer{};
         std::string pending{};
 
         for (;;)
         {
-            const auto count = Read(readFd, buffer.data(), buffer.size());
+            const auto count = OsRead(readFd, buffer.data(), buffer.size());
             if (count == 0)
             {
                 break;
@@ -148,6 +111,8 @@ namespace
 
             pending.append(buffer.data(), size);
 
+            // Consume complete lines via a start index so we only memmove once
+            // per read batch instead of on every newline.
             size_t start = 0;
             for (;;)
             {
@@ -177,88 +142,103 @@ namespace
         {
             EmitLine(stream, std::move(pending));
         }
-        (void)Close(readFd);
+        (void)OsClose(readFd);
         if (originalFd >= 0)
         {
-            (void)Close(originalFd);
+            (void)OsClose(originalFd);
         }
     }
 
-    bool OccupyTarget(int target)
+    void RollbackRedirect(Channel& channel, int pipeReadFd, int readerOriginal)
     {
-        const int nullFd = ::open("/dev/null", O_WRONLY);
-        if (nullFd < 0)
+        if (channel.Original >= 0)
         {
-            return false;
+            (void)OsDuplicateTo(channel.Original, channel.Target);
+            (void)OsClose(channel.Original);
         }
-        if (nullFd == target)
+        else
         {
-            return true;
+            (void)OsClose(channel.Target);
         }
-
-        const bool duplicated = DuplicateTo(nullFd, target) == 0;
-        (void)Close(nullFd);
-        return duplicated;
+        (void)OsOnRestore(channel.Platform, channel.Target);
+        if (pipeReadFd >= 0)
+        {
+            (void)OsClose(pipeReadFd);
+        }
+        if (readerOriginal >= 0)
+        {
+            (void)OsClose(readerOriginal);
+        }
+        channel = {};
     }
 
     bool StartChannel(Channel& channel, int target, Stream stream)
     {
         channel.Target = target;
+        if (!OsOnStartChannel(channel.Platform, target, stream == Stream::Error))
+        {
+            channel = {};
+            return false;
+        }
+
         errno = 0;
-        channel.Original = Duplicate(target);
+        channel.Original = OsDuplicate(target);
         if (channel.Original < 0 && errno != EBADF)
         {
             channel = {};
             return false;
         }
-        if (channel.Original < 0 && !OccupyTarget(target))
+        if (channel.Original < 0 && !OsOccupyTarget(target))
         {
             channel = {};
             return false;
         }
 
         int pipeFds[2]{-1, -1};
-        if (CreatePipe(pipeFds) != 0)
+        if (OsCreatePipe(pipeFds) != 0)
         {
             if (channel.Original >= 0)
             {
-                (void)Close(channel.Original);
+                (void)OsClose(channel.Original);
             }
             else
             {
-                (void)Close(target);
+                (void)OsClose(target);
             }
             channel = {};
             return false;
         }
 
-        if (DuplicateTo(pipeFds[1], target) != 0)
+        if (OsDuplicateTo(pipeFds[1], target) != 0)
         {
-            (void)Close(pipeFds[0]);
-            (void)Close(pipeFds[1]);
+            (void)OsClose(pipeFds[0]);
+            (void)OsClose(pipeFds[1]);
             if (channel.Original >= 0)
             {
-                (void)Close(channel.Original);
+                (void)OsClose(channel.Original);
             }
             else
             {
-                (void)Close(target);
+                (void)OsClose(target);
             }
             channel = {};
             return false;
         }
-        (void)Close(pipeFds[1]);
+        (void)OsClose(pipeFds[1]);
+
+        if (!OsOnRedirected(channel.Platform, target))
+        {
+            RollbackRedirect(channel, pipeFds[0], -1);
+            return false;
+        }
 
         int readerOriginal{-1};
         if (channel.Original >= 0)
         {
-            readerOriginal = Duplicate(channel.Original);
+            readerOriginal = OsDuplicate(channel.Original);
             if (readerOriginal < 0)
             {
-                (void)DuplicateTo(channel.Original, target);
-                (void)Close(channel.Original);
-                (void)Close(pipeFds[0]);
-                channel = {};
+                RollbackRedirect(channel, pipeFds[0], -1);
                 return false;
             }
         }
@@ -275,21 +255,7 @@ namespace
         }
         catch (const std::system_error&)
         {
-            if (channel.Original >= 0)
-            {
-                (void)DuplicateTo(channel.Original, target);
-                (void)Close(channel.Original);
-            }
-            else
-            {
-                (void)Close(target);
-            }
-            (void)Close(pipeFds[0]);
-            if (readerOriginal >= 0)
-            {
-                (void)Close(readerOriginal);
-            }
-            channel = {};
+            RollbackRedirect(channel, pipeFds[0], readerOriginal);
             return false;
         }
         return true;
@@ -300,20 +266,22 @@ namespace
         bool restored{true};
         if (channel.Original >= 0)
         {
-            restored = DuplicateTo(channel.Original, channel.Target) == 0;
+            restored = OsDuplicateTo(channel.Original, channel.Target) == 0;
             if (!restored)
             {
-                (void)Close(channel.Target);
+                (void)OsClose(channel.Target);
             }
         }
         else
         {
-            restored = Close(channel.Target) == 0;
+            restored = OsClose(channel.Target) == 0;
         }
+
+        restored = OsOnRestore(channel.Platform, channel.Target) && restored;
 
         if (channel.Original >= 0)
         {
-            (void)Close(channel.Original);
+            (void)OsClose(channel.Original);
         }
 
         if (channel.Reader.joinable())
@@ -324,6 +292,8 @@ namespace
             }
             else
             {
+                // Detach so Stop can return, but keep the future so Start()
+                // can refuse a restart until this drain actually finishes.
                 g_outstandingDrains.push_back(std::move(channel.Completion));
                 channel.Reader.detach();
                 restored = false;

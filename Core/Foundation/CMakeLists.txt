@@ -6,21 +6,21 @@ set(SOURCES
     "Source/DebugTrace.cpp"
     "Source/PerfTrace.cpp"
     "Source/StandardStreamLogger.cpp"
-    "Source/StandardStreamLoggerPlatform.h")
+    "Source/StandardStreamLoggerPlatform.h"
+    "Source/StandardStreamLogger_Shared.inl")
 
-# Match AppRuntime: shared API TU + one platform TU selected by JSRUNTIMEHOST_PLATFORM.
-# Windows (Win32/UWP) and POSIX (Android/Apple) keep their own redirect implementations;
-# plain Unix is a successful no-op because stdout/stderr already reach the environment.
+# Shared tee body (StandardStreamLogger_Shared.inl) + thin OS-ops platform TUs.
+# Match AppRuntime: one JSRUNTIMEHOST_PLATFORM implementation is compiled in.
 if(JSRUNTIMEHOST_PLATFORM STREQUAL "Win32" OR JSRUNTIMEHOST_PLATFORM STREQUAL "UWP")
     list(APPEND SOURCES "Source/StandardStreamLogger_Windows.cpp")
 elseif(JSRUNTIMEHOST_PLATFORM STREQUAL "Android")
     list(APPEND SOURCES
         "Source/StandardStreamLogger_Android.cpp"
-        "Source/StandardStreamLogger_Posix.inl")
+        "Source/StandardStreamLogger_PosixOps.inl")
 elseif(JSRUNTIMEHOST_PLATFORM STREQUAL "iOS" OR JSRUNTIMEHOST_PLATFORM STREQUAL "macOS")
     list(APPEND SOURCES
         "Source/StandardStreamLogger_Apple.cpp"
-        "Source/StandardStreamLogger_Posix.inl")
+        "Source/StandardStreamLogger_PosixOps.inl")
 else()
     list(APPEND SOURCES "Source/StandardStreamLogger_Unix.cpp")
 endif()
