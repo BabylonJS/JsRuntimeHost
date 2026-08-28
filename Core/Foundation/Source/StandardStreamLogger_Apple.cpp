@@ -10,6 +10,7 @@
 
 namespace
 {
+// POSIX fd helpers (dup/pipe/CLOEXEC/devnull); sink is OsWritePlatform below.
 #include "StandardStreamLogger_PosixOps.inl"
 
     void OsWritePlatform(bool isError, const std::string& line)

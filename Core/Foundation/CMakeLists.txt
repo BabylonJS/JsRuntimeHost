@@ -6,7 +6,11 @@ set(SOURCES
     "Source/DebugTrace.cpp"
     "Source/PerfTrace.cpp"
     "Source/StandardStreamLogger.cpp"
-    "Source/StandardStreamLoggerPlatform.h"
+    "Source/StandardStreamLoggerPlatform.h")
+
+# .inl bodies are #include'd by the platform TUs (not separate translation units).
+# List them in SOURCES only so IDEs/source_group show them next to the .cpp files.
+set(STREAM_LOGGER_INCLUDES
     "Source/StandardStreamLogger_Shared.inl")
 
 # Shared tee body (StandardStreamLogger_Shared.inl) + thin OS-ops platform TUs.
@@ -14,18 +18,21 @@ set(SOURCES
 if(JSRUNTIMEHOST_PLATFORM STREQUAL "Win32" OR JSRUNTIMEHOST_PLATFORM STREQUAL "UWP")
     list(APPEND SOURCES "Source/StandardStreamLogger_Windows.cpp")
 elseif(JSRUNTIMEHOST_PLATFORM STREQUAL "Android")
-    list(APPEND SOURCES
-        "Source/StandardStreamLogger_Android.cpp"
-        "Source/StandardStreamLogger_PosixOps.inl")
+    list(APPEND SOURCES "Source/StandardStreamLogger_Android.cpp")
+    list(APPEND STREAM_LOGGER_INCLUDES "Source/StandardStreamLogger_PosixOps.inl")
 elseif(JSRUNTIMEHOST_PLATFORM STREQUAL "iOS" OR JSRUNTIMEHOST_PLATFORM STREQUAL "macOS")
-    list(APPEND SOURCES
-        "Source/StandardStreamLogger_Apple.cpp"
-        "Source/StandardStreamLogger_PosixOps.inl")
+    list(APPEND SOURCES "Source/StandardStreamLogger_Apple.cpp")
+    list(APPEND STREAM_LOGGER_INCLUDES "Source/StandardStreamLogger_PosixOps.inl")
 else()
     list(APPEND SOURCES "Source/StandardStreamLogger_Unix.cpp")
 endif()
 
+list(APPEND SOURCES ${STREAM_LOGGER_INCLUDES})
+
 add_library(Foundation ${SOURCES})
+
+# Ensure generators never try to compile the .inl include bodies on their own.
+set_source_files_properties(${STREAM_LOGGER_INCLUDES} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 target_include_directories(Foundation
     PRIVATE "Include/Babylon"
