@@ -16,6 +16,13 @@ struct napi_env__ {
 
   JsPropertyIdRef wrap_property_id = JS_INVALID_REFERENCE;
 
+  // Type-tag store, created on first use. See js_native_api_type_tag.h for why
+  // this is a WeakMap held here rather than a property on the tagged object.
+  JsValueRef type_tag_map = JS_INVALID_REFERENCE;
+  JsValueRef type_tag_get = JS_INVALID_REFERENCE;
+  JsValueRef type_tag_set = JS_INVALID_REFERENCE;
+  JsValueRef type_tag_has = JS_INVALID_REFERENCE;
+
   // Escapable scope bookkeeping: token -> whether that scope has escaped. Values
   // are rooted by the engine rather than by a scope here, so this exists only to
   // honour the one-escape-per-scope rule and to reject tokens that are not open.

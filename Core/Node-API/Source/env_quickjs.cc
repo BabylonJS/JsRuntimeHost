@@ -107,6 +107,18 @@ namespace Napi
                 env_ptr->has_own_property_function = JS_UNDEFINED;
             }
 
+            if (!JS_IsUndefined(env_ptr->type_tag_map))
+            {
+                JS_FreeValue(env_ptr->context, env_ptr->type_tag_get);
+                JS_FreeValue(env_ptr->context, env_ptr->type_tag_set);
+                JS_FreeValue(env_ptr->context, env_ptr->type_tag_has);
+                JS_FreeValue(env_ptr->context, env_ptr->type_tag_map);
+                env_ptr->type_tag_get = JS_UNDEFINED;
+                env_ptr->type_tag_set = JS_UNDEFINED;
+                env_ptr->type_tag_has = JS_UNDEFINED;
+                env_ptr->type_tag_map = JS_UNDEFINED;
+            }
+
             // Free all remaining JSValues in the handle scope stack
             for (auto& ptr : env_ptr->handle_scope_stack)
             {

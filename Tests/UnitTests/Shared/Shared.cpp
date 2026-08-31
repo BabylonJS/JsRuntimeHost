@@ -826,6 +826,167 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
     EXPECT_TRUE(bothEscapesAccepted.get_future().get());
 }
 
+// Type tags are the only portable way to answer "is this JS object one of my
+// type". napi_unwrap returns void* and cannot distinguish one wrapped type from
+// another, so without a tag a call site that unwraps an object because its
+// prototype looks right reinterprets whatever native pointer it gets back.
+namespace
+{
+    constexpr napi_type_tag ALPHA_TAG{0x9b1d0e2a4c6f8071ULL, 0x35d7a9c1e3f50628ULL};
+    constexpr napi_type_tag BETA_TAG{0x2f4e6a8c0d1b3759ULL, 0x86420ace13579bdfULL};
+
+    class Alpha : public Napi::ObjectWrap<Alpha>
+    {
+    public:
+        static Napi::Function GetClass(Napi::Env env)
+        {
+            return DefineClass(env, "Alpha", {});
+        }
+
+        Alpha(const Napi::CallbackInfo& info)
+            : Napi::ObjectWrap<Alpha>{info}
+        {
+        }
+    };
+
+    class Beta : public Napi::ObjectWrap<Beta>
+    {
+    public:
+        static Napi::Function GetClass(Napi::Env env)
+        {
+            return DefineClass(env, "Beta", {});
+        }
+
+        Beta(const Napi::CallbackInfo& info)
+            : Napi::ObjectWrap<Beta>{info}
+        {
+        }
+    };
+
+    struct TypeTagResults
+    {
+        bool setupOk{false};
+        bool alphaMatchesOwnTag{false};
+        bool alphaRejectsOtherTag{false};
+        bool untaggedSiblingRejectsTag{false};
+        bool spoofStillUnwrapsToBeta{false};
+        bool spoofRejectsAlphaTag{false};
+        bool impostorRejectsAlphaTag{false};
+        bool impostorUnwrapRejected{false};
+        bool derivedUnwrapRejected{false};
+        bool retagRejected{false};
+        uint32_t ownNamesBefore{0};
+        uint32_t ownNamesAfter{1};
+        uint32_t ownSymbolsBefore{0};
+        uint32_t ownSymbolsAfter{1};
+    };
+}
+
+TEST(NodeApi, TypeTags)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<TypeTagResults> resultsPromise;
+
+    runtime.Dispatch([&resultsPromise](Napi::Env env) mutable {
+        TypeTagResults results{};
+        napi_env nenv{env};
+
+        Napi::Object objectCtor{env.Global().Get("Object").As<Napi::Object>()};
+        Napi::Function create{objectCtor.Get("create").As<Napi::Function>()};
+        Napi::Function setPrototypeOf{objectCtor.Get("setPrototypeOf").As<Napi::Function>()};
+        Napi::Function getOwnPropertyNames{objectCtor.Get("getOwnPropertyNames").As<Napi::Function>()};
+        Napi::Function getOwnPropertySymbols{objectCtor.Get("getOwnPropertySymbols").As<Napi::Function>()};
+
+        const auto countOwn = [](Napi::Function& lister, Napi::Object& target) {
+            return lister.Call({target}).As<Napi::Array>().Length();
+        };
+
+        Napi::Function alphaCtor{Alpha::GetClass(env)};
+        Napi::Function betaCtor{Beta::GetClass(env)};
+        Napi::Object alphaPrototype{alphaCtor.Get("prototype").As<Napi::Object>()};
+
+        Napi::Object alpha{alphaCtor.New({})};
+        Napi::Object sibling{alphaCtor.New({})};
+        Napi::Object beta{betaCtor.New({})};
+
+        void* alphaData{nullptr};
+        void* betaData{nullptr};
+        if (napi_unwrap(nenv, alpha, &alphaData) != napi_ok ||
+            napi_unwrap(nenv, beta, &betaData) != napi_ok ||
+            alphaData == nullptr || betaData == nullptr || alphaData == betaData)
+        {
+            resultsPromise.set_value(results);
+            return;
+        }
+
+        results.ownNamesBefore = countOwn(getOwnPropertyNames, alpha);
+        results.ownSymbolsBefore = countOwn(getOwnPropertySymbols, alpha);
+
+        if (napi_type_tag_object(nenv, alpha, &ALPHA_TAG) != napi_ok ||
+            napi_type_tag_object(nenv, beta, &BETA_TAG) != napi_ok)
+        {
+            resultsPromise.set_value(results);
+            return;
+        }
+
+        results.setupOk = true;
+
+        results.ownNamesAfter = countOwn(getOwnPropertyNames, alpha);
+        results.ownSymbolsAfter = countOwn(getOwnPropertySymbols, alpha);
+
+        results.alphaMatchesOwnTag = alpha.CheckTypeTag(&ALPHA_TAG);
+        results.alphaRejectsOtherTag = !alpha.CheckTypeTag(&BETA_TAG);
+
+        // The tag belongs to the instance, not to the class, so another Alpha
+        // that was never tagged must not inherit it through the prototype.
+        results.untaggedSiblingRejectsTag = !sibling.CheckTypeTag(&ALPHA_TAG);
+
+        results.retagRejected = napi_type_tag_object(nenv, alpha, &ALPHA_TAG) != napi_ok;
+
+        // A genuinely wrapped Beta wearing Alpha's prototype. napi_unwrap
+        // succeeds and hands back Beta's pointer, because the object really is
+        // wrapped -- so only the tag can stop an Alpha call site using it.
+        setPrototypeOf.Call({beta, alphaPrototype});
+        void* spoofData{nullptr};
+        results.spoofStillUnwrapsToBeta =
+            napi_unwrap(nenv, beta, &spoofData) == napi_ok && spoofData == betaData;
+        results.spoofRejectsAlphaTag = !beta.CheckTypeTag(&ALPHA_TAG);
+
+        // Never wrapped at all.
+        Napi::Object impostor{create.Call({alphaPrototype}).As<Napi::Object>()};
+        results.impostorRejectsAlphaTag = !impostor.CheckTypeTag(&ALPHA_TAG);
+        void* impostorData{nullptr};
+        results.impostorUnwrapRejected = napi_unwrap(nenv, impostor, &impostorData) != napi_ok;
+
+        // Also never wrapped, but with a wrapped object on its prototype chain:
+        // an unwrap that searches the chain hands back Alpha's pointer.
+        Napi::Object derived{create.Call({alpha}).As<Napi::Object>()};
+        void* derivedData{nullptr};
+        results.derivedUnwrapRejected = napi_unwrap(nenv, derived, &derivedData) != napi_ok;
+
+        resultsPromise.set_value(results);
+    });
+
+    const TypeTagResults results{resultsPromise.get_future().get()};
+
+    ASSERT_TRUE(results.setupOk);
+    EXPECT_TRUE(results.alphaMatchesOwnTag);
+    EXPECT_TRUE(results.alphaRejectsOtherTag);
+    EXPECT_TRUE(results.untaggedSiblingRejectsTag);
+    EXPECT_TRUE(results.retagRejected);
+    EXPECT_TRUE(results.spoofStillUnwrapsToBeta);
+    EXPECT_TRUE(results.spoofRejectsAlphaTag);
+    EXPECT_TRUE(results.impostorRejectsAlphaTag);
+    EXPECT_TRUE(results.impostorUnwrapRejected);
+    EXPECT_TRUE(results.derivedUnwrapRejected);
+
+    // Tagging must not add anything script can see: an own property, even under
+    // a symbol, can be read off a real instance and replayed onto a spoofed one.
+    EXPECT_EQ(results.ownNamesBefore, results.ownNamesAfter);
+    EXPECT_EQ(results.ownSymbolsBefore, results.ownSymbolsAfter);
+}
+
 #endif
 
 int RunTests()
