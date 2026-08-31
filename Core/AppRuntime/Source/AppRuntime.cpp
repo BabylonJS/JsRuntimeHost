@@ -84,7 +84,10 @@ namespace Babylon
 
         while (!m_impl->m_cancelSource.cancelled())
         {
-            m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
+            if (m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource))
+            {
+                DrainPostDispatchWork(env);
+            }
         }
 
         // The dispatcher can be non-empty if something is dispatched after cancellation.

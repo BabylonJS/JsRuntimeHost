@@ -24,6 +24,9 @@ add_library(UnitTestsJNI SHARED
 
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+    target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_V8)
+endif()
 
 target_include_directories(UnitTestsJNI
     PRIVATE ${UNIT_TESTS_DIR})

@@ -64,4 +64,8 @@ namespace Babylon
         {
         }
     }
+
+    void AppRuntime::DrainPostDispatchWork(Napi::Env)
+    {
+    }
 }

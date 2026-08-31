@@ -28,4 +28,8 @@ namespace Babylon
     {
         // JavaScriptCore drains microtasks automatically at script boundaries.
     }
+
+    void AppRuntime::DrainPostDispatchWork(Napi::Env)
+    {
+    }
 }
