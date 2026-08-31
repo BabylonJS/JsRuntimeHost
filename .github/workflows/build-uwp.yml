@@ -12,7 +12,8 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2022
+    # See build-win32.yml for why the image label is pinned explicitly.
+    runs-on: windows-2025-vs2026
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
