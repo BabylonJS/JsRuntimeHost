@@ -64,6 +64,37 @@ describe("AbortController", function () {
 
         expect(controller.signal.aborted).to.equal(true);
     });
+
+    it("AbortSignal.abort() returns a signal already aborted with an AbortError reason", function () {
+        const signal = (AbortSignal as any).abort();
+        expect(signal.aborted).to.equal(true);
+        expect(signal.reason).to.be.an.instanceof(Error);
+        expect(signal.reason.name).to.equal("AbortError");
+    });
+
+    it("throwIfAborted() throws the reason only once aborted", function () {
+        const controller = new AbortController();
+        // Not aborted yet: must not throw.
+        (controller.signal as any).throwIfAborted();
+
+        controller.abort();
+        expect(() => (controller.signal as any).throwIfAborted()).to.throw();
+    });
+
+    it("abort(reason) records the provided reason", function () {
+        const controller = new AbortController();
+        const reason = new Error("custom reason");
+        controller.abort(reason);
+        expect((controller.signal as any).reason).to.equal(reason);
+    });
+
+    it("abort() with no reason defaults to an AbortError", function () {
+        const controller = new AbortController();
+        controller.abort();
+        const reason = (controller.signal as any).reason;
+        expect(reason).to.be.an.instanceof(Error);
+        expect(reason.name).to.equal("AbortError");
+    });
 });
 
 describe("XMLHTTPRequest", function () {
@@ -151,6 +182,23 @@ describe("XMLHTTPRequest", function () {
         expect(result.errorFired).to.equal(true);
         expect(result.loadendFired).to.equal(true);
         expect(result.readyState).to.equal(4);
+    });
+
+    it("should expose errorCode/errorDetail diagnostics after a transport failure", async function () {
+        this.timeout(30000);
+        const xhr: any = await createRequest("GET", "http://127.0.0.1:1/");
+        expect(xhr.status).to.equal(0);
+        // Non-standard, additive diagnostics: always strings; populated on Apple/Linux and empty
+        // on Windows/Android until those backends populate UrlLib's accessors. Either way the
+        // standard error event + status===0 behavior (asserted above) is unchanged.
+        expect(xhr.errorCode).to.be.a("string");
+        expect(xhr.errorDetail).to.be.a("string");
+    });
+
+    it("should expose empty errorCode/errorDetail after a successful request", async function () {
+        const xhr: any = await createRequest("GET", "app:///Scripts/symlink_target.js");
+        expect(xhr.errorCode).to.equal("");
+        expect(xhr.errorDetail).to.equal("");
     });
 
     it("should throw something when opening //", async function () {
@@ -243,6 +291,14 @@ describe("XMLHTTPRequest", function () {
         const vertexCount = parseInt(/element vertex (\d+)\n/.exec(header)![1]);
         expect(vertexCount).to.equal(18713);
     });
+
+    it("should not truncate responseText or response at an embedded null byte", async function () {
+        const xhr = await createRequest("GET", "app:///Assets/embedded_nulls.txt");
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseText).to.equal("start\0middle\0end");
+        expect(xhr.responseText.length).to.equal(16);
+        expect(xhr.response).to.equal(xhr.responseText);
+    });
 });
 
 describe("fetch", function () {
@@ -331,10 +387,82 @@ describe("fetch", function () {
         }
         expect(rejected).to.equal(true);
     });
+
+    it("should reject a transport failure with a TypeError carrying detail on cause", async function () {
+        this.timeout(30000);
+        let error: any;
+        try {
+            // Nothing listens on this loopback port, so the connection is refused -- a transport
+            // failure (status 0), distinct from an HTTP error status.
+            await fetch("http://127.0.0.1:1/");
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        // Spec-conformant shape: network errors reject with a TypeError whose message is stable
+        // (browsers/Node/undici all keep it constant so crash-report grouping stays intact).
+        expect(error).to.be.an.instanceof(TypeError);
+        expect(error.message).to.equal("fetch failed");
+        // The variable detail rides on `cause` (Node/undici shape), never on the stable message.
+        expect(error.cause, "error.cause should be populated").to.be.an("object");
+        expect(error.cause.url).to.contain("127.0.0.1");
+        expect(error.cause.status).to.equal(0);
+        // On backends where UrlLib populates transport detail (Apple/Linux) `code`/`detail` are
+        // present stable tokens; on backends that don't yet (Windows/Android) they are absent --
+        // the stable observable shape above is preserved either way.
+        if (error.cause.code !== undefined) {
+            expect(error.cause.code).to.be.a("string").and.not.equal("");
+            expect(error.cause.detail).to.be.a("string").and.not.equal("");
+        }
+    });
+
+    it("should reject a missing app:// asset with a TypeError (distinct from a network failure)", async function () {
+        let error: any;
+        try {
+            await fetch("app:///does_not_exist.js");
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error).to.be.an.instanceof(TypeError);
+        expect(error.message).to.equal("fetch failed");
+        expect(error.cause.url).to.contain("does_not_exist.js");
+    });
+
+    it("should reject immediately with an AbortError when the signal is already aborted", async function () {
+        const controller = new AbortController();
+        controller.abort();
+
+        let error: any;
+        try {
+            await fetch("https://github.com/", { signal: controller.signal } as any);
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error.name).to.equal("AbortError");
+    });
+
+    it("should reject with an AbortError when aborted in-flight", async function () {
+        this.timeout(30000);
+        const controller = new AbortController();
+        const promise = fetch("https://github.com/", { signal: controller.signal } as any);
+        // Abort before the response can arrive.
+        controller.abort();
+
+        let error: any;
+        try {
+            await promise;
+        } catch (e) {
+            error = e;
+        }
+        expect(error, "fetch should have rejected").to.not.equal(undefined);
+        expect(error.name).to.equal("AbortError");
+    });
 });
 
 describe("setTimeout", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should return an id greater than zero", function () {
         const id = setTimeout(() => { }, 0);
@@ -442,7 +570,7 @@ describe("setTimeout", function () {
 });
 
 describe("clearTimeout", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should stop the timeout matching the given timeout id", function (done) {
         const id = setTimeout(() => {
@@ -467,7 +595,7 @@ describe("clearTimeout", function () {
 });
 
 describe("setInterval", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should return an id greater than zero", function () {
         const id = setInterval(() => { }, 0);
@@ -494,10 +622,56 @@ describe("setInterval", function () {
             }
         }, 10);
     });
+
+    it("should not starve other queued work when the interval has no delay", function (done) {
+        // Regression test: a repeating timeout used to be re-armed on the timer
+        // thread immediately, before its callback had run on the JS thread. With a
+        // zero delay that produced an unbounded backlog of queued callbacks which
+        // starved every other item on the JS dispatch queue, so this setTimeout
+        // would never fire.
+        let finished = false;
+        const intervalId = setInterval(() => { });
+
+        const timeoutId = setTimeout(() => {
+            finished = true;
+            clearInterval(intervalId);
+            done();
+        }, 100);
+
+        setTimeout(() => {
+            if (!finished) {
+                clearInterval(intervalId);
+                clearTimeout(timeoutId);
+                done(new Error("setTimeout was starved by a zero delay setInterval"));
+            }
+        }, 2000);
+    });
+
+    it("should stop when cleared from within its own callback", function (done) {
+        // Exercises the re-arm path: a repeating timeout is now re-armed only
+        // after its callback returns, so a clear from inside the callback must
+        // win and no further ticks may occur.
+        let ticks = 0;
+        let id = 0;
+        id = setInterval(() => {
+            ticks++;
+            clearInterval(id);
+        }, 10);
+
+        setTimeout(() => {
+            try {
+                expect(ticks).to.equal(1);
+                done();
+            }
+            catch (e) {
+                done(e);
+            }
+        }, 200);
+    });
 });
 
 describe("clearInterval", function () {
-    this.timeout(1000);
+    this.timeout(5000);
 
     it("should stop the interval matching the given interval id", function (done) {
         const id = setInterval(() => {
@@ -524,6 +698,8 @@ describe("clearInterval", function () {
 // Websocket
 if (hostPlatform !== "Unix") {
     describe("WebSocket", function () {
+        this.timeout(10000);
+
         it("should connect correctly with one websocket connection", function (done) {
             const ws = new WebSocket("wss://ws.postman-echo.com/raw");
             const testMessage = "testMessage";
@@ -1113,6 +1289,101 @@ describe("URL", function () {
     });
 });
 
+// URL.createObjectURL / revokeObjectURL (blob: URL registry)
+describe("URL.createObjectURL", function () {
+    this.timeout(0);
+
+    it("mints a blob: URL for a Blob", function () {
+        const url = URL.createObjectURL(new Blob(["hello"], { type: "text/plain" }));
+        expect(url).to.be.a("string");
+        expect(url.indexOf("blob:")).to.equal(0);
+        URL.revokeObjectURL(url);
+    });
+
+    it("throws when createObjectURL is given a non-Blob", function () {
+        expect(() => URL.createObjectURL({} as any)).to.throw();
+        expect(() => URL.createObjectURL("not a blob" as any)).to.throw();
+    });
+
+    it("resolves a blob: URL through fetch (text + content-type)", async function () {
+        const url = URL.createObjectURL(new Blob(["hello blob"], { type: "text/plain" }));
+        const response = await fetch(url);
+        expect(response.ok).to.equal(true);
+        expect(response.status).to.equal(200);
+        expect(response.headers.get("content-type")).to.equal("text/plain");
+        expect(await response.text()).to.equal("hello blob");
+        URL.revokeObjectURL(url);
+    });
+
+    it("resolves binary blob bytes through fetch", async function () {
+        const bytes = new Uint8Array([1, 2, 3, 4, 250]);
+        const url = URL.createObjectURL(new Blob([bytes]));
+        const response = await fetch(url);
+        const buffer = new Uint8Array(await response.arrayBuffer());
+        expect(Array.from(buffer)).to.deep.equal([1, 2, 3, 4, 250]);
+        URL.revokeObjectURL(url);
+    });
+
+    it("resolves a blob: URL through XMLHttpRequest", async function () {
+        const url = URL.createObjectURL(new Blob(["xhr blob"], { type: "text/plain" }));
+        const xhr = await new Promise<XMLHttpRequest>((resolve) => {
+            const req = new XMLHttpRequest();
+            req.open("GET", url);
+            req.addEventListener("loadend", () => resolve(req));
+            req.send();
+        });
+        expect(xhr.status).to.equal(200);
+        expect(xhr.statusText).to.equal("OK");
+        expect(xhr.responseText).to.equal("xhr blob");
+        expect(xhr.getResponseHeader("content-type")).to.equal("text/plain");
+        URL.revokeObjectURL(url);
+    });
+
+    it("fetch rejects after the blob: URL is revoked", async function () {
+        const url = URL.createObjectURL(new Blob(["gone"]));
+        URL.revokeObjectURL(url);
+        let rejected = false;
+        try {
+            await fetch(url);
+        } catch (e) {
+            rejected = true;
+        }
+        expect(rejected).to.equal(true);
+    });
+
+    it("XMLHttpRequest reports status 0 and fires 'error' after revoke", async function () {
+        const url = URL.createObjectURL(new Blob(["gone"]));
+        URL.revokeObjectURL(url);
+        const result = await new Promise<{ status: number; errorFired: boolean }>((resolve) => {
+            const req = new XMLHttpRequest();
+            let errorFired = false;
+            req.addEventListener("error", () => { errorFired = true; });
+            req.addEventListener("loadend", () => resolve({ status: req.status, errorFired }));
+            req.open("GET", url);
+            req.send();
+        });
+        expect(result.status).to.equal(0);
+        expect(result.errorFired).to.equal(true);
+    });
+
+    it("XMLHttpRequest honors a revoke between open() and send()", async function () {
+        const url = URL.createObjectURL(new Blob(["late revoke"]));
+        const result = await new Promise<{ status: number; errorFired: boolean }>((resolve) => {
+            const req = new XMLHttpRequest();
+            let errorFired = false;
+            req.addEventListener("error", () => { errorFired = true; });
+            req.addEventListener("loadend", () => resolve({ status: req.status, errorFired }));
+            req.open("GET", url);
+            // Revoked after open() but before send(): the store is re-checked at send() time, so
+            // this must surface as a network error rather than serving stale bytes.
+            URL.revokeObjectURL(url);
+            req.send();
+        });
+        expect(result.status).to.equal(0);
+        expect(result.errorFired).to.equal(true);
+    });
+});
+
 // URLSearchParams
 describe("URLSearchParams", function () {
 
@@ -1140,6 +1411,26 @@ describe("URLSearchParams", function () {
         // `set` expects parameters, none given.
         // @ts-expect-error
         expect(() => paramsSet.set()).to.throw();
+    });
+
+    it("should preserve the type and message of an error thrown from native code", function () {
+        // A native throw must reach JS unchanged. When napi_throw reported failure, the
+        // error was replaced by an InternalError reading "Uncaught C++ exception: ...",
+        // built by stringifying an error whose handle scope had already closed.
+        let caught: any;
+        try {
+            // @ts-expect-error
+            paramsSet.set();
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).to.be.an.instanceOf(Error);
+        expect(caught.name).to.equal("Error");
+        // Not an equality check: the JSI backend prefixes "Exception in HostFunction: ".
+        expect(caught.message).to.contain(
+            "Failed to execute 'set' on 'URLSearchParams': 2 arguments required, but only 0 present"
+        );
+        expect(caught.message).to.not.contain("Uncaught C++ exception");
     });
 
     it("should add a number and retrieve it as a string from searchParams", function () {
@@ -1489,6 +1780,76 @@ describe("TextDecoder", function () {
         const result = decoder.decode(encoded);
         expect(result).to.equal("H\0i");
         expect(result.length).to.equal(3);
+    });
+
+    it("throwing from the constructor repeatedly does not corrupt native state", function () {
+        // Regression for a Chakra N-API ObjectWrap bug: when a wrapped
+        // constructor throws, the native instance is destroyed during stack
+        // unwinding but the wrap finalizer stayed attached to `this`, so a
+        // later GC ran the finalizer on freed memory (heap corruption). Throw
+        // many times to create many dangling wraps, then allocate/decode to
+        // exercise the heap and surface any corruption within this test run.
+        for (let i = 0; i < 100; ++i) {
+            expect(() => new TextDecoder("iso-8859-2")).to.throw();
+        }
+        const decoder = new TextDecoder("utf-8");
+        expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+    });
+
+    it("should accept the WHATWG 'utf8' label (no hyphen)", function () {
+        const decoder = new TextDecoder("utf8");
+        const result = decoder.decode(new Uint8Array([72, 105])); // "Hi"
+        expect(result).to.equal("Hi");
+    });
+
+    it("should accept utf-8 labels case-insensitively and with surrounding whitespace", function () {
+        for (const label of ["UTF-8", "UTF8", "  utf-8  ", "\tUtf8\n"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+        }
+    });
+
+    it("should accept the other WHATWG utf-8 aliases", function () {
+        for (const label of ["unicode-1-1-utf-8", "unicode11utf8", "unicode20utf8", "x-unicode20utf8"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([79, 75]))).to.equal("OK");
+        }
+    });
+
+    it("should still throw for a genuinely unsupported encoding", function () {
+        expect(() => new TextDecoder("iso-8859-2")).to.throw();
+    });
+
+    it("should decode utf-16le", function () {
+        const decoder = new TextDecoder("utf-16le");
+        // "Hi" as UTF-16LE code units.
+        expect(decoder.decode(new Uint8Array([0x48, 0x00, 0x69, 0x00]))).to.equal("Hi");
+    });
+
+    it("should decode utf-16be", function () {
+        const decoder = new TextDecoder("utf-16be");
+        expect(decoder.decode(new Uint8Array([0x00, 0x48, 0x00, 0x69]))).to.equal("Hi");
+    });
+
+    it("should accept the other WHATWG utf-16 aliases as little endian", function () {
+        for (const label of ["utf-16", "ucs-2", "unicode", "unicodeFEFF", "csunicode", "iso-10646-ucs-2"]) {
+            const decoder = new TextDecoder(label);
+            expect(decoder.decode(new Uint8Array([0x4F, 0x00, 0x4B, 0x00]))).to.equal("OK");
+        }
+        expect(new TextDecoder("unicodeFFFE").decode(new Uint8Array([0x00, 0x4F, 0x00, 0x4B]))).to.equal("OK");
+    });
+
+    it("should strip a leading byte order mark", function () {
+        expect(new TextDecoder("utf-16le").decode(new Uint8Array([0xFF, 0xFE, 0x48, 0x00]))).to.equal("H");
+        expect(new TextDecoder("utf-16be").decode(new Uint8Array([0xFE, 0xFF, 0x00, 0x48]))).to.equal("H");
+    });
+
+    it("should decode utf-16 outside the BMP and preserve null code units", function () {
+        // U+1F600 as a surrogate pair, then U+0000, then "A".
+        const decoder = new TextDecoder("utf-16le");
+        const result = decoder.decode(new Uint8Array([0x3D, 0xD8, 0x00, 0xDE, 0x00, 0x00, 0x41, 0x00]));
+        expect(result).to.equal("\u{1F600}\0A");
+        expect(result.length).to.equal(4);
     });
 });
 

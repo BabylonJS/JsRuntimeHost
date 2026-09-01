@@ -172,6 +172,27 @@ class ExternalCallback {
 
     napi_value result = externalCallback->_cb(
       externalCallback->_env, reinterpret_cast<napi_callback_info>(&cbInfo));
+
+    // If a constructor (construct call) left a pending JS exception, the C++
+    // ObjectWrap instance was already destroyed by stack unwinding inside the
+    // callback, but the wrap finalizer registered by napi_wrap() is still
+    // attached to `this`. The addon-api ~ObjectWrap() cannot detach it here
+    // because napi_get_reference_value() returns null for the wrap's weak
+    // (refcount 0) reference. Detach the wrap now so a later GC does not run
+    // the finalizer on the freed native instance (use-after-free / heap
+    // corruption). The pending exception is preserved across the cleanup.
+    if (isConstructCall) {
+      bool hasException = false;
+      if (JsHasException(&hasException) == JsNoError && hasException) {
+        JsValueRef exception = JS_INVALID_REFERENCE;
+        if (JsGetAndClearException(&exception) == JsNoError) {
+          napi_remove_wrap(externalCallback->_env,
+            reinterpret_cast<napi_value>(arguments[0]), nullptr);
+          JsSetException(exception);
+        }
+      }
+    }
+
     return reinterpret_cast<JsValueRef>(result);
   }
 
@@ -1748,9 +1769,11 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
   CHECK_JSRT(env, JsSetExternalData(wrapper, nullptr));
 
   if (externalData != nullptr) {
-    *result = externalData->Data();
+    if (result != nullptr) {
+      *result = externalData->Data();
+    }
     delete externalData;
-  } else {
+  } else if (result != nullptr) {
     *result = nullptr;
   }
 
@@ -1906,7 +1929,9 @@ napi_status napi_open_escapable_handle_scope(
   napi_escapable_handle_scope* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
-  *result = reinterpret_cast<napi_escapable_handle_scope>(1);
+  const size_t token = ++env->next_escapable_scope_token;
+  env->open_escapable_scopes.emplace(token, false);
+  *result = reinterpret_cast<napi_escapable_handle_scope>(token);
   return napi_ok;
 }
 
@@ -1916,11 +1941,17 @@ napi_status napi_close_escapable_handle_scope(
   napi_escapable_handle_scope scope) {
   CHECK_ENV(env);
   CHECK_ARG(env, scope);
+  const auto it = env->open_escapable_scopes.find(reinterpret_cast<size_t>(scope));
+  if (it == env->open_escapable_scopes.end()) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  env->open_escapable_scopes.erase(it);
   return napi_ok;
 }
 
-// Stub implementation of handle scope apis for JSRT.
-// This one will return escapee value as this is called from leveldown db.
+// JSRT roots values independently of any scope, so the escapee is returned as
+// is. The scope is still tracked so a second escape is rejected as Node-API
+// requires.
 napi_status napi_escape_handle(napi_env env,
                                napi_escapable_handle_scope scope,
                                napi_value escapee,
@@ -1929,6 +1960,14 @@ napi_status napi_escape_handle(napi_env env,
   CHECK_ARG(env, scope);
   CHECK_ARG(env, escapee);
   CHECK_ARG(env, result);
+  const auto it = env->open_escapable_scopes.find(reinterpret_cast<size_t>(scope));
+  if (it == env->open_escapable_scopes.end()) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  if (it->second) {
+    return napi_set_last_error(env, napi_escape_called_twice);
+  }
+  it->second = true;
   *result = escapee;
   return napi_ok;
 }

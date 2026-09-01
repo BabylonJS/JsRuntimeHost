@@ -2,6 +2,7 @@
 #include <Babylon/JsRuntime.h>
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <arcana/tracing/trace_region.h>
+#include <cstring>
 #include <sstream>
 
 namespace Babylon::Polyfills::Internal
@@ -81,6 +82,12 @@ namespace Babylon::Polyfills::Internal
                 InstanceAccessor("responseURL", &XMLHttpRequest::GetResponseURL, nullptr),
                 InstanceAccessor("status", &XMLHttpRequest::GetStatus, nullptr),
                 InstanceAccessor("statusText", &XMLHttpRequest::GetStatusText, nullptr),
+                // Non-standard, additive diagnostics: the normalized transport-error detail from
+                // UrlLib, empty unless the request failed at the transport layer. Browsers do not
+                // expose these, so spec-conformant code is unaffected; BN-aware code can read them
+                // to tell a DNS failure from a refused connection or a missing local asset.
+                InstanceAccessor("errorCode", &XMLHttpRequest::GetErrorCode, nullptr),
+                InstanceAccessor("errorDetail", &XMLHttpRequest::GetErrorDetail, nullptr),
                 InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
                 InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
                 InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
@@ -114,7 +121,8 @@ namespace Babylon::Polyfills::Internal
     {
         if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
         {
-            return Napi::Value::From(Env(), m_request.ResponseString().data());
+            const std::string_view responseString{m_request.ResponseString()};
+            return Napi::String::New(Env(), responseString.data(), responseString.size());
         }
         else
         {
@@ -127,7 +135,12 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponseText(const Napi::CallbackInfo&)
     {
-        return Napi::Value::From(Env(), m_request.ResponseString().data());
+        // The body may legitimately contain embedded nulls: Emscripten's EXPORT_ES6 output, for
+        // example, inlines the .wasm payload as a JavaScript string literal. Passing .data()
+        // alone would hand a const char* to Napi and truncate at the first null, so the length
+        // has to be supplied explicitly.
+        const std::string_view responseString{m_request.ResponseString()};
+        return Napi::String::New(Env(), responseString.data(), responseString.size());
     }
 
     Napi::Value XMLHttpRequest::GetResponseType(const Napi::CallbackInfo&)
@@ -160,6 +173,20 @@ namespace Babylon::Polyfills::Internal
         }
 
         return Napi::String::New(Env(), std::string{m_request.StatusText()});
+    }
+
+    Napi::Value XMLHttpRequest::GetErrorCode(const Napi::CallbackInfo&)
+    {
+        // Stable symbolic token for a transport failure (e.g. "CURLE_COULDNT_CONNECT",
+        // "NSURLErrorTimedOut", "AppResourceNotFound"); empty when there was no transport failure.
+        return Napi::String::New(Env(), std::string{m_request.ErrorSymbol()});
+    }
+
+    Napi::Value XMLHttpRequest::GetErrorDetail(const Napi::CallbackInfo&)
+    {
+        // Full normalized "<domain>:<symbol>(<code>): <detail>" string; empty when there was no
+        // transport failure.
+        return Napi::String::New(Env(), std::string{m_request.ErrorString()});
     }
 
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
