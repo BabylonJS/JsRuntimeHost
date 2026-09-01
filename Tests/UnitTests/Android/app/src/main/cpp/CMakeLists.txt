@@ -16,17 +16,41 @@ FetchContent_MakeAvailable_With_Message(googletest)
 
 npm(install --silent WORKING_DIRECTORY ${TESTS_DIR})
 
+if(WIN32)
+    set(NODE_LITE_PLATFORM_SRC ${TESTS_DIR}/NodeApi/node_lite_windows.cpp)
+    set(NODE_LITE_CHILD_PROCESS_SRC ${TESTS_DIR}/NodeApi/child_process.cpp)
+elseif(APPLE)
+    set(NODE_LITE_PLATFORM_SRC ${TESTS_DIR}/NodeApi/node_lite_posix.cpp)
+    set(NODE_LITE_CHILD_PROCESS_SRC ${TESTS_DIR}/NodeApi/child_process_posix.cpp)
+elseif(ANDROID)
+    set(NODE_LITE_PLATFORM_SRC ${TESTS_DIR}/NodeApi/node_lite_android.cpp)
+    set(NODE_LITE_CHILD_PROCESS_SRC ${TESTS_DIR}/NodeApi/child_process_android.cpp)
+else()
+    set(NODE_LITE_PLATFORM_SRC ${TESTS_DIR}/NodeApi/node_lite_posix.cpp)
+    set(NODE_LITE_CHILD_PROCESS_SRC ${TESTS_DIR}/NodeApi/child_process_posix.cpp)
+endif()
+
 add_library(UnitTestsJNI SHARED
     JNI.cpp
     ${UNIT_TESTS_DIR}/Shared/StandardStreamLogger.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
-    ${UNIT_TESTS_DIR}/Shared/Shared.cpp)
+    ${UNIT_TESTS_DIR}/Shared/Shared.cpp
+    ${TESTS_DIR}/NodeApi/node_lite.cpp
+    ${NODE_LITE_PLATFORM_SRC}
+    ${NODE_LITE_CHILD_PROCESS_SRC}
+    ${TESTS_DIR}/NodeApi/node_lite_jsruntimehost.cpp
+    ${TESTS_DIR}/NodeApi/js_runtime_api.cpp
+    ${TESTS_DIR}/NodeApi/string_utils.cpp
+    ${TESTS_DIR}/NodeApi/test_main.cpp)
 
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
 
 target_include_directories(UnitTestsJNI
-    PRIVATE ${UNIT_TESTS_DIR})
+    PRIVATE ${UNIT_TESTS_DIR}
+    PRIVATE ${TESTS_DIR}/NodeApi
+    PRIVATE ${TESTS_DIR}/NodeApi/include
+    PRIVATE ${REPO_ROOT_DIR}/Core/Node-API/Source)
 
 target_link_libraries(UnitTestsJNI
     PRIVATE log
@@ -46,4 +70,26 @@ target_link_libraries(UnitTestsJNI
     PRIVATE File
     PRIVATE TextDecoder
     PRIVATE TextEncoder
-    PRIVATE Performance)
+    PRIVATE Performance
+    PRIVATE napi)
+
+if(ANDROID)
+    target_link_libraries(UnitTestsJNI PRIVATE dl)
+endif()
+# The on-device conformance addons, per engine -- keep in sync with JSR_NODE_API_NATIVE_TEST_DIRS in
+# Tests/NodeApi/CMakeLists.txt. This is an ALLOW-list: only engines whose v6/v7 surface is actually
+# implemented and exercised run these. A backend added upstream later (e.g. QuickJS, which has
+# napi_create_bigint_int64 but no napi_add_finalizer and no *_words) must be opted in deliberately
+# rather than inheriting them by default.
+#
+# The v1-v5 suite, v6 instance_data, and BigInt all run on both Android engines: V8, and
+# JavaScriptCore now that jsc-android is pinned to r294992 (BigInt on by default; r250231 gated it off).
+set(JSR_NODE_API_HARNESS_ENGINES V8 JavaScriptCore)
+if(NAPI_JAVASCRIPT_ENGINE IN_LIST JSR_NODE_API_HARNESS_ENGINES)
+    target_compile_definitions(UnitTestsJNI PRIVATE
+        NODE_API_AVAILABLE_NATIVE_TESTS="2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data,test_bigint")
+endif()
+
+# The conformance addons are built as standalone SHARED lib<name>.so by Tests/NodeApi/CMakeLists.txt,
+# packaged by AGP into nativeLibraryDir, and dlopen'd in-process by node_lite_android. Both they and
+# this host link the shared napi (libnapi.so), so the addons' napi_* imports resolve at load.

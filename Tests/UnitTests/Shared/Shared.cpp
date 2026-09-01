@@ -21,9 +21,195 @@
 #include <future>
 #include <iostream>
 #include <thread>
+#include <mutex>
+#include <sstream>
+#include <unordered_set>
+#include <vector>
+
+#if defined(__ANDROID__) && defined(NODE_API_AVAILABLE_NATIVE_TESTS)
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
+#include <android/log.h>
+#include <fstream>
+#include <filesystem>
+#include <system_error>
+
+#include <AndroidExtensions/Globals.h>
+#include <AndroidExtensions/JavaWrappers.h>
+
+#include "../../NodeApi/node_lite.h"
+#include "../../NodeApi/test_main.h"
+#endif
 
 namespace
 {
+#if defined(__ANDROID__) && defined(NODE_API_AVAILABLE_NATIVE_TESTS)
+    namespace
+    {
+        using namespace std::filesystem;
+
+        void CopyAssetsRecursive(AAssetManager* manager, const std::string& asset_path, const path& destination)
+        {
+            // The NDK AAssetManager cannot enumerate subdirectories -- AAssetDir_getNextFileName
+            // returns files in a single directory only, never nested directories -- so the test
+            // tree cannot be discovered at runtime. Instead read a build-time manifest (one
+            // relative path per line, produced by the copyNodeApiTests Gradle task) and copy each
+            // listed file individually (AAssetManager_open works fine for a known file path).
+            std::string manifest_asset = asset_path + "/manifest.txt";
+            AAsset* manifest = AAssetManager_open(manager, manifest_asset.c_str(), AASSET_MODE_BUFFER);
+            if (manifest == nullptr)
+            {
+                return;
+            }
+
+            off_t manifest_length = AAsset_getLength(manifest);
+            std::string manifest_text(static_cast<size_t>(manifest_length), '\0');
+            AAsset_read(manifest, manifest_text.data(), manifest_length);
+            AAsset_close(manifest);
+
+            std::stringstream manifest_stream(manifest_text);
+            std::string relative_path;
+            while (std::getline(manifest_stream, relative_path))
+            {
+                if (!relative_path.empty() && relative_path.back() == '\r')
+                {
+                    relative_path.pop_back();
+                }
+                if (relative_path.empty())
+                {
+                    continue;
+                }
+
+                std::string child_asset = asset_path + "/" + relative_path;
+                AAsset* asset = AAssetManager_open(manager, child_asset.c_str(), AASSET_MODE_STREAMING);
+                if (asset == nullptr)
+                {
+                    continue;
+                }
+
+                path output_path = destination / relative_path;
+                create_directories(output_path.parent_path());
+                std::ofstream output(output_path, std::ios::binary);
+                char buffer[8192];
+                int read = 0;
+                while ((read = AAsset_read(asset, buffer, sizeof(buffer))) > 0)
+                {
+                    output.write(buffer, read);
+                }
+                AAsset_close(asset);
+            }
+        }
+
+        path GetFilesDir()
+        {
+            JNIEnv* env = android::global::GetEnvForCurrentThread();
+            jobject context = android::global::GetAppContext();
+            jclass contextClass = env->GetObjectClass(context);
+            jmethodID getFilesDir = env->GetMethodID(contextClass, "getFilesDir", "()Ljava/io/File;");
+            jobject filesDir = env->CallObjectMethod(context, getFilesDir);
+            env->DeleteLocalRef(contextClass);
+
+            jclass fileClass = env->GetObjectClass(filesDir);
+            jmethodID getAbsolutePath = env->GetMethodID(fileClass, "getAbsolutePath", "()Ljava/lang/String;");
+            jstring pathString = static_cast<jstring>(env->CallObjectMethod(filesDir, getAbsolutePath));
+            env->DeleteLocalRef(fileClass);
+
+            const char* rawPath = env->GetStringUTFChars(pathString, nullptr);
+            path resultPath{rawPath};
+            env->ReleaseStringUTFChars(pathString, rawPath);
+            env->DeleteLocalRef(pathString);
+            env->DeleteLocalRef(filesDir);
+
+            return resultPath;
+        }
+
+        std::unordered_set<std::string> ParseNativeSuiteList()
+        {
+            std::unordered_set<std::string> suites;
+#ifdef NODE_API_AVAILABLE_NATIVE_TESTS
+            std::stringstream stream(NODE_API_AVAILABLE_NATIVE_TESTS);
+            std::string entry;
+            while (std::getline(stream, entry, ','))
+            {
+                if (!entry.empty())
+                {
+                    suites.insert(entry);
+                }
+            }
+#endif
+            return suites;
+        }
+
+        std::optional<path>& OverrideBaseDir()
+        {
+            static std::optional<path> baseDirOverride{};
+            return baseDirOverride;
+        }
+
+        AAssetManager*& OverrideAssetManager()
+        {
+            static AAssetManager* assetManager{};
+            return assetManager;
+        }
+
+        void ConfigureNodeApiTests()
+        {
+            static std::once_flag onceFlag;
+            std::call_once(onceFlag, []() {
+                path baseDir;
+                if (OverrideBaseDir())
+                {
+                    baseDir = *OverrideBaseDir();
+                }
+                else
+                {
+                    baseDir = GetFilesDir() / "node_api_tests";
+                }
+                std::error_code ec;
+                std::filesystem::remove_all(baseDir, ec);
+                std::filesystem::create_directories(baseDir);
+
+                AAssetManager* assetManagerNative = OverrideAssetManager();
+                if (assetManagerNative == nullptr)
+                {
+                    auto assetManagerWrapper = android::global::GetAppContext().getAssets();
+                    assetManagerNative = assetManagerWrapper;
+                }
+
+                if (assetManagerNative != nullptr)
+                {
+                    CopyAssetsRecursive(assetManagerNative, "NodeApi/test", baseDir);
+                }
+
+                node_api_tests::NodeApiTestConfig config{};
+                config.js_root = baseDir;
+                config.run_script = [baseDir](const path& script) {
+                    node_api_tests::NodeLiteRuntime::Callbacks callbacks;
+                    callbacks.stdout_callback = [](const std::string& message) {
+                        __android_log_write(ANDROID_LOG_INFO, "NodeApiTests", message.c_str());
+                    };
+                    callbacks.stderr_callback = [](const std::string& message) {
+                        __android_log_write(ANDROID_LOG_ERROR, "NodeApiTests", message.c_str());
+                    };
+                    auto result = node_api_tests::RunNodeLiteScript(baseDir, script, std::move(callbacks));
+                    // Surface the in-process failure detail to logcat. The runner keeps the assertion /
+                    // exception message + stack in result.std_error; without this it never reaches the
+                    // device log, making on-device conformance failures undebuggable.
+                    if (result.status != 0) {
+                        std::string detail = result.std_error.empty() ? "(no std_error captured)" : result.std_error;
+                        __android_log_write(ANDROID_LOG_ERROR, "NodeApiTests",
+                            ("[node_lite status=" + std::to_string(result.status) + "] " + detail).c_str());
+                    }
+                    return result;
+                };
+                config.enabled_native_suites = ParseNativeSuiteList();
+
+                node_api_tests::InitializeNodeApiTests(config);
+            });
+        }
+    }
+#endif
+
     const char* EnumToString(Babylon::Polyfills::Console::LogLevel logLevel)
     {
         switch (logLevel)
@@ -332,6 +518,138 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
 
     testThread.join();
 }
+
+// N-API results must not depend on anything reachable from script. The JavaScriptCore backend has no
+// BigInt C API below macOS 15 / iOS 18 / visionOS 2, and none at all on Android, so it reaches BigInt
+// through JS intrinsics; those are captured at env init (like Function.prototype.call) precisely so a
+// page that replaces `BigInt`, `BigInt.asIntN/asUintN` or `BigInt.prototype.toString` cannot steer an
+// addon's napi_*_bigint_* calls through its own code. Before that, every one of these entry points
+// re-resolved the name on the live global object, and the create path evaluated a `BigInt("...")`
+// source string -- so the patches below each returned an attacker-chosen value.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, BigIntIgnoresMonkeyPatchedIntrinsics)
+{
+    Babylon::AppRuntime runtime{};
+    Babylon::ScriptLoader loader{runtime};
+
+    // Replace every intrinsic the BigInt paths touch, the way user script could.
+    loader.Eval(R"(
+        globalThis.__pristine = { BigInt, asIntN: BigInt.asIntN, toString: BigInt.prototype.toString };
+        globalThis.BigInt = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asIntN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asUintN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.__pristine.BigInt.prototype.toString = function () { return '1234'; };
+    )",
+        "");
+
+    std::promise<void> done;
+    struct { bool supported; int64_t roundTripped; bool lossless; napi_valuetype type; } observed{};
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value big{nullptr};
+        if (napi_create_bigint_int64(nenv, 9007199254740993LL, &big) != napi_ok)
+        {
+            // Engine without BigInt (jsc-android r250231, Win10 Chakra): it throws ENOTSUP instead.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            observed.supported = false;
+            done.set_value();
+            return;
+        }
+        observed.supported = true;
+        napi_typeof(nenv, big, &observed.type);
+        napi_get_value_bigint_int64(nenv, big, &observed.roundTripped, &observed.lossless);
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    if (!observed.supported)
+    {
+        GTEST_SKIP() << "Engine does not support BigInt";
+    }
+    EXPECT_EQ(napi_bigint, observed.type);
+    // 1234 here would mean a patched intrinsic was consulted.
+    EXPECT_EQ(9007199254740993LL, observed.roundTripped);
+    EXPECT_TRUE(observed.lossless);
+}
+#endif
+
+// napi_detach_arraybuffer is the API that defines N-API v7, and its behaviour is not uniform across
+// the engines here: ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path -- the
+// JavaScriptCore C API has no detach entry point at all -- so an engine without it can only report
+// the capability as missing. This asserts both halves of that contract, whichever applies:
+//
+//   detach works        V8; JavaScriptCore on macOS 14.4+ / iOS 17.4+ / visionOS 1.1+
+//   ENOTSUP thrown      JavaScriptCore on older Apple OSes, and every jsc-android build
+//                       (verified on device: r250231 and r294992 both lack transfer)
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<void> done;
+    struct
+    {
+        napi_status queryBefore{napi_ok};
+        napi_status queryAfter{napi_ok};
+        bool detachedBefore{true};
+        bool detachedAfter{false};
+        bool supported{false};
+        std::string code;
+    } observed;
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        Napi::ArrayBuffer buffer{Napi::ArrayBuffer::New(env, 8)};
+        napi_value value{buffer};
+
+        observed.queryBefore = napi_is_detached_arraybuffer(nenv, value, &observed.detachedBefore);
+
+        if (napi_detach_arraybuffer(nenv, value) == napi_ok)
+        {
+            observed.supported = true;
+            observed.queryAfter = napi_is_detached_arraybuffer(nenv, value, &observed.detachedAfter);
+        }
+        else
+        {
+            // Feature-detected failure must be a catchable JS error carrying code ENOTSUP, not a
+            // bare napi_status an addon cannot distinguish from a real error.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            if (pending != nullptr)
+            {
+                napi_value code{nullptr};
+                if (napi_get_named_property(nenv, pending, "code", &code) == napi_ok)
+                {
+                    char buffer[32]{};
+                    size_t written{0};
+                    napi_get_value_string_utf8(nenv, code, buffer, sizeof(buffer), &written);
+                    observed.code.assign(buffer, written);
+                }
+            }
+        }
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    ASSERT_EQ(napi_ok, observed.queryBefore) << "napi_is_detached_arraybuffer failed on a live buffer";
+    EXPECT_FALSE(observed.detachedBefore) << "a live ArrayBuffer must not report as detached";
+    if (observed.supported)
+    {
+        ASSERT_EQ(napi_ok, observed.queryAfter) << "napi_is_detached_arraybuffer failed after detach";
+        EXPECT_TRUE(observed.detachedAfter) << "napi_detach_arraybuffer returned ok but did not detach";
+    }
+    else
+    {
+        EXPECT_EQ("ENOTSUP", observed.code);
+    }
+}
+#endif
 
 // The V8JSI Node-API shim does not implement napi_create_dataview /
 // napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
@@ -830,6 +1148,19 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
 
 int RunTests()
 {
+#if defined(__ANDROID__) && defined(NODE_API_AVAILABLE_NATIVE_TESTS)
+    ConfigureNodeApiTests();
+#endif
     testing::InitGoogleTest();
+#if defined(__ANDROID__) && defined(NODE_API_AVAILABLE_NATIVE_TESTS)
+    node_api_tests::RegisterNodeApiTests();
+#endif
     return RUN_ALL_TESTS();
 }
+#if defined(__ANDROID__) && defined(NODE_API_AVAILABLE_NATIVE_TESTS)
+void SetNodeApiTestEnvironment(AAssetManager* assetManager, const std::filesystem::path& baseDir)
+{
+    OverrideAssetManager() = assetManager;
+    OverrideBaseDir() = baseDir;
+}
+#endif
