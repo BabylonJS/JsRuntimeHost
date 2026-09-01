@@ -15,11 +15,13 @@ struct napi_env__ {
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
+  bool shutting_down{false};
 
   JSValueRef constructor_info_symbol{};
   JSValueRef function_info_symbol{};
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
+  JSValueRef function_prototype_call{};
 
   // Escapable scope bookkeeping: token -> whether that scope has escaped. Values
   // are rooted by the engine rather than by a scope here, so this exists only to
@@ -38,10 +40,13 @@ struct napi_env__ {
     init_symbol(function_info_symbol, "BabylonNative_FunctionInfo");
     init_symbol(reference_info_symbol, "BabylonNative_ReferenceInfo");
     init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
+    init_function_prototype_call();
   }
 
   ~napi_env__() {
+    shutting_down = true;
     deinit_refs();
+    deinit_symbol(function_prototype_call);
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
     deinit_symbol(function_info_symbol);
@@ -64,6 +69,7 @@ struct napi_env__ {
 
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);
+  void init_function_prototype_call();
   void deinit_symbol(JSValueRef symbol);
 };
 
