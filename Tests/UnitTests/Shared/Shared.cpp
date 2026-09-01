@@ -593,6 +593,8 @@ TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
     std::promise<void> done;
     struct
     {
+        napi_status queryBefore{napi_ok};
+        napi_status queryAfter{napi_ok};
         bool detachedBefore{true};
         bool detachedAfter{false};
         bool supported{false};
@@ -605,12 +607,12 @@ TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
         Napi::ArrayBuffer buffer{Napi::ArrayBuffer::New(env, 8)};
         napi_value value{buffer};
 
-        napi_is_detached_arraybuffer(nenv, value, &observed.detachedBefore);
+        observed.queryBefore = napi_is_detached_arraybuffer(nenv, value, &observed.detachedBefore);
 
         if (napi_detach_arraybuffer(nenv, value) == napi_ok)
         {
             observed.supported = true;
-            napi_is_detached_arraybuffer(nenv, value, &observed.detachedAfter);
+            observed.queryAfter = napi_is_detached_arraybuffer(nenv, value, &observed.detachedAfter);
         }
         else
         {
@@ -635,9 +637,11 @@ TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
 
     done.get_future().get();
 
+    ASSERT_EQ(napi_ok, observed.queryBefore) << "napi_is_detached_arraybuffer failed on a live buffer";
     EXPECT_FALSE(observed.detachedBefore) << "a live ArrayBuffer must not report as detached";
     if (observed.supported)
     {
+        ASSERT_EQ(napi_ok, observed.queryAfter) << "napi_is_detached_arraybuffer failed after detach";
         EXPECT_TRUE(observed.detachedAfter) << "napi_detach_arraybuffer returned ok but did not detach";
     }
     else
