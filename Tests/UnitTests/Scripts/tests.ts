@@ -7,6 +7,9 @@ Mocha.reporter('spec');
 
 declare const hostPlatform: string;
 declare const setExitCode: (code: number) => void;
+declare const napiGetPropertyNames: (object: any) => string[];
+declare const napiGetPropertyNamesRaw: (object: any) => string[];
+declare const napiEngine: string;
 
 
 describe("AbortController", function () {
@@ -1691,6 +1694,215 @@ describe("napi class prototype isolation (#172)", function () {
         } finally {
             delete proto[KEY];
         }
+    });
+});
+
+
+describe("napi_get_property_names (#216)", function () {
+    // Regression coverage for #216: napi_get_property_names must report the
+    // enumerable string-keyed properties of an object *and its prototype
+    // chain*, i.e. exactly what `for...in` visits. JavaScriptCore used to throw
+    // outright, while Chakra and QuickJS only reported own properties
+    // (Chakra additionally reported non-enumerable ones).
+
+    function forIn(object: any): string[] {
+        const keys: string[] = [];
+        for (const key in object) {
+            keys.push(key);
+        }
+        return keys;
+    }
+
+    // Some engines' own `for...in` does not implement the shadowing rule that
+    // the tests below rely on -- Hermes reports an inherited property that a
+    // non-enumerable own property is supposed to hide. Probe for that rather
+    // than name engines, and only use `for...in` as an oracle where it holds.
+    // https://github.com/BabylonJS/JsRuntimeHost/issues/219 tracks the gap.
+    const shadowingProbe = Object.create({ probe: 1 });
+    Object.defineProperty(shadowingProbe, "probe", { value: 2, enumerable: false });
+    const forInHonoursShadowing = forIn(shadowingProbe).length === 0;
+
+    it("returns own enumerable string keys", function () {
+        expect(napiGetPropertyNames({ a: 1, b: 2 })).to.deep.equal(["a", "b"]);
+    });
+
+    it("includes enumerable properties inherited from the prototype chain", function () {
+        const object = Object.create({ inherited: 1 });
+        object.own = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["own", "inherited"]);
+    });
+
+    it("excludes non-enumerable own properties", function () {
+        const object = { visible: 1 };
+        Object.defineProperty(object, "hidden", { value: 2, enumerable: false });
+        expect(napiGetPropertyNames(object)).to.deep.equal(["visible"]);
+    });
+
+    it("excludes symbol keys", function () {
+        const object: any = { a: 1 };
+        object[Symbol("s")] = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["a"]);
+    });
+
+    it("reports a shadowed inherited property only once", function () {
+        const object = Object.create({ shared: 1 });
+        object.shared = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["shared"]);
+    });
+
+    it("omits an inherited property shadowed by a non-enumerable own property", function () {
+        const object = Object.create({ shared: 1 });
+        Object.defineProperty(object, "shared", { value: 2, enumerable: false });
+        expect(napiGetPropertyNames(object)).to.deep.equal([]);
+    });
+
+    it("excludes class methods, which are non-enumerable", function () {
+        class Point {
+            x: number;
+            y: number;
+            constructor() {
+                this.x = 1;
+                this.y = 2;
+            }
+            length(): number {
+                return 0;
+            }
+        }
+        expect(napiGetPropertyNames(new Point())).to.deep.equal(["x", "y"]);
+    });
+
+    it("reports array indices as strings and omits the non-enumerable length", function () {
+        expect(napiGetPropertyNames(["a", "b"])).to.deep.equal(["0", "1"]);
+    });
+
+    it("matches for...in over a multi-level prototype chain", function () {
+        const grandparent = { deep: 0 };
+        const parent: any = Object.create(grandparent);
+        parent.middle = 1;
+        Object.defineProperty(parent, "hiddenMiddle", { value: 2, enumerable: false });
+
+        const object: any = Object.create(parent);
+        object.own = 3;
+        object[Symbol("s")] = 4;
+        Object.defineProperty(object, "deep", { value: 5, enumerable: false });
+
+        expect(napiGetPropertyNames(object)).to.deep.equal(["own", "middle"]);
+        if (forInHonoursShadowing) {
+            expect(napiGetPropertyNames(object)).to.deep.equal(forIn(object));
+        }
+    });
+
+    // `Napi::Object::GetPropertyNames` requires an object, so the coercion the
+    // C entry point performs on its argument is only reachable through
+    // `napiGetPropertyNamesRaw`. That global is undefined on the JSI backend,
+    // which implements the `Napi::` C++ surface directly on JSI and has no C
+    // Node-API to call.
+    const describeCoercion = typeof napiGetPropertyNamesRaw === "function" ? describe : describe.skip;
+
+    describeCoercion("argument coercion", function () {
+        // Hermes' Node-API is not implemented in this repository -- it comes from
+        // the Hermes dependency itself -- and it rejects primitives outright
+        // rather than applying ToObject. Hermes is an experimental engine here,
+        // so assert the specified behaviour everywhere it is ours to control and
+        // skip the wrapping cases on Hermes rather than weakening them. The
+        // upstream gap is tracked by
+        // https://github.com/BabylonJS/JsRuntimeHost/issues/219.
+        const describePrimitives = napiEngine === "Hermes" ? describe.skip : describe;
+
+        if (napiEngine === "Hermes") {
+            it("rejects primitives instead of applying ToObject (upstream gap)", function () {
+                expect(() => napiGetPropertyNamesRaw("ab")).to.throw();
+            });
+        }
+
+        describePrimitives("of a primitive", function () {
+            it("wraps a string primitive and reports its indices", function () {
+                expect(napiGetPropertyNamesRaw("ab")).to.deep.equal(["0", "1"]);
+            });
+
+            it("wraps a number primitive, which has no enumerable properties", function () {
+                expect(napiGetPropertyNamesRaw(42)).to.deep.equal([]);
+            });
+
+            it("wraps a boolean primitive, which has no enumerable properties", function () {
+                expect(napiGetPropertyNamesRaw(true)).to.deep.equal([]);
+            });
+        });
+
+        it("still reports the prototype chain of a real object", function () {
+            const object = Object.create({ inherited: 1 });
+            object.own = 2;
+            expect(napiGetPropertyNamesRaw(object)).to.deep.equal(["own", "inherited"]);
+        });
+
+        it("fails for null", function () {
+            expect(() => napiGetPropertyNamesRaw(null)).to.throw();
+        });
+
+        it("fails for undefined", function () {
+            expect(() => napiGetPropertyNamesRaw(undefined)).to.throw();
+        });
+    });
+
+    // A `getPrototypeOf` Proxy trap may put an object back onto its own
+    // prototype chain -- no specification invariant forbids it -- which makes
+    // the chain cyclic. V8 collects keys recursively and so terminates with a
+    // `RangeError`; the shared walk is iterative and used to spin forever,
+    // burning CPU in native code with no way for script or the test timeout to
+    // interrupt it.
+    //
+    // These only apply to the backends that use the shared walk. V8 and Hermes
+    // bring their own key collection, and the JSI adapter forwards to
+    // `jsi::Object::getPropertyNames`, so their behaviour here is not ours to
+    // specify.
+    const usesSharedWalk = napiEngine === "Chakra" || napiEngine === "QuickJS" || napiEngine === "JavaScriptCore";
+    const describeCycles = usesSharedWalk ? describe : describe.skip;
+
+    // A cycle can only be built with a `getPrototypeOf` trap, so observing one
+    // additionally requires `napi_get_prototype` to consult that trap.
+    // JavaScriptCore's does not: it calls `JSObjectGetPrototype`, which reads
+    // the internal [[Prototype]] slot directly and never runs proxy traps
+    // (`js_native_api_javascriptcore.cc:1348`). A trapped chain there simply
+    // reports the target's real prototype, so the cycle -- and the throwing
+    // trap -- are both invisible, and the walk was never at risk on that
+    // backend. That is a pre-existing limitation of `napi_get_prototype`, not
+    // of the walk, so it is left alone here; the termination check below is
+    // still correct and harmless on JavaScriptCore.
+    const proxyTrapsReachPrototypeWalk = usesSharedWalk && napiEngine !== "JavaScriptCore";
+    const itTrapped = proxyTrapsReachPrototypeWalk ? it : it.skip;
+
+    describeCycles("cyclic prototype chains", function () {
+        this.timeout(5000);
+
+        itTrapped("terminates when a proxy is its own prototype", function () {
+            let object: any;
+            object = new Proxy({ own: 1 }, { getPrototypeOf() { return object; } });
+            expect(napiGetPropertyNames(object)).to.deep.equal(["own"]);
+        });
+
+        itTrapped("terminates on a two-object cycle and reports each level once", function () {
+            let first: any;
+            let second: any;
+            first = new Proxy({ a: 1 }, { getPrototypeOf() { return second; } });
+            second = new Proxy({ b: 2 }, { getPrototypeOf() { return first; } });
+            expect(napiGetPropertyNames(first)).to.deep.equal(["a", "b"]);
+        });
+
+        it("still reports a long acyclic chain in full", function () {
+            const base = { deep: 1 };
+            const middle = Object.create(base);
+            middle.middle = 2;
+            const leaf = Object.create(middle);
+            leaf.own = 3;
+            expect(napiGetPropertyNames(leaf)).to.deep.equal(["own", "middle", "deep"]);
+        });
+
+        itTrapped("propagates a throwing getPrototypeOf trap instead of hanging", function () {
+            const object = new Proxy({ own: 1 }, {
+                getPrototypeOf() { throw new Error("trap"); },
+            });
+            expect(() => napiGetPropertyNames(object)).to.throw();
+        });
     });
 });
 

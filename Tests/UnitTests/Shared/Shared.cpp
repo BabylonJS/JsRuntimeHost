@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <future>
 #include <iostream>
+#include <string>
+#include <string_view>
 #include <thread>
 
 namespace
@@ -100,6 +102,51 @@ TEST(JavaScript, All)
         env.Global().Set("setExitCode", setExitCodeCallback);
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
+        env.Global().Set("napiEngine", Napi::Value::From(env, JSRUNTIMEHOST_NAPI_ENGINE));
+
+        // Exposes napi_get_property_names, via its C++ wrapper, so that the
+        // script tests can compare it against `for...in`. See
+        // https://github.com/BabylonJS/JsRuntimeHost/issues/216.
+        auto getPropertyNamesCallback = Napi::Function::New(
+            env, [](const Napi::CallbackInfo& info) -> Napi::Value {
+                return info[0].As<Napi::Object>().GetPropertyNames();
+            },
+            "napiGetPropertyNames");
+        env.Global().Set("napiGetPropertyNames", getPropertyNamesCallback);
+
+#ifndef JSRUNTIMEHOST_NAPI_ENGINE_JSI
+        // `Napi::Object::GetPropertyNames` can only be reached through an
+        // already-constructed `Napi::Object`, so it cannot exercise the
+        // `ToObject` coercion that `napi_get_property_names` performs on its
+        // argument. Expose the C entry point directly for those cases. The JSI
+        // backend implements the `Napi::` C++ surface straight on top of JSI and
+        // has no C Node-API at all, so this global is left undefined there and
+        // the coercion tests skip themselves.
+        auto getPropertyNamesRawCallback = Napi::Function::New(
+            env, [](const Napi::CallbackInfo& info) -> Napi::Value {
+                napi_env rawEnv{info.Env()};
+                napi_value result{};
+                const napi_status status{napi_get_property_names(rawEnv, info[0], &result)};
+                if (status != napi_ok)
+                {
+                    // A failed call may or may not have left a JavaScript
+                    // exception pending; surface either as a thrown error so
+                    // that the script tests can assert on it uniformly.
+                    bool isExceptionPending{};
+                    if (napi_is_exception_pending(rawEnv, &isExceptionPending) == napi_ok && isExceptionPending)
+                    {
+                        napi_value error{};
+                        napi_get_and_clear_last_exception(rawEnv, &error);
+                    }
+
+                    throw Napi::Error::New(info.Env(), "napi_get_property_names failed with status " + std::to_string(status));
+                }
+
+                return Napi::Value{rawEnv, result};
+            },
+            "napiGetPropertyNamesRaw");
+        env.Global().Set("napiGetPropertyNamesRaw", getPropertyNamesRawCallback);
+#endif
     });
 
     Babylon::ScriptLoader loader{runtime};
@@ -826,6 +873,69 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
     EXPECT_TRUE(bothEscapesAccepted.get_future().get());
 }
 
+#endif
+
+// The V8JSI shim has no C Node-API at all, so this only builds elsewhere.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, GetPropertyNamesReportsLastErrorConsistently)
+{
+    // This asserts the contract for the three backends this change touches --
+    // the ones that share the prototype walk. V8's napi_get_property_names is
+    // vendored upstream Node code with different behaviour on both counts: a
+    // rejected call leaves a pending exception, so a following call reports
+    // napi_pending_exception rather than napi_object_expected, and its success
+    // path returns bare napi_ok through GET_RETURN_STATUS without clearing.
+    // Both are upstream's to define, not ours to redefine here. Hermes and the
+    // JSI adapter likewise supply their own.
+    const std::string_view engine{JSRUNTIMEHOST_NAPI_ENGINE};
+    if (engine != "Chakra" && engine != "QuickJS" && engine != "JavaScriptCore")
+    {
+        GTEST_SKIP() << engine << " supplies its own napi_get_property_names.";
+    }
+
+    // Regression: napi_get_property_names rejects null/undefined with
+    // napi_object_expected, but the shared walk is written against the public
+    // napi_* surface and cannot reach napi_set_last_error. CHECK_NAPI only
+    // propagates the status, and the napi_typeof performed just before the
+    // rejection clears the last error on success, so the returned status and
+    // napi_get_last_error_info() disagreed: the caller saw
+    // napi_object_expected while the recorded error code was still napi_ok.
+    // Node-API's contract is that the two agree.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> nullConsistent;
+    std::promise<bool> undefinedConsistent;
+    std::promise<bool> successClears;
+
+    runtime.Dispatch([&nullConsistent, &undefinedConsistent, &successClears](Napi::Env env) {
+        napi_env nenv{env};
+
+        const auto check = [nenv](napi_value value) {
+            napi_value names{nullptr};
+            const napi_status status{napi_get_property_names(nenv, value, &names)};
+
+            const napi_extended_error_info* info{nullptr};
+            napi_get_last_error_info(nenv, &info);
+
+            return status == napi_object_expected && info != nullptr && info->error_code == status;
+        };
+
+        nullConsistent.set_value(check(napi_value{env.Null()}));
+        undefinedConsistent.set_value(check(napi_value{env.Undefined()}));
+
+        // The success path must leave no stale error behind.
+        napi_value names{nullptr};
+        const napi_status status{napi_get_property_names(nenv, napi_value{Napi::Object::New(env)}, &names)};
+
+        const napi_extended_error_info* info{nullptr};
+        napi_get_last_error_info(nenv, &info);
+        successClears.set_value(status == napi_ok && info != nullptr && info->error_code == napi_ok);
+    });
+
+    EXPECT_TRUE(nullConsistent.get_future().get());
+    EXPECT_TRUE(undefinedConsistent.get_future().get());
+    EXPECT_TRUE(successClears.get_future().get());
+}
 #endif
 
 int RunTests()
