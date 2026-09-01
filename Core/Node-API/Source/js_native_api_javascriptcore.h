@@ -27,8 +27,24 @@ struct napi_env__ {
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
   JSValueRef function_prototype_call{};
-  JSValueRef is_bigint_function{};
+
+  // BigInt intrinsics, captured once at env init -- before any user script can run -- so the BigInt
+  // entry points never resolve `BigInt`, `BigInt.asIntN/asUintN` or `BigInt.prototype.toString`
+  // through the (monkey-patchable) global object on a live context. Same invariant as
+  // function_prototype_call above.
+  JSValueRef is_bigint_function{};        // (v) => typeof v === 'bigint'
+  JSValueRef bigint_constructor{};        // BigInt
+  JSValueRef bigint_as_int_n{};           // BigInt.asIntN
+  JSValueRef bigint_as_uint_n{};          // BigInt.asUintN
+  JSValueRef bigint_prototype_to_string{};// BigInt.prototype.toString
+  JSValueRef bigint_negate{};             // (v) => -v
   bool bigint_supported{false};
+
+  // ArrayBuffer detach intrinsics, captured at env init for the same reason. Both stay null on an
+  // engine without ES2024 ArrayBuffer.prototype.transfer / .detached (every jsc-android build, and
+  // Apple platforms below macOS 14.4 / iOS 17.4).
+  JSValueRef arraybuffer_transfer{};       // ArrayBuffer.prototype.transfer
+  JSValueRef arraybuffer_detached_getter{};// get ArrayBuffer.prototype.detached
 
   // Escapable scope bookkeeping: token -> whether that scope has escaped. Values
   // are rooted by the engine rather than by a scope here, so this exists only to
@@ -49,7 +65,8 @@ struct napi_env__ {
     init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
     init_function_prototype_call();
     init_is_bigint_function();
-    init_bigint_supported();
+    init_bigint_intrinsics();
+    init_arraybuffer_intrinsics();
   }
 
   ~napi_env__() {
@@ -58,6 +75,13 @@ struct napi_env__ {
       instance_data_finalize_cb(this, instance_data, instance_data_finalize_hint);
     }
     deinit_refs();
+    deinit_symbol(arraybuffer_detached_getter);
+    deinit_symbol(arraybuffer_transfer);
+    deinit_symbol(bigint_negate);
+    deinit_symbol(bigint_prototype_to_string);
+    deinit_symbol(bigint_as_uint_n);
+    deinit_symbol(bigint_as_int_n);
+    deinit_symbol(bigint_constructor);
     deinit_symbol(is_bigint_function);
     deinit_symbol(function_prototype_call);
     deinit_symbol(wrapper_info_symbol);
@@ -84,7 +108,8 @@ struct napi_env__ {
   void init_symbol(JSValueRef& symbol, const char* description);
   void init_function_prototype_call();
   void init_is_bigint_function();
-  void init_bigint_supported();
+  void init_bigint_intrinsics();
+  void init_arraybuffer_intrinsics();
   void deinit_symbol(JSValueRef symbol);
 };
 

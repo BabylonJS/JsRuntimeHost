@@ -519,6 +519,64 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     testThread.join();
 }
 
+// N-API results must not depend on anything reachable from script. The JavaScriptCore backend has no
+// BigInt C API below macOS 15 / iOS 18 / visionOS 2, and none at all on Android, so it reaches BigInt
+// through JS intrinsics; those are captured at env init (like Function.prototype.call) precisely so a
+// page that replaces `BigInt`, `BigInt.asIntN/asUintN` or `BigInt.prototype.toString` cannot steer an
+// addon's napi_*_bigint_* calls through its own code. Before that, every one of these entry points
+// re-resolved the name on the live global object, and the create path evaluated a `BigInt("...")`
+// source string -- so the patches below each returned an attacker-chosen value.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, BigIntIgnoresMonkeyPatchedIntrinsics)
+{
+    Babylon::AppRuntime runtime{};
+    Babylon::ScriptLoader loader{runtime};
+
+    // Replace every intrinsic the BigInt paths touch, the way user script could.
+    loader.Eval(R"(
+        globalThis.__pristine = { BigInt, asIntN: BigInt.asIntN, toString: BigInt.prototype.toString };
+        globalThis.BigInt = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asIntN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asUintN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.__pristine.BigInt.prototype.toString = function () { return '1234'; };
+    )",
+        "");
+
+    std::promise<void> done;
+    struct { bool supported; int64_t roundTripped; bool lossless; napi_valuetype type; } observed{};
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value big{nullptr};
+        if (napi_create_bigint_int64(nenv, 9007199254740993LL, &big) != napi_ok)
+        {
+            // Engine without BigInt (jsc-android r250231, Win10 Chakra): it throws ENOTSUP instead.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            observed.supported = false;
+            done.set_value();
+            return;
+        }
+        observed.supported = true;
+        napi_typeof(nenv, big, &observed.type);
+        napi_get_value_bigint_int64(nenv, big, &observed.roundTripped, &observed.lossless);
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    if (!observed.supported)
+    {
+        GTEST_SKIP() << "Engine does not support BigInt";
+    }
+    EXPECT_EQ(napi_bigint, observed.type);
+    // 1234 here would mean a patched intrinsic was consulted.
+    EXPECT_EQ(9007199254740993LL, observed.roundTripped);
+    EXPECT_TRUE(observed.lossless);
+}
+#endif
+
 // The V8JSI Node-API shim does not implement napi_create_dataview /
 // napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
 // only builds on the Chakra, V8, and JavaScriptCore backends. The size_t-width
