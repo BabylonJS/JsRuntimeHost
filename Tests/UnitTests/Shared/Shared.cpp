@@ -577,6 +577,76 @@ TEST(NodeApi, BigIntIgnoresMonkeyPatchedIntrinsics)
 }
 #endif
 
+// napi_detach_arraybuffer is the API that defines N-API v7, and its behaviour is not uniform across
+// the engines here: ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path -- the
+// JavaScriptCore C API has no detach entry point at all -- so an engine without it can only report
+// the capability as missing. This asserts both halves of that contract, whichever applies:
+//
+//   detach works        V8; JavaScriptCore on macOS 14.4+ / iOS 17.4+ / visionOS 1.1+
+//   ENOTSUP thrown      JavaScriptCore on older Apple OSes, and every jsc-android build
+//                       (verified on device: r250231 and r294992 both lack transfer)
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<void> done;
+    struct
+    {
+        bool detachedBefore{true};
+        bool detachedAfter{false};
+        bool supported{false};
+        std::string code;
+    } observed;
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        Napi::ArrayBuffer buffer{Napi::ArrayBuffer::New(env, 8)};
+        napi_value value{buffer};
+
+        napi_is_detached_arraybuffer(nenv, value, &observed.detachedBefore);
+
+        if (napi_detach_arraybuffer(nenv, value) == napi_ok)
+        {
+            observed.supported = true;
+            napi_is_detached_arraybuffer(nenv, value, &observed.detachedAfter);
+        }
+        else
+        {
+            // Feature-detected failure must be a catchable JS error carrying code ENOTSUP, not a
+            // bare napi_status an addon cannot distinguish from a real error.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            if (pending != nullptr)
+            {
+                napi_value code{nullptr};
+                if (napi_get_named_property(nenv, pending, "code", &code) == napi_ok)
+                {
+                    char buffer[32]{};
+                    size_t written{0};
+                    napi_get_value_string_utf8(nenv, code, buffer, sizeof(buffer), &written);
+                    observed.code.assign(buffer, written);
+                }
+            }
+        }
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    EXPECT_FALSE(observed.detachedBefore) << "a live ArrayBuffer must not report as detached";
+    if (observed.supported)
+    {
+        EXPECT_TRUE(observed.detachedAfter) << "napi_detach_arraybuffer returned ok but did not detach";
+    }
+    else
+    {
+        EXPECT_EQ("ENOTSUP", observed.code);
+    }
+}
+#endif
+
 // The V8JSI Node-API shim does not implement napi_create_dataview /
 // napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
 // only builds on the Chakra, V8, and JavaScriptCore backends. The size_t-width
