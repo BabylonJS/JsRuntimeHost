@@ -969,6 +969,19 @@ void napi_env__::init_bigint_intrinsics() {
     JSValueProtect(context, v);
   }
   bigint_supported = true;
+
+  // Ask the engine directly whether JSValueGetType classifies a BigInt, instead of inferring it from
+  // the SDK or from __builtin_available. napi_typeof is hot, and this keeps the JS `typeof` fallback
+  // off the object path everywhere the C API answers.
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+  JSValueRef probe_arg = JSValueMakeNumber(context, 1);
+  JSObjectRef ctor_obj = JSValueToObject(context, bigint_constructor, nullptr);
+  exception = nullptr;
+  JSValueRef probe = JSObjectCallAsFunction(context, ctor_obj, nullptr, 1, &probe_arg, &exception);
+  if (exception == nullptr && probe != nullptr) {
+    value_type_reports_bigint = JSValueGetType(context, probe) == kJSTypeBigInt;
+  }
+#endif
 }
 
 void napi_env__::init_arraybuffer_intrinsics() {
@@ -1730,8 +1743,9 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
     default: {
       // JSC below the C API floor -- and every jsc-android build -- does not report kJSTypeBigInt
       // through JSValueGetType, so detect BigInt with the `typeof v === 'bigint'` predicate captured
-      // at env init before treating value as an object.
-      if (env->is_bigint_function != nullptr) {
+      // at env init before treating value as an object. Skipped where the engine does classify
+      // BigInt, so the ordinary object path stays free of a JS call.
+      if (!env->value_type_reports_bigint && env->is_bigint_function != nullptr) {
         JSValueRef arg = ToJSValue(value);
         JSValueRef exception = nullptr;
         JSObjectRef predicate = JSValueToObject(env->context, env->is_bigint_function, &exception);
