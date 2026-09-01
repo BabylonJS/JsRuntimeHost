@@ -17,12 +17,17 @@ set(JSR_NODE_API_NATIVE_TEST_DIRS
     test_reference_double_free
 )
 
-# v6/v7 conformance addons. The JSI backend (Core/Node-API-JSI) does not implement the v6/v7 C surface,
-# so its addons are omitted (its build links only the v1-v5 set). V8 + JavaScriptCore execute these for
-# real; Chakra links them (instance_data works; BigInt throws ENOTSUP via feature-detection).
+# v6/v7 conformance addons, enabled per engine by what that engine actually implements.
+#
+# This is an ALLOW-list on purpose: upstream keeps adding backends (QuickJS, Hermes, JSI), and each new
+# one otherwise silently picks up addons whose napi_* symbols it does not export, failing at link
+# (e.g. QuickJS has napi_create_bigint_int64 but no *_words and no napi_add_finalizer). Add an engine
+# here only once its v6/v7 surface is implemented and the suite has been run against it.
+#
 # NOTE: detach (v7, test_typedarray) + get_all_property_names (v6, test_object) use v9 APIs
 # (node_api_basic_env) and enable at the v9 bump.
-if(NOT NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
+set(JSR_NODE_API_V6_V7_ENGINES V8 JavaScriptCore Chakra)
+if(NAPI_JAVASCRIPT_ENGINE IN_LIST JSR_NODE_API_V6_V7_ENGINES)
     list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_instance_data)
     # BigInt: the real conformance test where the engine has BigInt; an ENOTSUP feature-detection
     # fallback where it doesn't -- the Win10 OS Chakra, and jsc-android (~2020), whose parser rejects
