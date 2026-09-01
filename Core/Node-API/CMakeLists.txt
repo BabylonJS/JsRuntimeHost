@@ -70,7 +70,11 @@ if(NAPI_BUILD_ABI)
         if(ANDROID)
             set(V8_PACKAGE_NAME "jsc-android")
             set(JSC_ANDROID_DIR "${CMAKE_CURRENT_BINARY_DIR}/${V8_PACKAGE_NAME}")
-            napi_install_android_package(jsc "dist/org/webkit/android-jsc" ${JSC_ANDROID_DIR})
+            # r294992 is the newest jsc-android build (dist-tag `next`; `latest` is still the 2019
+            # r250231). It is the first with BigInt enabled by default -- r250231 gates BigInt behind
+            # the `useBigInt` runtime option, off, so its parser rejects `0n`. r294992 publishes only
+            # the `-intl` variant, and statically links libc++ (no libc++_shared.so dependency).
+            napi_install_android_package(jsc "dist/org/webkit/android-jsc-intl" ${JSC_ANDROID_DIR})
 
             # Add `JavaScriptCore` prefix to the include path
             file(RENAME "${JSC_ANDROID_DIR}/include" "${JSC_ANDROID_DIR}/JavaScriptCore")

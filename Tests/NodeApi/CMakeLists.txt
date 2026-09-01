@@ -30,10 +30,10 @@ set(JSR_NODE_API_V6_V7_ENGINES V8 JavaScriptCore Chakra)
 if(NAPI_JAVASCRIPT_ENGINE IN_LIST JSR_NODE_API_V6_V7_ENGINES)
     list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_instance_data)
     # BigInt: the real conformance test where the engine has BigInt; an ENOTSUP feature-detection
-    # fallback where it doesn't -- the Win10 OS Chakra, and jsc-android (~2020), whose parser rejects
-    # `0n` literals so the standard test_bigint can't even be parsed there.
-    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra" OR
-       (NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore" AND ANDROID))
+    # fallback where it doesn't -- the Win10 OS Chakra. (jsc-android r250231 also lacked BigInt: it
+    # gates the feature behind the `useBigInt` runtime option, off, so its parser rejects `0n` and the
+    # standard test_bigint can't even be parsed. r294992, which we now pin, enables it by default.)
+    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "Chakra")
         list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_bigint_unsupported)
     else()
         list(APPEND JSR_NODE_API_NATIVE_TEST_DIRS test_bigint)
