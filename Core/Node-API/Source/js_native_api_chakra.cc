@@ -2508,6 +2508,46 @@ napi_status napi_get_instance_data(napi_env env, void** data) {
   return napi_ok;
 }
 
+// N-API v7 ArrayBuffer detach. Win10's OS Chakra exposes no way to detach an ArrayBuffer: the
+// runtime has no detach entry point, and its JavaScript engine predates ES2024
+// ArrayBuffer.prototype.transfer(). As with BigInt below, report that honestly rather than failing
+// with a bare status an addon cannot tell from a real error.
+napi_status napi_detach_arraybuffer(napi_env env, napi_value arraybuffer) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, arraybuffer);
+  CHECK_NAPI(napi_throw_error(
+      env, "ENOTSUP",
+      "ArrayBuffer detach is not supported by the underlying JavaScript engine (Chakra)."));
+  return napi_set_last_error(env, napi_pending_exception);
+}
+
+napi_status napi_is_detached_arraybuffer(napi_env env,
+                                         napi_value arraybuffer,
+                                         bool* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, arraybuffer);
+  CHECK_ARG(env, result);
+
+  // Nothing can detach a buffer on this engine (see above), so an ArrayBuffer that still reports
+  // storage is live. Non-ArrayBuffers are not detached either, matching Node's contract.
+  JsValueType valueType;
+  CHECK_JSRT(env, JsGetValueType(reinterpret_cast<JsValueRef>(arraybuffer), &valueType));
+  if (valueType != JsArrayBuffer) {
+    *result = false;
+    return napi_ok;
+  }
+
+  BYTE* storageData;
+  unsigned int storageLength;
+  CHECK_JSRT(env, JsGetArrayBufferStorage(
+    reinterpret_cast<JsValueRef>(arraybuffer),
+    &storageData,
+    &storageLength));
+
+  *result = (storageData == nullptr);
+  return napi_ok;
+}
+
 // BigInt (v6): the Win10 OS edge-mode Chakra (jsrt) predates BigInt and exposes no JsBigInt* API, so
 // there is no value-preserving fallback. Per the Node-API feature-detection-by-exception pattern, throw
 // a JS-catchable error tagged "ENOTSUP" (so JS land can detect + polyfill) and return a pending
