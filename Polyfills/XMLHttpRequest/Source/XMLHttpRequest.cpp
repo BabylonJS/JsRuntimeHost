@@ -2,6 +2,7 @@
 #include <Babylon/JsRuntime.h>
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <arcana/tracing/trace_region.h>
+#include <algorithm>
 #include <cstring>
 #include <sstream>
 
@@ -59,6 +60,68 @@ namespace Babylon::Polyfills::Internal
             constexpr const char* ReadyStateChange = "readystatechange";
             constexpr const char* LoadEnd = "loadend";
             constexpr const char* Error = "error";
+            constexpr const char* Load = "load";
+            constexpr const char* Abort = "abort";
+        }
+    }
+
+    const char* const XMLHttpRequest::EVENT_TYPE_NAMES[static_cast<size_t>(XMLHttpRequest::EventIndex::Count)] = {
+        EventType::ReadyStateChange,
+        EventType::Load,
+        EventType::Error,
+        EventType::LoadEnd,
+        EventType::Abort,
+    };
+
+    template<XMLHttpRequest::EventIndex Index>
+    Napi::Value XMLHttpRequest::GetEventHandler(const Napi::CallbackInfo&)
+    {
+        const auto it = m_listeners.find(EVENT_TYPE_NAMES[static_cast<size_t>(Index)]);
+        if (it != m_listeners.end())
+        {
+            for (const auto& listener : it->second)
+            {
+                if (listener.isEventHandler)
+                {
+                    return listener.callback.Value();
+                }
+            }
+        }
+
+        return Env().Null();
+    }
+
+    template<XMLHttpRequest::EventIndex Index>
+    void XMLHttpRequest::SetEventHandler(const Napi::CallbackInfo&, const Napi::Value& value)
+    {
+        auto& listeners = m_listeners[EVENT_TYPE_NAMES[static_cast<size_t>(Index)]];
+        const auto it = std::find_if(listeners.begin(), listeners.end(), [](const Listener& listener) {
+            return listener.isEventHandler;
+        });
+
+        // `EventHandler` attributes are declared [LegacyTreatNonObjectAsNull] in WebIDL, so a
+        // non-callable assignment is coerced to null rather than throwing: `xhr.onload = 0`
+        // leaves `xhr.onload === null`. We extend that to non-callable objects too -- storing a
+        // value we could never invoke would only defer the failure to dispatch time.
+        if (!value.IsFunction())
+        {
+            if (it != listeners.end())
+            {
+                listeners.erase(it);
+            }
+
+            return;
+        }
+
+        if (it != listeners.end())
+        {
+            // Replace in place so reassignment keeps this listener's position in the
+            // dispatch order.
+            it->callback = Napi::Persistent(value.As<Napi::Function>());
+        }
+        else
+        {
+            listeners.push_back(Listener{Napi::Persistent(value.As<Napi::Function>()), true});
         }
     }
 
@@ -88,6 +151,15 @@ namespace Babylon::Polyfills::Internal
                 // to tell a DNS failure from a refused connection or a missing local asset.
                 InstanceAccessor("errorCode", &XMLHttpRequest::GetErrorCode, nullptr),
                 InstanceAccessor("errorDetail", &XMLHttpRequest::GetErrorDetail, nullptr),
+                // DOM `on<event>` handler properties. Without these, `xhr.onreadystatechange = fn`
+                // silently sets an ordinary expando property that is never invoked, so code written
+                // against the standard XMLHttpRequest API waits forever for a callback that can
+                // never fire.
+                InstanceAccessor("onreadystatechange", &XMLHttpRequest::GetEventHandler<EventIndex::ReadyStateChange>, &XMLHttpRequest::SetEventHandler<EventIndex::ReadyStateChange>),
+                InstanceAccessor("onload", &XMLHttpRequest::GetEventHandler<EventIndex::Load>, &XMLHttpRequest::SetEventHandler<EventIndex::Load>),
+                InstanceAccessor("onerror", &XMLHttpRequest::GetEventHandler<EventIndex::Error>, &XMLHttpRequest::SetEventHandler<EventIndex::Error>),
+                InstanceAccessor("onloadend", &XMLHttpRequest::GetEventHandler<EventIndex::LoadEnd>, &XMLHttpRequest::SetEventHandler<EventIndex::LoadEnd>),
+                InstanceAccessor("onabort", &XMLHttpRequest::GetEventHandler<EventIndex::Abort>, &XMLHttpRequest::SetEventHandler<EventIndex::Abort>),
                 InstanceMethod("getAllResponseHeaders", &XMLHttpRequest::GetAllResponseHeaders),
                 InstanceMethod("getResponseHeader", &XMLHttpRequest::GetResponseHeader),
                 InstanceMethod("setRequestHeader", &XMLHttpRequest::SetRequestHeader),
@@ -221,31 +293,40 @@ namespace Babylon::Polyfills::Internal
         const std::string eventType = info[0].As<Napi::String>().Utf8Value();
         const Napi::Function eventHandler = info[1].As<Napi::Function>();
 
-        const auto& eventHandlerRefs = m_eventHandlerRefs[eventType];
-        for (auto it = eventHandlerRefs.begin(); it != eventHandlerRefs.end(); ++it)
+        auto& listeners = m_listeners[eventType];
+        for (const auto& listener : listeners)
         {
-            if (it->Value() == eventHandler)
+            // Deliberately skips the `on<event>` entry: `xhr.onload = f` followed by
+            // `xhr.addEventListener("load", f)` is two independent registrations, and a browser
+            // calls `f` twice rather than collapsing them.
+            if (!listener.isEventHandler && listener.callback.Value() == eventHandler)
             {
-                throw Napi::Error::New(info.Env(), "Cannot add the same event handler twice");
+                // Per DOM, re-adding an identical (type, callback, capture) triple is a silent
+                // no-op rather than an error: "If eventTarget's event listener list does not
+                // contain an event listener whose type is listener's type [...] then append
+                // listener". The listener stays registered once and is dispatched once.
+                return;
             }
         }
 
-        m_eventHandlerRefs[eventType].push_back(Napi::Persistent(eventHandler));
+        listeners.push_back(Listener{Napi::Persistent(eventHandler), false});
     }
 
     void XMLHttpRequest::RemoveEventListener(const Napi::CallbackInfo& info)
     {
         const std::string eventType = info[0].As<Napi::String>().Utf8Value();
         const Napi::Function eventHandler = info[1].As<Napi::Function>();
-        const auto itType = m_eventHandlerRefs.find(eventType);
-        if (itType != m_eventHandlerRefs.end())
+        const auto itType = m_listeners.find(eventType);
+        if (itType != m_listeners.end())
         {
-            auto& eventHandlerRefs = itType->second;
-            for (auto it = eventHandlerRefs.begin(); it != eventHandlerRefs.end(); ++it)
+            auto& listeners = itType->second;
+            for (auto it = listeners.begin(); it != listeners.end(); ++it)
             {
-                if (it->Value() == eventHandler)
+                // removeEventListener never removes an `on<event>` handler; that is done by
+                // assigning null to the property.
+                if (!it->isEventHandler && it->callback.Value() == eventHandler)
                 {
-                    eventHandlerRefs.erase(it);
+                    listeners.erase(it);
                     break;
                 }
             }
@@ -254,6 +335,10 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Abort(const Napi::CallbackInfo&)
     {
+        // Record the caller's intent so the in-flight continuation reports this as an abort
+        // rather than a transport error. If no request is in flight this is inert, matching the
+        // DOM, where abort() on an unsent request produces no observable events.
+        m_aborted = true;
         m_request.Abort();
     }
 
@@ -321,18 +406,36 @@ namespace Babylon::Polyfills::Internal
                 // success-only continuation here skipped readyState=Done / loadend / error and let the JS observer
                 // hang.
                 const auto statusCode = arcana::underlying_cast(m_request.StatusCode());
-                const bool failed = result.has_error() || statusCode < 200 || statusCode >= 300;
+                // `error` is reserved for transport-level failure. A completed HTTP transaction
+                // that returned a non-2xx status (e.g. 404) is still a successful exchange, so it
+                // dispatches `load` and the caller branches on `xhr.status` inside the handler.
+                // UrlStatusCode::None (0) is UrlLib's "no response was obtained" sentinel: it is
+                // only ever the initial value and the reset in ResetForOpen, because every path
+                // that produces a response assigns an explicit code -- including the non-HTTP
+                // ones, where local file reads set Ok. That keeps the missing-local-file-on-UWP
+                // case (status left at 0) reporting `error`.
+                const bool failed = result.has_error() || statusCode == 0;
 
                 SetReadyState(ReadyState::Done);
-                if (failed)
+                if (m_aborted)
+                {
+                    // A cancelled request is not a transport failure: the DOM reports it as
+                    // 'abort' + 'loadend' and never raises 'error'.
+                    RaiseEvent(EventType::Abort);
+                }
+                else if (failed)
                 {
                     RaiseEvent(EventType::Error);
+                }
+                else
+                {
+                    RaiseEvent(EventType::Load);
                 }
                 RaiseEvent(EventType::LoadEnd);
 
                 // Assume the XMLHttpRequest will only be used for a single request and clear the event handlers.
                 // Single use seems to be the standard pattern, and we need to release our strong refs to event handlers.
-                m_eventHandlerRefs.clear();
+                m_listeners.clear();
             });
     }
 
@@ -346,13 +449,39 @@ namespace Babylon::Polyfills::Internal
     {
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::RaiseEvent [" << eventType << "] [" << m_url << "]").str();
         arcana::trace_region raiseEventRegion{traceName.c_str()};
-        const auto it = m_eventHandlerRefs.find(eventType);
-        if (it != m_eventHandlerRefs.end())
+
+        Napi::Env env = Env();
+
+        // Snapshot the handlers before dispatching. A handler may call addEventListener,
+        // removeEventListener, or reassign an on<event> property while it runs, which would
+        // otherwise reallocate the vector or rehash the map out from under this dispatch.
+        // (Mirrors FileReader::Dispatch.)
+        std::vector<Napi::Function> handlers{};
+
+        const auto it = m_listeners.find(eventType);
+        if (it != m_listeners.end())
         {
-            const auto& eventHandlerRefs = it->second;
-            for (const auto& eventHandlerRef : eventHandlerRefs)
+            // One pass over the single list, so handlers run in registration order regardless of
+            // whether they arrived via addEventListener or an `on<event>` property.
+            handlers.reserve(it->second.size());
+            for (const auto& listener : it->second)
             {
-                eventHandlerRef.Call({});
+                if (!listener.callback.IsEmpty())
+                {
+                    handlers.push_back(listener.callback.Value());
+                }
+            }
+        }
+
+        for (const auto& handler : handlers)
+        {
+            handler.Call({});
+
+            // A throwing handler must not abort the remaining dispatch, and the exception must
+            // not escape into the native completion continuation that called us.
+            if (env.IsExceptionPending())
+            {
+                env.GetAndClearPendingException();
             }
         }
     }
