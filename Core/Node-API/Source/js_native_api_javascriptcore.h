@@ -39,6 +39,10 @@ struct napi_env__ {
   JSValueRef bigint_prototype_to_string{};// BigInt.prototype.toString
   JSValueRef bigint_negate{};             // (v) => -v
   bool bigint_supported{false};
+  // Whether JSValueGetType actually reports kJSTypeBigInt on this engine+OS. Probed at init rather
+  // than assumed from the SDK: the enumerator can be compiled in while the deployed JSC never
+  // produces it. False means napi_typeof has to fall back to the `typeof` predicate.
+  bool value_type_reports_bigint{false};
 
   // ArrayBuffer detach intrinsics, captured at env init for the same reason. Both stay null on an
   // engine without ES2024 ArrayBuffer.prototype.transfer / .detached (every jsc-android build, and
