@@ -76,29 +76,23 @@ target_link_libraries(UnitTestsJNI
 if(ANDROID)
     target_link_libraries(UnitTestsJNI PRIVATE dl)
 endif()
-# The v1-v5 suite + v6 instance_data run on both Android engines. BigInt runs for real on V8; on
-# jsc-android (~2020) the eval-based BigInt shim isn't green yet on-device (the in-process runner gives
-# no error detail; macOS JSC + V8 both pass test_bigint), so it's gated to V8 here and tracked as a
-# follow-up. Keep in sync with JSR_NODE_API_NATIVE_TEST_DIRS in Tests/NodeApi/CMakeLists.txt.
-if(JSR_NODE_API_HARNESS_SRC)
+# The on-device conformance addons, per engine -- keep in sync with JSR_NODE_API_NATIVE_TEST_DIRS in
+# Tests/NodeApi/CMakeLists.txt. This is an ALLOW-list: only engines whose v6/v7 surface is actually
+# implemented and exercised run these. A backend added upstream later (e.g. QuickJS, which has
+# napi_create_bigint_int64 but no napi_add_finalizer and no *_words) must be opted in deliberately
+# rather than inheriting them by default.
+#
+set(JSR_NODE_API_HARNESS_ENGINES V8 JavaScriptCore)
+if(NAPI_JAVASCRIPT_ENGINE IN_LIST JSR_NODE_API_HARNESS_ENGINES)
     set(_jsr_node_api_tests
-        "2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free")
-
-    # v6/v7 suites, per engine -- keep in sync with the allow-list in Tests/NodeApi/CMakeLists.txt. Only
-    # engines whose v6/v7 surface is actually implemented run these; a backend added upstream later (e.g.
-    # QuickJS, which has napi_create_bigint_int64 but no napi_add_finalizer and no *_words) must be opted
-    # in deliberately rather than inheriting them by default.
-    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8" OR NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
-        string(APPEND _jsr_node_api_tests ",test_instance_data")
-        # BigInt runs for real on V8; jsc-android (~2020) has no BigInt at all (its parser rejects `0n`),
-        # so it runs the ENOTSUP feature-detection fallback instead.
-        if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-            string(APPEND _jsr_node_api_tests ",test_bigint")
-        else()
-            string(APPEND _jsr_node_api_tests ",test_bigint_unsupported")
-        endif()
+        "2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data")
+    # BigInt runs for real on V8; jsc-android r250231 has no BigInt at all (its parser rejects `0n`),
+    # so it runs the ENOTSUP feature-detection fallback instead.
+    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+        string(APPEND _jsr_node_api_tests ",test_bigint")
+    else()
+        string(APPEND _jsr_node_api_tests ",test_bigint_unsupported")
     endif()
-
     target_compile_definitions(UnitTestsJNI
         PRIVATE NODE_API_AVAILABLE_NATIVE_TESTS="${_jsr_node_api_tests}")
 endif()
