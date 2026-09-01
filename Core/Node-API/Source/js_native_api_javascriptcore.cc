@@ -1,4 +1,33 @@
 #include "js_native_api_javascriptcore.h"
+
+// The JavaScriptCore BigInt C API (JSBigIntCreateWith*, JSValueIsBigInt, kJSTypeBigInt) is annotated
+// API_AVAILABLE(macos(15.0), ios(18.0)); clang derives visionOS 2.0 and tvOS 18.0 from the iOS clause.
+// Two things this guard has to get right, both verified by compiling against each SDK:
+//
+//   * __MAC_OS_X_VERSION_MAX_ALLOWED is undefined on non-macOS Apple SDKs, so testing it alone
+//     compiles the fast path out of every iOS and visionOS build. visionOS additionally reports
+//     __IPHONE_OS_VERSION_MAX_ALLOWED as 17.0, so it needs its own clause.
+//   * __builtin_available(macOS 15.0, *) does NOT guard iOS or visionOS -- the `*` wildcard asserts
+//     availability on unlisted platforms, so on iOS 17 it leaves the call unguarded (a null weak
+//     symbol at runtime). Every platform we ship must be named explicitly.
+//
+// Below the floor (macOS 13, and iOS/visionOS builds deployed under the annotated versions) the
+// BigIntFromString / BigIntToString intrinsic path handles BigInt instead; it is the only path on
+// Android, where no jsc-android build exposes the C API at all.
+#if defined(__APPLE__)
+#include <Availability.h>
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED)  && __MAC_OS_X_VERSION_MAX_ALLOWED  >= 150000) || \
+    (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000) || \
+    (defined(__TV_OS_VERSION_MAX_ALLOWED)     && __TV_OS_VERSION_MAX_ALLOWED     >= 180000) || \
+    (defined(__VISION_OS_VERSION_MAX_ALLOWED) && __VISION_OS_VERSION_MAX_ALLOWED >=  20000)
+#define JSR_JSC_HAS_BIGINT_C_API 1
+#endif
+#endif
+
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+#define JSR_JSC_BIGINT_C_API_AVAILABLE() \
+  __builtin_available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+#endif
 #include <algorithm>
 #include <cassert>
 #include <climits>
@@ -844,7 +873,9 @@ void napi_env__::init_symbol(JSValueRef &symbol, const char *description) {
 }
 
 void napi_env__::deinit_symbol(JSValueRef symbol) {
-  JSValueUnprotect(context, symbol);
+  if (symbol != nullptr) {
+    JSValueUnprotect(context, symbol);
+  }
 }
 
 void napi_env__::init_function_prototype_call() {
@@ -872,17 +903,119 @@ void napi_env__::init_is_bigint_function() {
   }
 }
 
-void napi_env__::init_bigint_supported() {
-  // Detect BigInt once at env init. jsc-android (~2020) ships without BigInt -- its parser even rejects
-  // `0n` literals -- so the eval/C-API BigInt paths must feature-detect-fail there. `typeof BigInt`
-  // parses on every JSC (no literal syntax), and BigInt(1) confirms the global is actually functional.
-  JSStringRef script = JSStringCreateWithUTF8CString(
-      "(function () { try { return typeof BigInt === 'function' && typeof BigInt(1) === 'bigint'; }"
-      " catch (e) { return false; } })()");
+void napi_env__::init_bigint_intrinsics() {
+  // Capture the BigInt intrinsics once, at env init, for the same reason as
+  // init_function_prototype_call: nothing on the BigInt path may resolve a name through the live
+  // global object, where user script can replace `BigInt`, `BigInt.asIntN/asUintN` or
+  // `BigInt.prototype.toString` and steer every napi_*_bigint_* call through its own code.
+  //
+  // This doubles as the feature probe. jsc-android r250231 (WebKit r250230) compiles BigInt behind
+  // the `useBigInt` runtime option, defaulted off: `BigInt` is simply absent and the parser rejects
+  // `0n`, so every lookup below fails and bigint_supported stays false. Probing by property lookup
+  // rather than by evaluating a literal is deliberate -- a `0n` in the probe source would be a
+  // SyntaxError on such a build, not a false result.
+  auto get = [this](JSValueRef holder, const char* name) -> JSValueRef {
+    if (holder == nullptr) {
+      return nullptr;
+    }
+    JSValueRef exception = nullptr;
+    JSObjectRef holder_obj = JSValueToObject(context, holder, &exception);
+    if (exception != nullptr || holder_obj == nullptr) {
+      return nullptr;
+    }
+    JSStringRef key = JSStringCreateWithUTF8CString(name);
+    JSValueRef value = JSObjectGetProperty(context, holder_obj, key, &exception);
+    JSStringRelease(key);
+    return exception == nullptr ? value : nullptr;
+  };
+  auto is_callable = [this](JSValueRef value) {
+    if (value == nullptr || !JSValueIsObject(context, value)) {
+      return false;
+    }
+    JSObjectRef obj = JSValueToObject(context, value, nullptr);
+    return obj != nullptr && JSObjectIsFunction(context, obj);
+  };
+
+  JSValueRef ctor = get(JSContextGetGlobalObject(context), "BigInt");
+  if (!is_callable(ctor)) {
+    return;  // no BigInt on this engine; bigint_supported stays false
+  }
+  JSValueRef as_int_n = get(ctor, "asIntN");
+  JSValueRef as_uint_n = get(ctor, "asUintN");
+  JSValueRef to_string = get(get(ctor, "prototype"), "toString");
+  if (!is_callable(as_int_n) || !is_callable(as_uint_n) || !is_callable(to_string)) {
+    return;
+  }
+
+  // Unary minus on a BigInt primitive is a spec operation with no interceptable hook, so a helper
+  // captured here stays honest for the life of the env. It is needed because StringToBigInt accepts
+  // a sign only on decimal literals -- BigInt("-0x...") is a SyntaxError -- and the words path below
+  // builds a hex string.
+  JSStringRef negate_src = JSStringCreateWithUTF8CString("(function (v) { return -v; })");
   JSValueRef exception = nullptr;
-  JSValueRef result = JSEvaluateScript(context, script, nullptr, nullptr, 0, &exception);
-  JSStringRelease(script);
-  bigint_supported = (exception == nullptr) && (result != nullptr) && JSValueToBoolean(context, result);
+  JSValueRef negate = JSEvaluateScript(context, negate_src, nullptr, nullptr, 0, &exception);
+  JSStringRelease(negate_src);
+  if (exception != nullptr || !is_callable(negate)) {
+    return;
+  }
+
+  bigint_constructor = ctor;
+  bigint_as_int_n = as_int_n;
+  bigint_as_uint_n = as_uint_n;
+  bigint_prototype_to_string = to_string;
+  bigint_negate = negate;
+  for (JSValueRef v : {bigint_constructor, bigint_as_int_n, bigint_as_uint_n,
+                       bigint_prototype_to_string, bigint_negate}) {
+    JSValueProtect(context, v);
+  }
+  bigint_supported = true;
+}
+
+void napi_env__::init_arraybuffer_intrinsics() {
+  // ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path -- the JavaScriptCore C
+  // API has no detach entry point at all -- and `.detached` is an accessor on the same prototype.
+  // Both are reachable from script, so capture them here rather than looking them up per call.
+  JSValueRef exception = nullptr;
+  JSObjectRef global = JSContextGetGlobalObject(context);
+  JSValueRef ctor = JSObjectGetProperty(context, global, JSString("ArrayBuffer"), &exception);
+  if (exception != nullptr) {
+    return;
+  }
+  JSObjectRef ctor_obj = JSValueToObject(context, ctor, &exception);
+  if (exception != nullptr || ctor_obj == nullptr) {
+    return;
+  }
+  JSValueRef prototype = JSObjectGetProperty(context, ctor_obj, JSString("prototype"), &exception);
+  if (exception != nullptr) {
+    return;
+  }
+  JSObjectRef prototype_obj = JSValueToObject(context, prototype, &exception);
+  if (exception != nullptr || prototype_obj == nullptr) {
+    return;
+  }
+
+  JSValueRef transfer = JSObjectGetProperty(context, prototype_obj, JSString("transfer"), &exception);
+  if (exception == nullptr && transfer != nullptr && JSValueIsObject(context, transfer)) {
+    JSObjectRef transfer_obj = JSValueToObject(context, transfer, nullptr);
+    if (transfer_obj != nullptr && JSObjectIsFunction(context, transfer_obj)) {
+      arraybuffer_transfer = transfer;
+      JSValueProtect(context, arraybuffer_transfer);
+    }
+  }
+
+  // `detached` is an accessor, so the getter has to come out of its property descriptor. Reaching
+  // Object.getOwnPropertyDescriptor through script is safe at env-init time, before any user code
+  // has run; napi_is_detached_arraybuffer then calls the captured getter directly.
+  JSStringRef src = JSStringCreateWithUTF8CString(
+      "(function () { var d = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'detached');"
+      " return (d && typeof d.get === 'function') ? d.get : null; })()");
+  exception = nullptr;
+  JSValueRef getter = JSEvaluateScript(context, src, nullptr, nullptr, 0, &exception);
+  JSStringRelease(src);
+  if (exception == nullptr && getter != nullptr && JSValueIsObject(context, getter)) {
+    arraybuffer_detached_getter = getter;
+    JSValueProtect(context, arraybuffer_detached_getter);
+  }
 }
 
 // Warning: Keep in-sync with napi_status enum
@@ -1588,15 +1721,16 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
     case kJSTypeNumber: *result = napi_number; break;
     case kJSTypeString: *result = napi_string; break;
     case kJSTypeSymbol: *result = napi_symbol; break;
-#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
-    // kJSTypeBigInt is macOS 15+/iOS 18+. On older JSC (e.g. jsc-android) a BigInt falls to the
-    // default branch; a typeof-based fallback is added with the Android bring-up.
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+    // kJSTypeBigInt is only produced by a JSC at/above the C API floor. Where the SDK knows the
+    // enumerator but the deployed OS is older, JSValueGetType simply never returns it and the
+    // predicate below catches the BigInt instead -- so this case needs no __builtin_available.
     case kJSTypeBigInt: *result = napi_bigint; break;
 #endif
     default: {
-#if !(defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000)
-      // Older JSC (e.g. jsc-android) does not report kJSTypeBigInt through JSValueGetType, so detect
-      // BigInt with the cached `typeof v === 'bigint'` predicate before treating value as an object.
+      // JSC below the C API floor -- and every jsc-android build -- does not report kJSTypeBigInt
+      // through JSValueGetType, so detect BigInt with the `typeof v === 'bigint'` predicate captured
+      // at env init before treating value as an object.
       if (env->is_bigint_function != nullptr) {
         JSValueRef arg = ToJSValue(value);
         JSValueRef exception = nullptr;
@@ -1609,7 +1743,6 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
           }
         }
       }
-#endif
       JSObjectRef object{ToJSObject(env, value)};
       // Consult JSObjectIsConstructor in addition to JSObjectIsFunction: some JSC builds (e.g.
       // libjavascriptcoregtk) report constructors created via JSObjectMakeConstructor -- such as
@@ -1791,27 +1924,25 @@ napi_status napi_bigint_unsupported(napi_env env) {
   return napi_set_last_error(env, napi_pending_exception);
 }
 
-napi_status BigIntLow64(napi_env env, napi_value value, const char* method, JSValueRef* low) {
+// BigInt.asIntN(64, value) / BigInt.asUintN(64, value) through the intrinsic captured at env init.
+napi_status BigIntLow64(napi_env env, napi_value value, JSValueRef as_n, JSValueRef* low) {
   if (!env->bigint_supported) {
     return napi_bigint_unsupported(env);
   }
-  JSObjectRef global = JSContextGetGlobalObject(env->context);
   JSValueRef exception{};
-  JSValueRef bigIntCtor = JSObjectGetProperty(env->context, global, JSString("BigInt"), &exception);
+  JSObjectRef as_n_fn = JSValueToObject(env->context, as_n, &exception);
   CHECK_JSC(env, exception);
-  JSObjectRef bigIntObj = JSValueToObject(env->context, bigIntCtor, &exception);
-  CHECK_JSC(env, exception);
-  JSValueRef fn = JSObjectGetProperty(env->context, bigIntObj, JSString(method), &exception);
-  CHECK_JSC(env, exception);
-  JSObjectRef fnObj = JSValueToObject(env->context, fn, &exception);
+  JSObjectRef bigint_ctor = JSValueToObject(env->context, env->bigint_constructor, &exception);
   CHECK_JSC(env, exception);
   JSValueRef args[2] = {JSValueMakeNumber(env->context, 64), ToJSValue(value)};
-  *low = JSObjectCallAsFunction(env->context, fnObj, bigIntObj, 2, args, &exception);
+  *low = JSObjectCallAsFunction(env->context, as_n_fn, bigint_ctor, 2, args, &exception);
   CHECK_JSC(env, exception);
   return napi_ok;
 }
 
-// value.toString(radix) for a BigInt primitive (boxes the primitive, then calls toString).
+// BigInt.prototype.toString.call(value, radix), through the intrinsic captured at env init: the
+// boxed value supplies `this` only, so a user-installed `toString` own/prototype property cannot
+// intercept the conversion.
 napi_status BigIntToString(napi_env env, napi_value value, int radix, std::string* out) {
   if (!env->bigint_supported) {
     return napi_bigint_unsupported(env);
@@ -1819,9 +1950,7 @@ napi_status BigIntToString(napi_env env, napi_value value, int radix, std::strin
   JSValueRef exception{};
   JSObjectRef boxed = JSValueToObject(env->context, ToJSValue(value), &exception);
   CHECK_JSC(env, exception);
-  JSValueRef toString = JSObjectGetProperty(env->context, boxed, JSString("toString"), &exception);
-  CHECK_JSC(env, exception);
-  JSObjectRef toStringFn = JSValueToObject(env->context, toString, &exception);
+  JSObjectRef toStringFn = JSValueToObject(env->context, env->bigint_prototype_to_string, &exception);
   CHECK_JSC(env, exception);
   JSValueRef radixArg = JSValueMakeNumber(env->context, radix);
   JSValueRef str = JSObjectCallAsFunction(env->context, toStringFn, boxed, 1, &radixArg, &exception);
@@ -1836,17 +1965,29 @@ napi_status BigIntToString(napi_env env, napi_value value, int radix, std::strin
   return napi_ok;
 }
 
-// Construct a BigInt from a (controlled) JS source expression; used as the create path where the C
-// API is unavailable. Only embeds numeric/hex literals -> no injection surface.
-napi_status BigIntFromExpr(napi_env env, const std::string& expr, napi_value* result) {
+// BigInt(text) -- optionally negated -- through the constructor captured at env init. This is the
+// create path wherever the BigInt C API is unavailable (every jsc-android build, and Apple platforms
+// below the macOS 15 / iOS 18 / visionOS 2 floor). It calls the captured intrinsic rather than
+// evaluating a `BigInt("...")` source string: an eval would re-resolve the global `BigInt` on a live
+// context, and would also pay a parse per BigInt created.
+napi_status BigIntFromString(napi_env env, const std::string& text, bool negate, napi_value* result) {
   if (!env->bigint_supported) {
     return napi_bigint_unsupported(env);
   }
-  JSStringRef src = JSStringCreateWithUTF8CString(expr.c_str());
   JSValueRef exception{};
-  JSValueRef big = JSEvaluateScript(env->context, src, nullptr, nullptr, 0, &exception);
-  JSStringRelease(src);
+  JSObjectRef ctor = JSValueToObject(env->context, env->bigint_constructor, &exception);
   CHECK_JSC(env, exception);
+  JSStringRef js_text = JSStringCreateWithUTF8CString(text.c_str());
+  JSValueRef arg = JSValueMakeString(env->context, js_text);
+  JSStringRelease(js_text);
+  JSValueRef big = JSObjectCallAsFunction(env->context, ctor, nullptr, 1, &arg, &exception);
+  CHECK_JSC(env, exception);
+  if (negate) {
+    JSObjectRef negate_fn = JSValueToObject(env->context, env->bigint_negate, &exception);
+    CHECK_JSC(env, exception);
+    big = JSObjectCallAsFunction(env->context, negate_fn, nullptr, 1, &big, &exception);
+    CHECK_JSC(env, exception);
+  }
   *result = ToNapi(big);
   return napi_ok;
 }
@@ -1856,8 +1997,8 @@ napi_status BigIntFromExpr(napi_env env, const std::string& expr, napi_value* re
 napi_status napi_create_bigint_int64(napi_env env, int64_t value, napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
-#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
-  if (__builtin_available(macOS 15.0, *)) {
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+  if (JSR_JSC_BIGINT_C_API_AVAILABLE()) {
     JSValueRef exception{};
     JSValueRef big = JSBigIntCreateWithInt64(env->context, value, &exception);
     CHECK_JSC(env, exception);
@@ -1865,14 +2006,15 @@ napi_status napi_create_bigint_int64(napi_env env, int64_t value, napi_value* re
     return napi_ok;
   }
 #endif
-  return BigIntFromExpr(env, "BigInt(\"" + std::to_string(value) + "\")", result);
+  // StringToBigInt accepts a leading sign on a decimal literal, so INT64_MIN round-trips as-is.
+  return BigIntFromString(env, std::to_string(value), /*negate*/ false, result);
 }
 
 napi_status napi_create_bigint_uint64(napi_env env, uint64_t value, napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
-#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
-  if (__builtin_available(macOS 15.0, *)) {
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+  if (JSR_JSC_BIGINT_C_API_AVAILABLE()) {
     JSValueRef exception{};
     JSValueRef big = JSBigIntCreateWithUInt64(env->context, value, &exception);
     CHECK_JSC(env, exception);
@@ -1880,7 +2022,8 @@ napi_status napi_create_bigint_uint64(napi_env env, uint64_t value, napi_value* 
     return napi_ok;
   }
 #endif
-  return BigIntFromExpr(env, "BigInt(\"" + std::to_string(value) + "\")", result);
+  // StringToBigInt accepts a leading sign on a decimal literal, so INT64_MIN round-trips as-is.
+  return BigIntFromString(env, std::to_string(value), /*negate*/ false, result);
 }
 
 napi_status napi_create_bigint_words(napi_env env,
@@ -1912,8 +2055,7 @@ napi_status napi_create_bigint_words(napi_env env,
   if (hex.empty()) {
     hex = "0";
   }
-  std::string expr = (sign_bit ? "-BigInt(\"0x" : "BigInt(\"0x") + hex + "\")";
-  return BigIntFromExpr(env, expr, result);
+  return BigIntFromString(env, "0x" + hex, /*negate*/ sign_bit != 0, result);
 }
 
 napi_status napi_get_value_bigint_int64(napi_env env,
@@ -1925,7 +2067,7 @@ napi_status napi_get_value_bigint_int64(napi_env env,
   CHECK_ARG(env, result);
   CHECK_ARG(env, lossless);
   JSValueRef low{};
-  CHECK_NAPI(BigIntLow64(env, value, "asIntN", &low));
+  CHECK_NAPI(BigIntLow64(env, value, env->bigint_as_int_n, &low));
   std::string decimal;
   CHECK_NAPI(BigIntToString(env, ToNapi(low), 10, &decimal));
   *result = static_cast<int64_t>(strtoll(decimal.c_str(), nullptr, 10));
@@ -1942,7 +2084,7 @@ napi_status napi_get_value_bigint_uint64(napi_env env,
   CHECK_ARG(env, result);
   CHECK_ARG(env, lossless);
   JSValueRef low{};
-  CHECK_NAPI(BigIntLow64(env, value, "asUintN", &low));
+  CHECK_NAPI(BigIntLow64(env, value, env->bigint_as_uint_n, &low));
   std::string decimal;
   CHECK_NAPI(BigIntToString(env, ToNapi(low), 10, &decimal));
   *result = static_cast<uint64_t>(strtoull(decimal.c_str(), nullptr, 10));
@@ -1988,17 +2130,16 @@ napi_status napi_detach_arraybuffer(napi_env env, napi_value arraybuffer) {
   CHECK_ENV(env);
   CHECK_ARG(env, arraybuffer);
   JSObjectRef ab = ToJSObject(env, arraybuffer);
-  JSValueRef exception{};
-  JSValueRef transfer = JSObjectGetProperty(env->context, ab, JSString("transfer"), &exception);
-  CHECK_JSC(env, exception);
-  if (!JSValueIsObject(env->context, transfer)) {
-    // ArrayBuffer.prototype.transfer() (ES2024) is the only public-API detach path; if the engine
-    // predates it (older jsc-android), throw a catchable ENOTSUP so JS land can polyfill.
+  if (env->arraybuffer_transfer == nullptr) {
+    // ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path, and the JSC C API has
+    // no detach at all. Engines below it -- every jsc-android build, and Apple platforms under
+    // macOS 14.4 / iOS 17.4 -- get a catchable ENOTSUP so JS land can polyfill.
     napi_throw_error(env, "ENOTSUP",
                      "ArrayBuffer detach is not supported by the underlying JavaScript engine.");
     return napi_set_last_error(env, napi_pending_exception);
   }
-  JSObjectRef transferFn = JSValueToObject(env->context, transfer, &exception);
+  JSValueRef exception{};
+  JSObjectRef transferFn = JSValueToObject(env->context, env->arraybuffer_transfer, &exception);
   CHECK_JSC(env, exception);
   JSObjectCallAsFunction(env->context, transferFn, ab, 0, nullptr, &exception);  // detaches `ab`
   CHECK_JSC(env, exception);
@@ -2011,9 +2152,11 @@ napi_status napi_is_detached_arraybuffer(napi_env env, napi_value arraybuffer, b
   CHECK_ARG(env, result);
   JSObjectRef ab = ToJSObject(env, arraybuffer);
   JSValueRef exception{};
-  JSValueRef detached = JSObjectGetProperty(env->context, ab, JSString("detached"), &exception);
-  CHECK_JSC(env, exception);
-  if (JSValueIsBoolean(env->context, detached)) {
+  if (env->arraybuffer_detached_getter != nullptr) {
+    JSObjectRef getter = JSValueToObject(env->context, env->arraybuffer_detached_getter, &exception);
+    CHECK_JSC(env, exception);
+    JSValueRef detached = JSObjectCallAsFunction(env->context, getter, ab, 0, nullptr, &exception);
+    CHECK_JSC(env, exception);
     *result = JSValueToBoolean(env->context, detached);
   } else {
     // Pre-ES2024 fallback: a detached buffer has no backing store.
