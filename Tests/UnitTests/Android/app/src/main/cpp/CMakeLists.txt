@@ -82,19 +82,12 @@ endif()
 # napi_create_bigint_int64 but no napi_add_finalizer and no *_words) must be opted in deliberately
 # rather than inheriting them by default.
 #
+# The v1-v5 suite, v6 instance_data, and BigInt all run on both Android engines: V8, and
+# JavaScriptCore now that jsc-android is pinned to r294992 (BigInt on by default; r250231 gated it off).
 set(JSR_NODE_API_HARNESS_ENGINES V8 JavaScriptCore)
 if(NAPI_JAVASCRIPT_ENGINE IN_LIST JSR_NODE_API_HARNESS_ENGINES)
-    set(_jsr_node_api_tests
-        "2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data")
-    # BigInt runs for real on V8; jsc-android r250231 has no BigInt at all (its parser rejects `0n`),
-    # so it runs the ENOTSUP feature-detection fallback instead.
-    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
-        string(APPEND _jsr_node_api_tests ",test_bigint")
-    else()
-        string(APPEND _jsr_node_api_tests ",test_bigint_unsupported")
-    endif()
-    target_compile_definitions(UnitTestsJNI
-        PRIVATE NODE_API_AVAILABLE_NATIVE_TESTS="${_jsr_node_api_tests}")
+    target_compile_definitions(UnitTestsJNI PRIVATE
+        NODE_API_AVAILABLE_NATIVE_TESTS="2_function_arguments,3_callbacks,4_object_factory,5_function_factory,test_reference_double_free,test_instance_data,test_bigint")
 endif()
 
 # The conformance addons are built as standalone SHARED lib<name>.so by Tests/NodeApi/CMakeLists.txt,
