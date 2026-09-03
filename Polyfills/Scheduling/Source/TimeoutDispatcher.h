@@ -28,8 +28,6 @@ namespace Babylon::Polyfills::Internal
     private:
         using TimePoint = std::chrono::time_point<std::chrono::steady_clock, std::chrono::microseconds>;
 
-        TimeoutId DispatchImpl(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat, TimeoutId id);
-
         TimeoutId NextTimeoutId();
         void ThreadFunction();
         void CallFunction(TimeoutId id, uint64_t sequence);
