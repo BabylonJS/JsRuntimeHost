@@ -64,11 +64,6 @@ namespace Babylon::Polyfills::Internal
 
     TimeoutDispatcher::TimeoutId TimeoutDispatcher::Dispatch(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat)
     {
-        return DispatchImpl(function, delay, repeat, 0);
-    }
-
-    TimeoutDispatcher::TimeoutId TimeoutDispatcher::DispatchImpl(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat, TimeoutId id)
-    {
         if (delay.count() < 0)
         {
             delay = std::chrono::milliseconds{0};
@@ -76,14 +71,17 @@ namespace Babylon::Polyfills::Internal
 
         std::unique_lock<std::recursive_mutex> lk{m_mutex};
 
-        if (id == 0)
-        {
-            id = NextTimeoutId();
-        }
+        // Always a fresh id: re-arming a repeating timeout no longer goes through
+        // Dispatch, so there is no caller that reuses an existing id. Passing one
+        // into unordered_map::insert would keep the old Timeout and then add a
+        // second m_timeMap entry pointing at it; Clear() erases only one.
+        const auto id = NextTimeoutId();
         const auto earliestTime = m_timeMap.empty() ? TimePoint::max() : m_timeMap.cbegin()->second->time;
         const auto time = Now() + delay;
-        const auto result = m_idMap.insert({id, std::make_unique<Timeout>(id, ++m_lastSequence, std::move(function), time, repeat ? std::make_optional<std::chrono::milliseconds>(delay) : std::nullopt)});
-        m_timeMap.insert({time, result.first->second.get()});
+        auto timeout = std::make_unique<Timeout>(id, ++m_lastSequence, std::move(function), time, repeat ? std::make_optional<std::chrono::milliseconds>(delay) : std::nullopt);
+        Timeout* const raw = timeout.get();
+        m_idMap.emplace(id, std::move(timeout));
+        m_timeMap.insert({time, raw});
 
         if (time <= earliestTime)
         {
