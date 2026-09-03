@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <optional>
+#include <stdexcept>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -79,9 +80,15 @@ namespace Babylon::Polyfills::Internal
         const auto earliestTime = m_timeMap.empty() ? TimePoint::max() : m_timeMap.cbegin()->second->time;
         const auto time = Now() + delay;
         auto timeout = std::make_unique<Timeout>(id, ++m_lastSequence, std::move(function), time, repeat ? std::make_optional<std::chrono::milliseconds>(delay) : std::nullopt);
-        Timeout* const raw = timeout.get();
-        m_idMap.emplace(id, std::move(timeout));
-        m_timeMap.insert({time, raw});
+        // try_emplace does not consume timeout if the id is already present, unlike
+        // emplace, so a failed insert cannot destroy the Timeout and leave a
+        // dangling m_timeMap pointer. NextTimeoutId should already skip live ids.
+        const auto [it, inserted] = m_idMap.try_emplace(id, std::move(timeout));
+        if (!inserted)
+        {
+            throw std::logic_error{"TimeoutDispatcher: NextTimeoutId returned a duplicate id"};
+        }
+        m_timeMap.insert({time, it->second.get()});
 
         if (time <= earliestTime)
         {
