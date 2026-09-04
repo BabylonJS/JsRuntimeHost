@@ -1,15 +1,14 @@
 #include "TimeoutDispatcher.h"
 
-#include <cassert>
 #include <optional>
+#include <stdexcept>
+#include <utility>
 
 namespace Babylon::Polyfills::Internal
 {
     namespace
     {
-        using TimePoint = std::chrono::time_point<std::chrono::steady_clock, std::chrono::microseconds>;
-
-        TimePoint Now()
+        DeadlineScheduler::TimePoint Now()
         {
             return std::chrono::time_point_cast<std::chrono::microseconds, std::chrono::steady_clock>(std::chrono::steady_clock::now());
         }
@@ -18,17 +17,11 @@ namespace Babylon::Polyfills::Internal
     struct TimeoutDispatcher::Timeout
     {
         TimeoutId id;
-
-        // Distinguishes this timeout from a later one that happens to reuse the
-        // same id, so an in-flight callback can never re-arm its replacement.
         uint64_t sequence;
-
-        // Make this non-shared when JsRuntime::Dispatch supports it.
         std::shared_ptr<Napi::FunctionReference> function;
-
         TimePoint time;
-
         std::optional<std::chrono::milliseconds> interval;
+        DeadlineScheduler::Id scheduleId{};
 
         Timeout(TimeoutId id, uint64_t sequence, std::shared_ptr<Napi::FunctionReference> function, TimePoint time, std::optional<std::chrono::milliseconds> interval)
             : id{id}
@@ -45,29 +38,21 @@ namespace Babylon::Polyfills::Internal
 
     TimeoutDispatcher::TimeoutDispatcher(Babylon::JsRuntime& runtime)
         : m_runtime{runtime}
-        , m_thread{std::thread{&TimeoutDispatcher::ThreadFunction, this}}
+        , m_scheduler{runtime.GetDeadlineScheduler()}
     {
     }
 
     TimeoutDispatcher::~TimeoutDispatcher()
     {
+        std::unique_lock<std::recursive_mutex> lk{m_mutex};
+        for (auto& [id, timeout] : m_idMap)
         {
-            std::unique_lock<std::recursive_mutex> lk{m_mutex};
-            m_idMap.clear();
-            m_timeMap.clear();
+            m_scheduler.Cancel(timeout->scheduleId);
         }
-
-        m_shutdown = true;
-        m_condVariable.notify_one();
-        m_thread.join();
+        m_idMap.clear();
     }
 
     TimeoutDispatcher::TimeoutId TimeoutDispatcher::Dispatch(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat)
-    {
-        return DispatchImpl(function, delay, repeat, 0);
-    }
-
-    TimeoutDispatcher::TimeoutId TimeoutDispatcher::DispatchImpl(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat, TimeoutId id)
     {
         if (delay.count() < 0)
         {
@@ -76,19 +61,19 @@ namespace Babylon::Polyfills::Internal
 
         std::unique_lock<std::recursive_mutex> lk{m_mutex};
 
-        if (id == 0)
-        {
-            id = NextTimeoutId();
-        }
-        const auto earliestTime = m_timeMap.empty() ? TimePoint::max() : m_timeMap.cbegin()->second->time;
+        const auto id = NextTimeoutId();
+        const auto sequence = ++m_lastSequence;
         const auto time = Now() + delay;
-        const auto result = m_idMap.insert({id, std::make_unique<Timeout>(id, ++m_lastSequence, std::move(function), time, repeat ? std::make_optional<std::chrono::milliseconds>(delay) : std::nullopt)});
-        m_timeMap.insert({time, result.first->second.get()});
-
-        if (time <= earliestTime)
+        auto timeout = std::make_unique<Timeout>(id, sequence, std::move(function), time, repeat ? std::make_optional<std::chrono::milliseconds>(delay) : std::nullopt);
+        const auto [it, inserted] = m_idMap.try_emplace(id, std::move(timeout));
+        if (!inserted)
         {
-            m_condVariable.notify_one();
+            throw std::logic_error{"TimeoutDispatcher: NextTimeoutId returned a duplicate id"};
         }
+
+        it->second->scheduleId = m_scheduler.Schedule(time, [this, id, sequence]() {
+            CallFunction(id, sequence);
+        });
 
         return id;
     }
@@ -99,19 +84,7 @@ namespace Babylon::Polyfills::Internal
         const auto itId = m_idMap.find(id);
         if (itId != m_idMap.end())
         {
-            const auto& timeout = itId->second;
-            const auto timeRange = m_timeMap.equal_range(timeout->time);
-
-            // Remove any pending entries that have not yet been dispatched.
-            for (auto itTime = timeRange.first; itTime != timeRange.second; itTime++)
-            {
-                if (itTime->second->id == id)
-                {
-                    m_timeMap.erase(itTime);
-                    break;
-                }
-            }
-
+            m_scheduler.Cancel(itId->second->scheduleId);
             m_idMap.erase(itId);
         }
     }
@@ -130,48 +103,6 @@ namespace Babylon::Polyfills::Internal
             if (m_idMap.find(m_lastTimeoutId) == m_idMap.end())
             {
                 return m_lastTimeoutId;
-            }
-        }
-    }
-
-    void TimeoutDispatcher::ThreadFunction()
-    {
-        while (!m_shutdown)
-        {
-            std::unique_lock<std::recursive_mutex> lk{m_mutex};
-            TimePoint nextTimePoint{};
-
-            while (!m_timeMap.empty())
-            {
-                nextTimePoint = m_timeMap.begin()->second->time;
-                if (nextTimePoint <= Now())
-                {
-                    break;
-                }
-
-                m_condVariable.wait_until(lk, nextTimePoint);
-            }
-
-            while (!m_timeMap.empty() && m_timeMap.begin()->second->time == nextTimePoint)
-            {
-                const auto id = m_timeMap.begin()->second->id;
-                const auto sequence = m_timeMap.begin()->second->sequence;
-                m_timeMap.erase(m_timeMap.begin());
-
-                // Repeating timeouts are deliberately NOT re-armed here. They are
-                // re-armed on the JS thread once the callback has actually run, so
-                // that at most one invocation of a given interval is ever queued.
-                // Re-arming here instead would let this thread -- which never waits
-                // while a due timeout exists -- spin and enqueue callbacks far
-                // faster than the JS thread can drain them. The resulting unbounded
-                // backlog starves every other item on the JS dispatch queue: other
-                // timers, and native async completions such as shader compilation.
-                CallFunction(id, sequence);
-            }
-
-            while (!m_shutdown && m_timeMap.empty())
-            {
-                m_condVariable.wait(lk);
             }
         }
     }
@@ -260,15 +191,9 @@ namespace Babylon::Polyfills::Internal
             nextTime = now;
         }
 
-        const auto earliestTime = m_timeMap.empty() ? TimePoint::max() : m_timeMap.cbegin()->second->time;
         it->second->time = nextTime;
-        m_timeMap.insert({nextTime, it->second.get()});
-
-        if (nextTime <= earliestTime)
-        {
-            // The timer thread parks while m_timeMap is empty, which is the case
-            // whenever this timeout was the only one pending.
-            m_condVariable.notify_one();
-        }
+        it->second->scheduleId = m_scheduler.Schedule(nextTime, [this, id, sequence]() {
+            CallFunction(id, sequence);
+        });
     }
 }

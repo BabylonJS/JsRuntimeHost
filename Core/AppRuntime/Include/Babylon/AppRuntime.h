@@ -12,6 +12,8 @@
 
 namespace Babylon
 {
+    class DeadlineScheduler;
+
     class AppRuntime final
     {
     public:
@@ -75,6 +77,8 @@ namespace Babylon
         // Hermes and QuickJS do NOT auto-drain: their implementations pump the
         // queue explicitly (Napi::DrainJobs / JS_ExecutePendingJob).
         void DrainMicrotasks(Napi::Env env);
+
+        DeadlineScheduler& GetDeadlineScheduler();
 
         Options m_options;
 
