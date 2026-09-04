@@ -1,6 +1,8 @@
 #include "AppRuntime.h"
 #include <napi/env.h>
 
+#include <Babylon/DeadlineScheduler.h>
+
 #include <libplatform/libplatform.h>
 #include <v8-version.h>
 
@@ -17,13 +19,15 @@
 #include <V8InspectorAgent.h>
 #endif
 
-#include <atomic>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace Babylon
 {
@@ -31,16 +35,10 @@ namespace Babylon
     {
         // V8 hands work that finishes off-thread - most visibly asynchronous WebAssembly
         // compilation - back to the isolate by posting a task to the platform's *foreground*
-        // task runner. Those tasks only run when someone calls v8::platform::PumpMessageLoop,
-        // and the host's JavaScript thread sits in a blocking dispatcher wait, so nothing
-        // would ever pump it: WebAssembly.compile/instantiate simply never settled, and
-        // anything built on an Emscripten module hung forever.
-        //
-        // This platform wraps the default one and leaves it owning the queue (so task
-        // ordering, nestability and delays keep V8's own semantics). All it adds is a
-        // wake-up: whenever V8 posts foreground work, the AppRuntime dispatcher is nudged,
-        // and the pump in AppRuntime::DrainMicrotasks then drains the queue on the
-        // JavaScript thread.
+        // task runner. Chromium runs those as `v8::Task::Run` on the host task runner. The
+        // host JavaScript thread is AppRuntime's dispatcher, so this platform's foreground
+        // runner posts the task itself instead of parking it on libplatform's queue and
+        // pumping later. Delayed posts reuse the DeadlineScheduler behind setTimeout.
         class DispatchingPlatform final : public v8::Platform
         {
         public:
@@ -49,38 +47,52 @@ namespace Babylon
             {
             }
 
-            v8::Platform& Inner()
+            struct Host
             {
-                return *m_inner;
+                AppRuntime* runtime{};
+                DeadlineScheduler* scheduler{};
+            };
+
+            // Isolate::New can ask for a foreground runner before SetHost has the
+            // isolate pointer. Posts from this thread during construction fall back
+            // to the thread-local host set around New.
+            void SetCurrentHost(AppRuntime* runtime, DeadlineScheduler* scheduler)
+            {
+                t_currentRuntime = runtime;
+                t_currentScheduler = scheduler;
             }
 
-            void SetWake(v8::Isolate* isolate, std::function<void()> wake)
+            void SetHost(v8::Isolate* isolate, AppRuntime* runtime, DeadlineScheduler* scheduler)
             {
-                std::scoped_lock lock{m_mutex};
-                if (wake)
-                {
-                    m_wakes[isolate] = std::move(wake);
-                }
-                else
-                {
-                    m_wakes.erase(isolate);
-                    m_taskRunners.erase(isolate);
-                }
-            }
-
-            void Wake(v8::Isolate* isolate)
-            {
-                std::function<void()> wake;
+                std::shared_ptr<v8::TaskRunner> runner;
                 {
                     std::scoped_lock lock{m_mutex};
-                    const auto entry = m_wakes.find(isolate);
-                    if (entry == m_wakes.end())
+                    if (runtime != nullptr && scheduler != nullptr)
                     {
-                        return;
+                        m_hosts[isolate] = Host{runtime, scheduler};
                     }
-                    wake = entry->second;
+                    else
+                    {
+                        m_hosts.erase(isolate);
+                        auto entry = m_taskRunners.find(isolate);
+                        if (entry != m_taskRunners.end())
+                        {
+                            runner = std::move(entry->second);
+                            m_taskRunners.erase(entry);
+                        }
+                    }
                 }
-                wake();
+            }
+
+            Host GetHost(v8::Isolate* isolate)
+            {
+                std::scoped_lock lock{m_mutex};
+                const auto entry = m_hosts.find(isolate);
+                if (entry != m_hosts.end())
+                {
+                    return entry->second;
+                }
+                return {t_currentRuntime, t_currentScheduler};
             }
 
             v8::PageAllocator* GetPageAllocator() override { return m_inner->GetPageAllocator(); }
@@ -107,7 +119,7 @@ namespace Babylon
             void CallBlockingTaskOnWorkerThread(std::unique_ptr<v8::Task> task) override { m_inner->CallBlockingTaskOnWorkerThread(std::move(task)); }
             void CallLowPriorityTaskOnWorkerThread(std::unique_ptr<v8::Task> task) override { m_inner->CallLowPriorityTaskOnWorkerThread(std::move(task)); }
             void CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task, double delayInSeconds) override { m_inner->CallDelayedOnWorkerThread(std::move(task), delayInSeconds); }
-            bool IdleTasksEnabled(v8::Isolate* isolate) override { return m_inner->IdleTasksEnabled(isolate); }
+            bool IdleTasksEnabled(v8::Isolate*) override { return false; }
             std::unique_ptr<v8::JobHandle> PostJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> jobTask) override { return m_inner->PostJob(priority, std::move(jobTask)); }
             std::unique_ptr<v8::JobHandle> CreateJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> jobTask) override { return m_inner->CreateJob(priority, std::move(jobTask)); }
 #if JSRH_V8_AT_LEAST(11, 9)
@@ -131,70 +143,123 @@ namespace Babylon
 
             std::unique_ptr<v8::Platform> m_inner;
             std::mutex m_mutex;
-            std::map<v8::Isolate*, std::function<void()>> m_wakes;
+            std::map<v8::Isolate*, Host> m_hosts;
             std::map<v8::Isolate*, std::shared_ptr<v8::TaskRunner>> m_taskRunners;
+
+            static thread_local AppRuntime* t_currentRuntime;
+            static thread_local DeadlineScheduler* t_currentScheduler;
         };
 
-        class WakingTaskRunner final : public v8::TaskRunner
+        thread_local AppRuntime* DispatchingPlatform::t_currentRuntime{};
+        thread_local DeadlineScheduler* DispatchingPlatform::t_currentScheduler{};
+
+        class DispatchingTaskRunner final : public v8::TaskRunner
         {
         public:
-            WakingTaskRunner(std::shared_ptr<v8::TaskRunner> inner, DispatchingPlatform& platform, v8::Isolate* isolate)
-                : m_inner{std::move(inner)}
-                , m_platform{platform}
+            DispatchingTaskRunner(DispatchingPlatform& platform, v8::Isolate* isolate)
+                : m_platform{platform}
                 , m_isolate{isolate}
             {
             }
 
+            ~DispatchingTaskRunner() override
+            {
+                std::scoped_lock lock{m_mutex};
+                for (const auto& pending : m_pending)
+                {
+                    pending.scheduler->Cancel(pending.id);
+                }
+                m_pending.clear();
+            }
+
             void PostTask(std::unique_ptr<v8::Task> task) override
             {
-                m_inner->PostTask(std::move(task));
-                m_platform.Wake(m_isolate);
+                PostImmediate(std::move(task));
             }
 
             void PostNonNestableTask(std::unique_ptr<v8::Task> task) override
             {
-                m_inner->PostNonNestableTask(std::move(task));
-                m_platform.Wake(m_isolate);
+                PostImmediate(std::move(task));
             }
 
             void PostDelayedTask(std::unique_ptr<v8::Task> task, double delayInSeconds) override
             {
-                m_inner->PostDelayedTask(std::move(task), delayInSeconds);
-                m_platform.Wake(m_isolate);
+                PostDelayed(std::move(task), delayInSeconds);
             }
 
             void PostNonNestableDelayedTask(std::unique_ptr<v8::Task> task, double delayInSeconds) override
             {
-                m_inner->PostNonNestableDelayedTask(std::move(task), delayInSeconds);
-                m_platform.Wake(m_isolate);
+                PostDelayed(std::move(task), delayInSeconds);
             }
 
-            void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override
+            void PostIdleTask(std::unique_ptr<v8::IdleTask>) override
             {
-                m_inner->PostIdleTask(std::move(task));
             }
 
-            bool IdleTasksEnabled() override { return m_inner->IdleTasksEnabled(); }
-            bool NonNestableTasksEnabled() const override { return m_inner->NonNestableTasksEnabled(); }
-            bool NonNestableDelayedTasksEnabled() const override { return m_inner->NonNestableDelayedTasksEnabled(); }
+            bool IdleTasksEnabled() override { return false; }
+            bool NonNestableTasksEnabled() const override { return true; }
+            bool NonNestableDelayedTasksEnabled() const override { return true; }
 
         private:
-            std::shared_ptr<v8::TaskRunner> m_inner;
+            void PostImmediate(std::unique_ptr<v8::Task> task)
+            {
+                auto host = m_platform.GetHost(m_isolate);
+                if (host.runtime == nullptr)
+                {
+                    return;
+                }
+
+                auto shared = std::shared_ptr<v8::Task>(std::move(task));
+                host.runtime->Dispatch([shared, isolate = m_isolate](Napi::Env) {
+                    v8::Isolate::Scope isolate_scope{isolate};
+                    shared->Run();
+                });
+            }
+
+            void PostDelayed(std::unique_ptr<v8::Task> task, double delayInSeconds)
+            {
+                auto host = m_platform.GetHost(m_isolate);
+                if (host.runtime == nullptr || host.scheduler == nullptr)
+                {
+                    return;
+                }
+
+                auto shared = std::shared_ptr<v8::Task>(std::move(task));
+                auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(delayInSeconds));
+                if (delay.count() < 0)
+                {
+                    delay = std::chrono::milliseconds{0};
+                }
+
+                std::scoped_lock lock{m_mutex};
+                const auto id = host.scheduler->Schedule(delay, [runtime = host.runtime, isolate = m_isolate, shared]() {
+                    runtime->Dispatch([shared, isolate](Napi::Env) {
+                        v8::Isolate::Scope isolate_scope{isolate};
+                        shared->Run();
+                    });
+                });
+                m_pending.push_back(Pending{host.scheduler, id});
+            }
+
+            struct Pending
+            {
+                DeadlineScheduler* scheduler{};
+                DeadlineScheduler::Id id{};
+            };
+
             DispatchingPlatform& m_platform;
             v8::Isolate* m_isolate;
+            std::mutex m_mutex;
+            std::vector<Pending> m_pending;
         };
 
         std::shared_ptr<v8::TaskRunner> DispatchingPlatform::WrapForegroundTaskRunner(v8::Isolate* isolate)
         {
-            // Always ask the inner platform for the plain per-isolate runner: libplatform's
-            // DefaultPlatform does not implement the priority-aware overload in either V8 version
-            // we build against. The wrapper is cached because V8 calls this often and hands the
-            // result around by pointer.
             std::scoped_lock lock{m_mutex};
             auto& runner = m_taskRunners[isolate];
             if (!runner)
             {
-                runner = std::make_shared<WakingTaskRunner>(m_inner->GetForegroundTaskRunner(isolate), *this, isolate);
+                runner = std::make_shared<DispatchingTaskRunner>(*this, isolate);
             }
             return runner;
         }
@@ -235,21 +300,9 @@ namespace Babylon
                 return *s_module;
             }
 
-            static Module* TryInstance()
-            {
-                return s_module.get();
-            }
-
             DispatchingPlatform& Platform()
             {
                 return *m_platform;
-            }
-
-            // v8::platform::PumpMessageLoop downcasts to the libplatform DefaultPlatform, so it
-            // has to be handed the wrapped platform rather than the wrapper.
-            v8::Platform& DefaultPlatform()
-            {
-                return m_platform->Inner();
             }
 
         private:
@@ -265,31 +318,13 @@ namespace Babylon
     {
         // Create the isolate.
         Module::Initialize(executablePath);
+        Module::Instance().Platform().SetCurrentHost(this, &GetDeadlineScheduler());
 
         v8::Isolate::CreateParams create_params;
         create_params.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
         v8::Isolate* isolate = v8::Isolate::New(create_params);
 
-        // Nudge the dispatcher whenever V8 posts foreground work for this isolate, so the
-        // pump in DrainMicrotasks gets a chance to run it even when the app is otherwise
-        // idle (no render loop, no timers). The flag collapses bursts of posts into a single
-        // pending wake-up.
-        //
-        // The flag must be cleared in the dispatched callback, which Dispatch runs *before*
-        // DrainMicrotasks pumps. Clearing it afterwards instead would lose wake-ups: a task
-        // posted between the pump draining the queue and the flag being cleared would find
-        // the flag still set, skip the dispatch, and then sit in the queue with nothing
-        // scheduled to pump it. Clearing first can only ever cost one redundant no-op
-        // dispatch, because such a post is already covered by the pump that follows.
-        auto wakePending = std::make_shared<std::atomic_bool>(false);
-        Module::Instance().Platform().SetWake(isolate, [this, wakePending]() {
-            if (wakePending->exchange(true))
-            {
-                return;
-            }
-
-            Dispatch([wakePending](Napi::Env) { wakePending->store(false); });
-        });
+        Module::Instance().Platform().SetHost(isolate, this, &GetDeadlineScheduler());
 
         // Use the isolate within a scope.
         {
@@ -327,7 +362,8 @@ namespace Babylon
         }
 
         // Destroy the isolate.
-        Module::Instance().Platform().SetWake(isolate, nullptr);
+        Module::Instance().Platform().SetHost(isolate, nullptr, nullptr);
+        Module::Instance().Platform().SetCurrentHost(nullptr, nullptr);
 
         // todo : GetArrayBufferAllocator not available?
         // delete isolate->GetArrayBufferAllocator();
@@ -337,23 +373,8 @@ namespace Babylon
     void AppRuntime::DrainMicrotasks(Napi::Env)
     {
         // V8 auto-drains microtasks at the end of each script/callback when using the default
-        // MicrotasksPolicy, but microtasks are not the whole story: work that V8 hands to the
-        // v8::Platform completes on a background thread and then posts a *foreground* task to
-        // settle its result on the isolate thread. Asynchronous WebAssembly compilation is the
-        // visible case - WebAssembly.compile/instantiate/instantiateStreaming would never
-        // resolve or reject, hanging any Emscripten module (and therefore anything built on
-        // one) forever. Nothing else in the host drains that queue, so pump it here, after
-        // every dispatched callback, which for a rendering app means at least once a frame.
-        Module* module{Module::TryInstance()};
-        v8::Isolate* isolate{v8::Isolate::GetCurrent()};
-        if (module == nullptr || isolate == nullptr)
-        {
-            return;
-        }
-
-        // kDoNotWait: never block the JavaScript thread waiting for background work.
-        while (v8::platform::PumpMessageLoop(&module->DefaultPlatform(), isolate, v8::platform::MessageLoopBehavior::kDoNotWait))
-        {
-        }
+        // MicrotasksPolicy. Foreground platform tasks (including async WebAssembly settlement)
+        // are posted through DispatchingTaskRunner onto AppRuntime's dispatcher, so they do
+        // not need a PumpMessageLoop here.
     }
 }

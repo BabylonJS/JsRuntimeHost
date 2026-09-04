@@ -46,7 +46,7 @@ endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
-target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+target_compile_definitions(UnitTests PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
 
 # The V8JSI Node-API shim does not implement napi_create_dataview, so the
 # CreateDataViewRejectsOverflowingRange test is compiled out on that backend.

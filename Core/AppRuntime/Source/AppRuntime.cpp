@@ -1,5 +1,7 @@
 #include "AppRuntime.h"
 
+#include <Babylon/DeadlineScheduler.h>
+
 #include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
 
@@ -35,6 +37,7 @@ namespace Babylon
         std::optional<std::scoped_lock<std::mutex>> m_suspensionLock{};
         arcana::cancellation_source m_cancelSource{};
         arcana::manual_dispatcher<128> m_dispatcher{};
+        std::unique_ptr<DeadlineScheduler> m_deadlineScheduler{std::make_unique<DeadlineScheduler>()};
         std::thread m_thread;
     };
 
@@ -50,7 +53,7 @@ namespace Babylon
         m_impl->m_thread = std::thread{[this] { RunPlatformTier(); }};
 
         Dispatch([this](Napi::Env env) {
-            JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); });
+            JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); }, GetDeadlineScheduler());
         });
     }
 
@@ -89,6 +92,11 @@ namespace Babylon
 
         // The dispatcher can be non-empty if something is dispatched after cancellation.
         m_impl->m_dispatcher.clear();
+    }
+
+    DeadlineScheduler& AppRuntime::GetDeadlineScheduler()
+    {
+        return *m_impl->m_deadlineScheduler;
     }
 
     void AppRuntime::Suspend()

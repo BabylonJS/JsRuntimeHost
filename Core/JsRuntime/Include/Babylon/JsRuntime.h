@@ -4,10 +4,13 @@
 #include <Babylon/Api.h>
 
 #include <functional>
+#include <memory>
 #include <mutex>
 
 namespace Babylon
 {
+    class DeadlineScheduler;
+
     class JsRuntime
     {
     public:
@@ -37,17 +40,22 @@ namespace Babylon
         // later -- an instance of an inheriting type, for example. The dispatch function
         // must be safely callable as soon as it is passed to the JsRuntime constructor.
         static JsRuntime& BABYLON_API CreateForJavaScript(Napi::Env, DispatchFunctionT);
+        static JsRuntime& BABYLON_API CreateForJavaScript(Napi::Env, DispatchFunctionT, DeadlineScheduler&);
         static JsRuntime& BABYLON_API GetFromJavaScript(Napi::Env);
         void Dispatch(std::function<void BABYLON_API (Napi::Env)>);
+        DeadlineScheduler& GetDeadlineScheduler();
+        ~JsRuntime();
 
     protected:
         JsRuntime(const JsRuntime&) = delete;
         JsRuntime& operator=(const JsRuntime&) = delete;
 
     private:
-        JsRuntime(Napi::Env, DispatchFunctionT);
+        JsRuntime(Napi::Env, DispatchFunctionT, DeadlineScheduler*);
 
         DispatchFunctionT m_dispatchFunction{};
         std::mutex m_mutex{};
+        std::unique_ptr<DeadlineScheduler> m_ownedDeadlineScheduler{};
+        DeadlineScheduler* m_deadlineScheduler{};
     };
 }
