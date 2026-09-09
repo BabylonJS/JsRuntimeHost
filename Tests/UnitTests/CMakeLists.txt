@@ -8,6 +8,7 @@ set(TYPE_SCRIPTS
 file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 
 set(SOURCES
+    "Shared/DelayedTaskScheduler.cpp"
     "Shared/StandardStreamLogger.cpp"
     "Shared/Shared.cpp"
     "Shared/Shared.h")
@@ -45,6 +46,10 @@ elseif(UNIX AND NOT ANDROID)
 endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+    target_sources(UnitTests PRIVATE "Shared/V8ForegroundTaskRunner.cpp")
+    target_link_libraries(UnitTests PRIVATE AppRuntimeInternal)
+endif()
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTests PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
 

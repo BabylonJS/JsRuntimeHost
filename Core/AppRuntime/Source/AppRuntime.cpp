@@ -1,6 +1,7 @@
 #include "AppRuntime.h"
 
-#include <Babylon/DeadlineScheduler.h>
+#include <Babylon/DelayedTaskScheduler.h>
+#include <Babylon/DelayedTaskSchedulerRegistration.h>
 
 #include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
@@ -37,7 +38,8 @@ namespace Babylon
         std::optional<std::scoped_lock<std::mutex>> m_suspensionLock{};
         arcana::cancellation_source m_cancelSource{};
         arcana::manual_dispatcher<128> m_dispatcher{};
-        std::unique_ptr<DeadlineScheduler> m_deadlineScheduler{std::make_unique<DeadlineScheduler>()};
+        std::unique_ptr<DelayedTaskScheduler> m_delayedTaskScheduler{std::make_unique<DelayedTaskScheduler>()};
+        bool m_delayedTaskSchedulerRegistered{};
         std::thread m_thread;
     };
 
@@ -53,7 +55,9 @@ namespace Babylon
         m_impl->m_thread = std::thread{[this] { RunPlatformTier(); }};
 
         Dispatch([this](Napi::Env env) {
-            JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); }, GetDeadlineScheduler());
+            JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); });
+            DelayedTaskSchedulerRegistration::Register(env, GetDelayedTaskScheduler());
+            m_impl->m_delayedTaskSchedulerRegistered = true;
         });
     }
 
@@ -79,7 +83,7 @@ namespace Babylon
         m_impl->m_thread.join();
     }
 
-    void AppRuntime::Run(Napi::Env env)
+    void AppRuntime::Run(Napi::Env env, std::function<void()> shutdown)
     {
         m_impl->m_env = std::make_optional(env);
 
@@ -90,13 +94,26 @@ namespace Babylon
             m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
         }
 
+        Napi::HandleScope scope{env};
+        if (shutdown)
+        {
+            shutdown();
+        }
+
+        if (m_impl->m_delayedTaskSchedulerRegistered)
+        {
+            DelayedTaskSchedulerRegistration::Unregister(env);
+            m_impl->m_delayedTaskSchedulerRegistered = false;
+        }
+        GetDelayedTaskScheduler().Shutdown();
+
         // The dispatcher can be non-empty if something is dispatched after cancellation.
         m_impl->m_dispatcher.clear();
     }
 
-    DeadlineScheduler& AppRuntime::GetDeadlineScheduler()
+    DelayedTaskScheduler& AppRuntime::GetDelayedTaskScheduler()
     {
-        return *m_impl->m_deadlineScheduler;
+        return *m_impl->m_delayedTaskScheduler;
     }
 
     void AppRuntime::Suspend()

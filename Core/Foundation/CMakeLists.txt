@@ -1,9 +1,11 @@
 set(SOURCES
     "Include/Babylon/Api.h"
     "Include/Babylon/DebugTrace.h"
+    "Include/Babylon/DelayedTaskScheduler.h"
     "Include/Babylon/PerfTrace.h"
     "Include/Babylon/StandardStreamLogger.h"
     "Source/DebugTrace.cpp"
+    "Source/DelayedTaskScheduler.cpp"
     "Source/PerfTrace.cpp"
     "Source/StandardStreamLogger.cpp"
     "Source/StandardStreamLoggerPlatform.h")

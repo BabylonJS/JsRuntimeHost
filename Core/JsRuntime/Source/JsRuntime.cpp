@@ -1,8 +1,5 @@
 #include "JsRuntime.h"
-#include "Babylon/DeadlineScheduler.h"
 #include "Babylon/DebugTrace.h"
-
-#include <stdexcept>
 
 namespace Babylon
 {
@@ -12,19 +9,9 @@ namespace Babylon
         static constexpr auto JS_WINDOW_NAME = "window";
     }
 
-    JsRuntime::JsRuntime(Napi::Env env, DispatchFunctionT dispatchFunction, DeadlineScheduler* deadlineScheduler)
+    JsRuntime::JsRuntime(Napi::Env env, DispatchFunctionT dispatchFunction)
         : m_dispatchFunction{std::move(dispatchFunction)}
     {
-        if (deadlineScheduler != nullptr)
-        {
-            m_deadlineScheduler = deadlineScheduler;
-        }
-        else
-        {
-            m_ownedDeadlineScheduler = std::make_unique<DeadlineScheduler>();
-            m_deadlineScheduler = m_ownedDeadlineScheduler.get();
-        }
-
         auto global = env.Global();
 
         if (global.Get(JS_WINDOW_NAME).IsUndefined())
@@ -41,28 +28,10 @@ namespace Babylon
         DEBUG_TRACE("JsRuntime created");
     }
 
-    JsRuntime::~JsRuntime() = default;
-
     JsRuntime& BABYLON_API JsRuntime::CreateForJavaScript(Napi::Env env, DispatchFunctionT dispatchFunction)
     {
-        auto* runtime = new JsRuntime(env, std::move(dispatchFunction), nullptr);
+        auto* runtime = new JsRuntime(env, std::move(dispatchFunction));
         return *runtime;
-    }
-
-    JsRuntime& BABYLON_API JsRuntime::CreateForJavaScript(Napi::Env env, DispatchFunctionT dispatchFunction, DeadlineScheduler& deadlineScheduler)
-    {
-        auto* runtime = new JsRuntime(env, std::move(dispatchFunction), &deadlineScheduler);
-        return *runtime;
-    }
-
-    DeadlineScheduler& JsRuntime::GetDeadlineScheduler()
-    {
-        if (m_deadlineScheduler == nullptr)
-        {
-            throw std::runtime_error{"JsRuntime deadline scheduler is not available"};
-        }
-
-        return *m_deadlineScheduler;
     }
 
     JsRuntime& BABYLON_API JsRuntime::GetFromJavaScript(Napi::Env env)

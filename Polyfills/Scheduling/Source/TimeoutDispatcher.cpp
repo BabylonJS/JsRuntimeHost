@@ -1,14 +1,19 @@
 #include "TimeoutDispatcher.h"
 
+#include <Babylon/DelayedTaskSchedulerRegistration.h>
+
+#include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace Babylon::Polyfills::Internal
 {
     namespace
     {
-        DeadlineScheduler::TimePoint Now()
+        DelayedTaskScheduler::TimePoint Now()
         {
             return std::chrono::time_point_cast<std::chrono::microseconds, std::chrono::steady_clock>(std::chrono::steady_clock::now());
         }
@@ -16,14 +21,7 @@ namespace Babylon::Polyfills::Internal
 
     struct TimeoutDispatcher::Timeout
     {
-        TimeoutId id;
-        uint64_t sequence;
-        std::shared_ptr<Napi::FunctionReference> function;
-        TimePoint time;
-        std::optional<std::chrono::milliseconds> interval;
-        DeadlineScheduler::Id scheduleId{};
-
-        Timeout(TimeoutId id, uint64_t sequence, std::shared_ptr<Napi::FunctionReference> function, TimePoint time, std::optional<std::chrono::milliseconds> interval)
+        Timeout(TimeoutId id, uint64_t sequence, std::shared_ptr<Napi::FunctionReference> function, DelayedTaskScheduler::TimePoint time, std::optional<std::chrono::milliseconds> interval)
             : id{id}
             , sequence{sequence}
             , function{std::move(function)}
@@ -32,107 +30,87 @@ namespace Babylon::Polyfills::Internal
         {
         }
 
-        Timeout(const Timeout&) = delete;
-        Timeout(Timeout&&) = delete;
+        TimeoutId id;
+        uint64_t sequence;
+        std::shared_ptr<Napi::FunctionReference> function;
+        DelayedTaskScheduler::TimePoint time;
+        std::optional<std::chrono::milliseconds> interval;
+        DelayedTaskScheduler::Id scheduleId{};
     };
 
-    TimeoutDispatcher::TimeoutDispatcher(Babylon::JsRuntime& runtime)
-        : m_runtime{runtime}
-        , m_scheduler{runtime.GetDeadlineScheduler()}
+    struct TimeoutDispatcher::State
     {
-    }
-
-    TimeoutDispatcher::~TimeoutDispatcher()
-    {
-        std::unique_lock<std::recursive_mutex> lk{m_mutex};
-        for (auto& [id, timeout] : m_idMap)
+        State(Napi::Env env, Babylon::JsRuntime& runtime)
+            : runtime{&runtime}
         {
-            m_scheduler.Cancel(timeout->scheduleId);
-        }
-        m_idMap.clear();
-    }
-
-    TimeoutDispatcher::TimeoutId TimeoutDispatcher::Dispatch(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat)
-    {
-        if (delay.count() < 0)
-        {
-            delay = std::chrono::milliseconds{0};
-        }
-
-        std::unique_lock<std::recursive_mutex> lk{m_mutex};
-
-        const auto id = NextTimeoutId();
-        const auto sequence = ++m_lastSequence;
-        const auto time = Now() + delay;
-        auto timeout = std::make_unique<Timeout>(id, sequence, std::move(function), time, repeat ? std::make_optional<std::chrono::milliseconds>(delay) : std::nullopt);
-        const auto [it, inserted] = m_idMap.try_emplace(id, std::move(timeout));
-        if (!inserted)
-        {
-            throw std::logic_error{"TimeoutDispatcher: NextTimeoutId returned a duplicate id"};
-        }
-
-        it->second->scheduleId = m_scheduler.Schedule(time, [this, id, sequence]() {
-            CallFunction(id, sequence);
-        });
-
-        return id;
-    }
-
-    void TimeoutDispatcher::Clear(TimeoutId id)
-    {
-        std::unique_lock<std::recursive_mutex> lk{m_mutex};
-        const auto itId = m_idMap.find(id);
-        if (itId != m_idMap.end())
-        {
-            m_scheduler.Cancel(itId->second->scheduleId);
-            m_idMap.erase(itId);
-        }
-    }
-
-    TimeoutDispatcher::TimeoutId TimeoutDispatcher::NextTimeoutId()
-    {
-        while (true)
-        {
-            ++m_lastTimeoutId;
-
-            if (m_lastTimeoutId <= 0)
+            scheduler = DelayedTaskSchedulerRegistration::Get(env);
+            if (scheduler == nullptr)
             {
-                m_lastTimeoutId = 1;
-            }
-
-            if (m_idMap.find(m_lastTimeoutId) == m_idMap.end())
-            {
-                return m_lastTimeoutId;
+                ownedScheduler = std::make_unique<DelayedTaskScheduler>();
+                scheduler = ownedScheduler.get();
             }
         }
-    }
 
-    void TimeoutDispatcher::CallFunction(TimeoutId id, uint64_t sequence)
-    {
-        m_runtime.Dispatch([id, sequence, this](Napi::Env) {
-            std::shared_ptr<Napi::FunctionReference> function{};
-            std::optional<std::chrono::milliseconds> interval{};
-            TimePoint scheduledTime{};
+        TimeoutId NextTimeoutId()
+        {
+            while (true)
             {
-                std::unique_lock<std::recursive_mutex> lk{m_mutex};
-                const auto it = m_idMap.find(id);
-                if (it == m_idMap.end() || it->second->sequence != sequence)
+                ++lastTimeoutId;
+                if (lastTimeoutId <= 0)
                 {
-                    // Cleared before the callback could run, or the id has since
-                    // been reused by an unrelated timeout.
+                    lastTimeoutId = 1;
+                }
+
+                if (timeouts.find(lastTimeoutId) == timeouts.end())
+                {
+                    return lastTimeoutId;
+                }
+            }
+        }
+
+        void CallFunction(const std::shared_ptr<State>& self, TimeoutId id, uint64_t sequence);
+        void Rearm(const std::shared_ptr<State>& self, TimeoutId id, uint64_t sequence, DelayedTaskScheduler::TimePoint scheduledTime, std::chrono::milliseconds interval);
+
+        std::recursive_mutex mutex;
+        Babylon::JsRuntime* runtime;
+        std::unique_ptr<DelayedTaskScheduler> ownedScheduler;
+        DelayedTaskScheduler* scheduler;
+        TimeoutId lastTimeoutId{};
+        uint64_t lastSequence{};
+        std::unordered_map<TimeoutId, std::unique_ptr<Timeout>> timeouts;
+        bool active{true};
+    };
+
+    void TimeoutDispatcher::State::CallFunction(const std::shared_ptr<State>& self, TimeoutId id, uint64_t sequence)
+    {
+        std::scoped_lock lock{mutex};
+        const auto timeoutIt = timeouts.find(id);
+        if (!active || timeoutIt == timeouts.end() || timeoutIt->second->sequence != sequence)
+        {
+            return;
+        }
+
+        runtime->Dispatch([self, id, sequence](Napi::Env) {
+            std::shared_ptr<Napi::FunctionReference> function;
+            std::optional<std::chrono::milliseconds> interval;
+            DelayedTaskScheduler::TimePoint scheduledTime;
+            {
+                std::scoped_lock callbackLock{self->mutex};
+                const auto callbackIt = self->timeouts.find(id);
+                if (!self->active || callbackIt == self->timeouts.end() || callbackIt->second->sequence != sequence)
+                {
                     return;
                 }
 
-                interval = it->second->interval;
-                scheduledTime = it->second->time;
-
+                interval = callbackIt->second->interval;
+                scheduledTime = callbackIt->second->time;
                 if (interval.has_value())
                 {
-                    function = it->second->function;
+                    function = callbackIt->second->function;
                 }
                 else
                 {
-                    const auto timeout = std::move(m_idMap.extract(id).mapped());
+                    auto timeout = std::move(self->timeouts.extract(id).mapped());
                     function = std::move(timeout->function);
                 }
             }
@@ -145,13 +123,9 @@ namespace Babylon::Polyfills::Internal
                 }
                 catch (const Napi::Error& error)
                 {
-                    // A throwing tick must not silently stop the interval, which
-                    // is both the pre-existing behavior and what browsers do.
-                    // Re-arm first, then re-raise the error as a pending JS
-                    // exception so JsRuntime::Dispatch still surfaces it.
                     if (interval.has_value())
                     {
-                        Rearm(id, sequence, scheduledTime, *interval);
+                        self->Rearm(self, id, sequence, scheduledTime, *interval);
                     }
 
                     error.ThrowAsJavaScriptException();
@@ -161,29 +135,20 @@ namespace Babylon::Polyfills::Internal
 
             if (interval.has_value())
             {
-                Rearm(id, sequence, scheduledTime, *interval);
+                self->Rearm(self, id, sequence, scheduledTime, *interval);
             }
         });
     }
 
-    // Re-arms a repeating timeout. Called on the JS thread once the callback has
-    // returned, so a repeating timeout can never have more than one invocation
-    // queued at a time.
-    void TimeoutDispatcher::Rearm(TimeoutId id, uint64_t sequence, TimePoint scheduledTime, std::chrono::milliseconds interval)
+    void TimeoutDispatcher::State::Rearm(const std::shared_ptr<State>& self, TimeoutId id, uint64_t sequence, DelayedTaskScheduler::TimePoint scheduledTime, std::chrono::milliseconds interval)
     {
-        std::unique_lock<std::recursive_mutex> lk{m_mutex};
-
-        const auto it = m_idMap.find(id);
-        if (it == m_idMap.end() || it->second->sequence != sequence)
+        std::scoped_lock lock{mutex};
+        const auto timeoutIt = timeouts.find(id);
+        if (!active || timeoutIt == timeouts.end() || timeoutIt->second->sequence != sequence)
         {
-            // Cleared from within its own callback, or the id has since been
-            // reused by an unrelated timeout.
             return;
         }
 
-        // Anchor the next deadline to the previous scheduled time so that a long
-        // running callback does not accumulate drift, but never schedule into the
-        // past.
         const auto now = Now();
         auto nextTime = scheduledTime + interval;
         if (nextTime < now)
@@ -191,9 +156,90 @@ namespace Babylon::Polyfills::Internal
             nextTime = now;
         }
 
-        it->second->time = nextTime;
-        it->second->scheduleId = m_scheduler.Schedule(nextTime, [this, id, sequence]() {
-            CallFunction(id, sequence);
+        timeoutIt->second->time = nextTime;
+        timeoutIt->second->scheduleId = scheduler->Schedule(nextTime, [self, id, sequence]() {
+            self->CallFunction(self, id, sequence);
         });
+    }
+
+    TimeoutDispatcher::TimeoutDispatcher(Napi::Env env, Babylon::JsRuntime& runtime)
+        : m_state{std::make_shared<State>(env, runtime)}
+    {
+    }
+
+    TimeoutDispatcher::~TimeoutDispatcher()
+    {
+        std::vector<DelayedTaskScheduler::Id> scheduleIds;
+        DelayedTaskScheduler* ownedScheduler{};
+        {
+            std::scoped_lock lock{m_state->mutex};
+            m_state->active = false;
+            m_state->runtime = nullptr;
+            scheduleIds.reserve(m_state->timeouts.size());
+            for (const auto& [id, timeout] : m_state->timeouts)
+            {
+                scheduleIds.push_back(timeout->scheduleId);
+            }
+            m_state->timeouts.clear();
+            ownedScheduler = m_state->ownedScheduler.get();
+        }
+
+        for (const auto scheduleId : scheduleIds)
+        {
+            m_state->scheduler->Cancel(scheduleId);
+        }
+
+        if (ownedScheduler != nullptr)
+        {
+            ownedScheduler->Shutdown();
+        }
+    }
+
+    TimeoutDispatcher::TimeoutId TimeoutDispatcher::Dispatch(std::shared_ptr<Napi::FunctionReference> function, std::chrono::milliseconds delay, bool repeat)
+    {
+        if (delay.count() < 0)
+        {
+            delay = std::chrono::milliseconds{0};
+        }
+
+        std::scoped_lock lock{m_state->mutex};
+        const auto id = m_state->NextTimeoutId();
+        const auto sequence = ++m_state->lastSequence;
+        const auto time = Now() + delay;
+        auto timeout = std::make_unique<Timeout>(
+            id,
+            sequence,
+            std::move(function),
+            time,
+            repeat ? std::make_optional(delay) : std::nullopt);
+        const auto [timeoutIt, inserted] = m_state->timeouts.try_emplace(id, std::move(timeout));
+        if (!inserted)
+        {
+            throw std::logic_error{"TimeoutDispatcher: NextTimeoutId returned a duplicate id"};
+        }
+
+        const auto state = m_state;
+        timeoutIt->second->scheduleId = m_state->scheduler->Schedule(time, [state, id, sequence]() {
+            state->CallFunction(state, id, sequence);
+        });
+        return id;
+    }
+
+    void TimeoutDispatcher::Clear(TimeoutId id)
+    {
+        DelayedTaskScheduler::Id scheduleId{};
+        {
+            std::scoped_lock lock{m_state->mutex};
+            const auto timeoutIt = m_state->timeouts.find(id);
+            if (timeoutIt == m_state->timeouts.end())
+            {
+                return;
+            }
+
+            scheduleId = timeoutIt->second->scheduleId;
+            m_state->timeouts.erase(timeoutIt);
+        }
+
+        m_state->scheduler->Cancel(scheduleId);
     }
 }
