@@ -1,6 +1,6 @@
 #pragma once
 
-#include <v8-platform.h>
+#include <napi/env.h>
 #include <v8-version.h>
 
 #include <map>

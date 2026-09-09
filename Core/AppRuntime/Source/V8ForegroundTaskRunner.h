@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Babylon/DelayedTaskScheduler.h>
-#include <v8-platform.h>
+#include <napi/env.h>
 
 #include <functional>
 #include <memory>
