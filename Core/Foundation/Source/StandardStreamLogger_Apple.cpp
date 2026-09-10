@@ -13,6 +13,12 @@ namespace
 // POSIX fd helpers (dup/pipe/CLOEXEC/devnull); sink is OsWritePlatform below.
 #include "StandardStreamLogger_PosixOps.inl"
 
+    size_t OsMaxPlatformLineSize(bool isError)
+    {
+        // Reserve the terminator within os_log's persisted dynamic-content budget.
+        return isError ? 255 : 1023;
+    }
+
     void OsWritePlatform(bool isError, const std::string& line)
     {
         const os_log_type_t type = isError ? OS_LOG_TYPE_ERROR : OS_LOG_TYPE_DEFAULT;

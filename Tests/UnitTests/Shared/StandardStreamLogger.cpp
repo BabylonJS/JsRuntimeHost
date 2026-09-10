@@ -9,12 +9,16 @@
 #include <Windows.h>
 #include <io.h>
 #else
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 
 namespace
 {
 #if defined(_WIN32)
+    // HANDLE_FLAG_INHERIT's documented value; the SDK hides the macro from UWP.
+    constexpr DWORD InheritHandleFlag{0x00000001};
+
     int DuplicateFileDescriptor(int fd)
     {
         return ::_dup(fd);
@@ -33,6 +37,22 @@ namespace
     int FileDescriptor(FILE* file)
     {
         return ::_fileno(file);
+    }
+
+    int DescriptorInheritance(int fd)
+    {
+        DWORD flags{};
+        const intptr_t handle = ::_get_osfhandle(fd);
+        return handle != -1 && ::GetHandleInformation(reinterpret_cast<HANDLE>(handle), &flags)
+            ? (flags & InheritHandleFlag) != 0
+            : -1;
+    }
+
+    bool SetDescriptorInheritance(int fd, bool inherit)
+    {
+        const intptr_t handle = ::_get_osfhandle(fd);
+        return handle != -1 && ::SetHandleInformation(
+            reinterpret_cast<HANDLE>(handle), InheritHandleFlag, inherit ? InheritHandleFlag : 0);
     }
 #else
     int DuplicateFileDescriptor(int fd)
@@ -54,6 +74,18 @@ namespace
     {
         return ::fileno(file);
     }
+
+    int DescriptorInheritance(int fd)
+    {
+        const int flags = ::fcntl(fd, F_GETFD);
+        return flags >= 0 ? (flags & FD_CLOEXEC) == 0 : -1;
+    }
+
+    bool SetDescriptorInheritance(int fd, bool inherit)
+    {
+        const int flags = ::fcntl(fd, F_GETFD);
+        return flags >= 0 && ::fcntl(fd, F_SETFD, inherit ? flags & ~FD_CLOEXEC : flags | FD_CLOEXEC) == 0;
+    }
 #endif
 
     class StdoutCapture
@@ -62,6 +94,7 @@ namespace
         StdoutCapture()
         {
             std::fflush(stdout);
+            m_originalInheritance = DescriptorInheritance(1);
             m_original = DuplicateFileDescriptor(1);
 #if defined(_WIN32)
             m_originalStdHandle = ::GetStdHandle(STD_OUTPUT_HANDLE);
@@ -127,6 +160,10 @@ namespace
             {
                 std::fflush(stdout);
                 const bool restored = DuplicateFileDescriptorTo(m_original, 1) == 0;
+                if (restored && m_originalInheritance >= 0)
+                {
+                    (void)SetDescriptorInheritance(1, m_originalInheritance != 0);
+                }
                 (void)CloseFileDescriptor(m_original);
                 m_original = -1;
 #if defined(_WIN32)
@@ -154,6 +191,7 @@ namespace
 
         FILE* m_file{};
         int m_original{-1};
+        int m_originalInheritance{-1};
         bool m_valid{};
 #if defined(_WIN32)
         HANDLE m_originalStdHandle{INVALID_HANDLE_VALUE};
@@ -195,4 +233,58 @@ TEST(StandardStreamLogger, Lifecycle)
     EXPECT_FALSE(Babylon::StandardStreamLogger::IsStarted());
     EXPECT_TRUE(Babylon::StandardStreamLogger::Stop());
     EXPECT_EQ(captured, "StandardStreamLogger stdout test");
+}
+
+TEST(StandardStreamLogger, PreservesDescriptorInheritance)
+{
+    if (Babylon::StandardStreamLogger::IsStarted())
+    {
+        GTEST_SKIP() << "The platform host already owns standard-stream forwarding.";
+    }
+
+    for (const bool inherit : {false, true})
+    {
+        StdoutCapture capture{};
+        if (!capture.Valid())
+        {
+            GTEST_SKIP() << "The platform does not expose a writable temporary-file location.";
+        }
+        ASSERT_TRUE(SetDescriptorInheritance(1, inherit));
+
+        const bool started = Babylon::StandardStreamLogger::Start();
+        const int redirectedInheritance = DescriptorInheritance(1);
+        const bool stopped = Babylon::StandardStreamLogger::Stop();
+        const int restoredInheritance = DescriptorInheritance(1);
+        (void)capture.ReadAndRestore();
+
+        EXPECT_TRUE(started);
+        EXPECT_TRUE(stopped);
+        EXPECT_EQ(redirectedInheritance, inherit);
+        EXPECT_EQ(restoredInheritance, inherit);
+    }
+}
+
+TEST(StandardStreamLogger, LargeOutputPreservesOriginalBytes)
+{
+    if (Babylon::StandardStreamLogger::IsStarted())
+    {
+        GTEST_SKIP() << "The platform host already owns standard-stream forwarding.";
+    }
+
+    StdoutCapture capture{};
+    if (!capture.Valid())
+    {
+        GTEST_SKIP() << "The platform does not expose a writable temporary-file location.";
+    }
+    const std::string input = std::string(8192, 'x') + "\r\n" +
+        std::string{"tail\0more", 9} + "\xE2\x98\x83\n";
+    const bool started = Babylon::StandardStreamLogger::Start();
+    const size_t written = std::fwrite(input.data(), 1, input.size(), stdout);
+    const bool stopped = Babylon::StandardStreamLogger::Stop();
+    const std::string captured = capture.ReadAndRestore();
+
+    EXPECT_TRUE(started);
+    EXPECT_EQ(written, input.size());
+    EXPECT_TRUE(stopped);
+    EXPECT_EQ(captured, input);
 }
