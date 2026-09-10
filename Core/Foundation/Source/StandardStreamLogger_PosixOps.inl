@@ -34,11 +34,11 @@ int64_t OsWrite(int fd, const void* data, size_t size)
 
 int OsCreatePipe(int fds[2])
 {
-#if defined(__linux__)
+#if defined(__ANDROID__)
     return ::pipe2(fds, O_CLOEXEC);
 #else
-    // Darwin has no pipe2; callers must serialize Start() with fork/exec to
-    // avoid inheritance between pipe() and fcntl().
+    // The portable fallback requires callers to serialize Start() with
+    // fork/exec to avoid inheritance between pipe() and fcntl().
     if (::pipe(fds) != 0)
     {
         return -1;
