@@ -1,7 +1,7 @@
 #include "DelayedTaskScheduler.h"
-#include "Internal/TimerId.h"
 
 #include <condition_variable>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <stdexcept>
@@ -9,10 +9,12 @@
 #include <unordered_map>
 #include <utility>
 
-namespace Babylon
+namespace Babylon::Internal
 {
     namespace
     {
+        constexpr auto JS_DELAYED_TASK_SCHEDULER_NAME = "_BabylonDelayedTaskScheduler";
+
         DelayedTaskScheduler::TimePoint Now()
         {
             return std::chrono::time_point_cast<std::chrono::microseconds, std::chrono::steady_clock>(std::chrono::steady_clock::now());
@@ -22,8 +24,9 @@ namespace Babylon
     class DelayedTaskScheduler::Impl
     {
     public:
-        Impl()
-            : m_thread{&Impl::ThreadFunction, this}
+        explicit Impl(Id lastId)
+            : m_lastId{lastId}
+            , m_thread{&Impl::ThreadFunction, this}
         {
         }
 
@@ -124,7 +127,7 @@ namespace Babylon
         {
             while (true)
             {
-                m_lastId = Internal::IncrementTimerId(m_lastId);
+                m_lastId = m_lastId == std::numeric_limits<Id>::max() ? 1 : m_lastId + 1;
 
                 if (m_idMap.find(m_lastId) == m_idMap.end())
                 {
@@ -181,11 +184,32 @@ namespace Babylon
     };
 
     DelayedTaskScheduler::DelayedTaskScheduler()
-        : m_impl{std::make_unique<Impl>()}
+        : DelayedTaskScheduler{0}
+    {
+    }
+
+    DelayedTaskScheduler::DelayedTaskScheduler(Id lastId)
+        : m_impl{std::make_unique<Impl>(lastId)}
     {
     }
 
     DelayedTaskScheduler::~DelayedTaskScheduler() = default;
+
+    void DelayedTaskScheduler::Register(Napi::Env env)
+    {
+        env.Global().Set(JS_DELAYED_TASK_SCHEDULER_NAME, Napi::External<DelayedTaskScheduler>::New(env, this));
+    }
+
+    void DelayedTaskScheduler::Unregister(Napi::Env env)
+    {
+        env.Global().Set(JS_DELAYED_TASK_SCHEDULER_NAME, env.Undefined());
+    }
+
+    DelayedTaskScheduler* DelayedTaskScheduler::Get(Napi::Env env)
+    {
+        const auto value = env.Global().Get(JS_DELAYED_TASK_SCHEDULER_NAME);
+        return value.IsUndefined() ? nullptr : value.As<Napi::External<DelayedTaskScheduler>>().Data();
+    }
 
     DelayedTaskScheduler::Id DelayedTaskScheduler::Schedule(TimePoint when, Callback callback)
     {

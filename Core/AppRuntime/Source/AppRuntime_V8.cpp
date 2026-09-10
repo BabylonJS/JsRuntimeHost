@@ -100,9 +100,7 @@ namespace Babylon
             }
 #endif
 
-            Run(env, [&platform, isolate] {
-                platform.UnregisterHost(isolate);
-            });
+            Run(env);
 
 #ifdef ENABLE_V8_INSPECTOR
             if (agent.has_value())
@@ -117,6 +115,11 @@ namespace Babylon
         // todo : GetArrayBufferAllocator not available?
         // delete isolate->GetArrayBufferAllocator();
         isolate->Dispose();
+    }
+
+    void AppRuntime::ShutdownEnvironment(Napi::Env)
+    {
+        Module::Instance().Platform().UnregisterHost(v8::Isolate::GetCurrent());
     }
 
     void AppRuntime::DrainMicrotasks(Napi::Env)

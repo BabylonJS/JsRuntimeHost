@@ -15,10 +15,10 @@
 namespace Babylon
 {
     class AppRuntime;
-    class DelayedTaskScheduler;
 
     namespace Internal
     {
+        class DelayedTaskScheduler;
         class V8ForegroundTaskRunner;
 
         class V8Platform final : public v8::Platform

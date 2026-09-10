@@ -12,7 +12,10 @@
 
 namespace Babylon
 {
-    class DelayedTaskScheduler;
+    namespace Internal
+    {
+        class DelayedTaskScheduler;
+    }
 
     class AppRuntime final
     {
@@ -63,8 +66,11 @@ namespace Babylon
         // that certain program state be allocated and stored only on the stack.
         void RunPlatformTier();
         void RunEnvironmentTier(const char* executablePath = ".");
-        // Stop engine task routing before joining the scheduler and discarding work.
-        void Run(Napi::Env, std::function<void()> shutdown = {});
+        void Run(Napi::Env);
+
+        // Engine-specific hook to stop task routing before joining the scheduler
+        // and discarding queued work, while the environment is still attached.
+        void ShutdownEnvironment(Napi::Env env);
 
         // This method is called from Dispatch to allow platform-specific code to add
         // extra logic around the invocation of a dispatched callback.
@@ -79,7 +85,7 @@ namespace Babylon
         // queue explicitly (Napi::DrainJobs / JS_ExecutePendingJob).
         void DrainMicrotasks(Napi::Env env);
 
-        DelayedTaskScheduler& GetDelayedTaskScheduler();
+        Internal::DelayedTaskScheduler& GetDelayedTaskScheduler();
 
         Options m_options;
 

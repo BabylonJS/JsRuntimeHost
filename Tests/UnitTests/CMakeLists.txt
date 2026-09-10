@@ -10,6 +10,7 @@ file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 set(SOURCES
     "Shared/DelayedTaskScheduler.cpp"
     "Shared/StandardStreamLogger.cpp"
+    "Shared/TimeoutDispatcher.cpp"
     "Shared/Shared.cpp"
     "Shared/Shared.h")
 
@@ -63,7 +64,7 @@ target_link_libraries(UnitTests
     PRIVATE AppRuntime
     PRIVATE Console
     PRIVATE AbortController
-    PRIVATE Scheduling
+    PRIVATE SchedulingInternal
     PRIVATE ScriptLoader
     PRIVATE URL
     PRIVATE UrlLib
@@ -71,7 +72,7 @@ target_link_libraries(UnitTests
     PRIVATE Fetch
     PRIVATE WebSocket
     PRIVATE gtest_main
-    PRIVATE Foundation
+    PRIVATE FoundationInternal
     PRIVATE Blob
     PRIVATE File
     PRIVATE Performance

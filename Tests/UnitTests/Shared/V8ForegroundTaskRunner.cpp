@@ -9,7 +9,7 @@
 namespace
 {
     using Runner = Babylon::Internal::V8ForegroundTaskRunner;
-    using Scheduler = Babylon::DelayedTaskScheduler;
+    using Scheduler = Babylon::Internal::DelayedTaskScheduler;
     using namespace std::chrono_literals;
 
     class Task final : public v8::Task

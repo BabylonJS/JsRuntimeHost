@@ -1,8 +1,8 @@
 #include "TimeoutDispatcher.h"
 
-#include <Babylon/DelayedTaskSchedulerRegistration.h>
-#include <Babylon/Internal/TimerId.h>
+#include "DelayedTaskScheduler.h"
 
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -12,6 +12,8 @@
 
 namespace Babylon::Polyfills::Internal
 {
+    using Babylon::Internal::DelayedTaskScheduler;
+
     namespace
     {
         DelayedTaskScheduler::TimePoint Now()
@@ -41,10 +43,11 @@ namespace Babylon::Polyfills::Internal
 
     struct TimeoutDispatcher::State
     {
-        State(Napi::Env env, Babylon::JsRuntime& runtime)
+        State(Napi::Env env, Babylon::JsRuntime& runtime, TimeoutId lastTimeoutId)
             : runtime{&runtime}
+            , lastTimeoutId{lastTimeoutId}
         {
-            scheduler = DelayedTaskSchedulerRegistration::Get(env);
+            scheduler = DelayedTaskScheduler::Get(env);
             if (scheduler == nullptr)
             {
                 ownedScheduler = std::make_unique<DelayedTaskScheduler>();
@@ -56,7 +59,7 @@ namespace Babylon::Polyfills::Internal
         {
             while (true)
             {
-                lastTimeoutId = Babylon::Internal::IncrementTimerId(lastTimeoutId);
+                lastTimeoutId = lastTimeoutId == std::numeric_limits<TimeoutId>::max() ? 1 : lastTimeoutId + 1;
 
                 if (timeouts.find(lastTimeoutId) == timeouts.end())
                 {
@@ -160,7 +163,12 @@ namespace Babylon::Polyfills::Internal
     }
 
     TimeoutDispatcher::TimeoutDispatcher(Napi::Env env, Babylon::JsRuntime& runtime)
-        : m_state{std::make_shared<State>(env, runtime)}
+        : TimeoutDispatcher{env, runtime, 0}
+    {
+    }
+
+    TimeoutDispatcher::TimeoutDispatcher(Napi::Env env, Babylon::JsRuntime& runtime, TimeoutId lastTimeoutId)
+        : m_state{std::make_shared<State>(env, runtime, lastTimeoutId)}
     {
     }
 

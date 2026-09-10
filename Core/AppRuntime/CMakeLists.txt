@@ -27,6 +27,7 @@ target_include_directories(AppRuntime
     INTERFACE "Include")
 
 target_link_libraries(AppRuntime
+    PRIVATE FoundationInternal
     PRIVATE arcana
     PUBLIC JsRuntime)
 
@@ -69,4 +70,4 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 
 add_library(AppRuntimeInternal INTERFACE)
 target_include_directories(AppRuntimeInternal INTERFACE "Source")
-target_link_libraries(AppRuntimeInternal INTERFACE AppRuntime)
+target_link_libraries(AppRuntimeInternal INTERFACE AppRuntime INTERFACE FoundationInternal)

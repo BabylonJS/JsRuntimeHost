@@ -1,7 +1,6 @@
+#include "DelayedTaskScheduler.h"
+
 #include <Babylon/AppRuntime.h>
-#include <Babylon/DelayedTaskScheduler.h>
-#include <Babylon/DelayedTaskSchedulerRegistration.h>
-#include <Babylon/Internal/TimerId.h>
 #include <Babylon/Polyfills/Scheduling.h>
 
 #include <gtest/gtest.h>
@@ -16,27 +15,40 @@
 
 using namespace std::chrono_literals;
 
-TEST(TimerId, StartsAtOne)
+namespace Babylon::Internal
 {
-    EXPECT_EQ(Babylon::Internal::IncrementTimerId(0), 1);
+    struct DelayedTaskSchedulerTestAccess
+    {
+        static DelayedTaskScheduler Create(DelayedTaskScheduler::Id lastId)
+        {
+            return DelayedTaskScheduler{lastId};
+        }
+    };
 }
 
-TEST(TimerId, WrapsBeforeSignedOverflow)
+using Scheduler = Babylon::Internal::DelayedTaskScheduler;
+
+TEST(DelayedTaskScheduler, IdsStartAtOne)
 {
-    static_assert(Babylon::Internal::IncrementTimerId(std::numeric_limits<int32_t>::max()) == 1);
-    auto id = std::numeric_limits<int32_t>::max() - 1;
-    id = Babylon::Internal::IncrementTimerId(id);
-    EXPECT_EQ(id, std::numeric_limits<int32_t>::max());
-    id = Babylon::Internal::IncrementTimerId(id);
-    EXPECT_EQ(id, 1);
-    id = Babylon::Internal::IncrementTimerId(id);
-    EXPECT_EQ(id, 2);
+    Scheduler scheduler;
+    EXPECT_EQ(scheduler.Schedule(1h, [] {}), 1);
+    EXPECT_EQ(scheduler.Schedule(1h, [] {}), 2);
+}
+
+TEST(DelayedTaskScheduler, IdsWrapBeforeSignedOverflow)
+{
+    constexpr auto MaxId = std::numeric_limits<Scheduler::Id>::max();
+    auto scheduler = Babylon::Internal::DelayedTaskSchedulerTestAccess::Create(MaxId - 2);
+    EXPECT_EQ(scheduler.Schedule(1h, [] {}), MaxId - 1);
+    EXPECT_EQ(scheduler.Schedule(1h, [] {}), MaxId);
+    EXPECT_EQ(scheduler.Schedule(1h, [] {}), 1);
+    EXPECT_EQ(scheduler.Schedule(1h, [] {}), 2);
 }
 
 TEST(DelayedTaskScheduler, RunsAtOrAfterRequestedTime)
 {
-    Babylon::DelayedTaskScheduler scheduler;
-    std::promise<Babylon::DelayedTaskScheduler::TimePoint> ranPromise;
+    Scheduler scheduler;
+    std::promise<Scheduler::TimePoint> ranPromise;
     const auto requestedTime = std::chrono::time_point_cast<std::chrono::microseconds, std::chrono::steady_clock>(
         std::chrono::steady_clock::now() + 10ms);
 
@@ -52,7 +64,7 @@ TEST(DelayedTaskScheduler, RunsAtOrAfterRequestedTime)
 
 TEST(DelayedTaskScheduler, CancelDoesNotWaitForExtractedCallback)
 {
-    Babylon::DelayedTaskScheduler scheduler;
+    Scheduler scheduler;
     std::promise<void> enteredPromise;
     std::promise<void> releasePromise;
     auto release = releasePromise.get_future().share();
@@ -71,7 +83,7 @@ TEST(DelayedTaskScheduler, CancelDoesNotWaitForExtractedCallback)
 
 TEST(DelayedTaskScheduler, CancelRemovesQueuedCallback)
 {
-    Babylon::DelayedTaskScheduler scheduler;
+    Scheduler scheduler;
     std::promise<void> calledPromise;
     auto calledFuture = calledPromise.get_future();
 
@@ -85,7 +97,7 @@ TEST(DelayedTaskScheduler, CancelRemovesQueuedCallback)
 
 TEST(DelayedTaskScheduler, ShutdownWaitsForRunningCallbackAndRejectsNewWork)
 {
-    Babylon::DelayedTaskScheduler scheduler;
+    Scheduler scheduler;
     std::promise<void> enteredPromise;
     std::promise<void> releasePromise;
     auto release = releasePromise.get_future().share();
@@ -105,25 +117,31 @@ TEST(DelayedTaskScheduler, ShutdownWaitsForRunningCallbackAndRejectsNewWork)
     EXPECT_THROW(scheduler.Schedule(0ms, [] {}), std::runtime_error);
 }
 
-TEST(DelayedTaskSchedulerRegistration, RegisterAndUnregisterFollowEnvironmentLifetime)
+TEST(DelayedTaskScheduler, RegistrationDoesNotDependOnJsRuntimeNativeObject)
 {
     Babylon::AppRuntime runtime;
     std::promise<bool> lifecyclePromise;
 
     runtime.Dispatch([&lifecyclePromise](Napi::Env env) {
-        auto* const scheduler = Babylon::DelayedTaskSchedulerRegistration::Get(env);
+        auto* const scheduler = Scheduler::Get(env);
         if (scheduler == nullptr)
         {
             lifecyclePromise.set_value(false);
             return;
         }
 
-        Babylon::DelayedTaskSchedulerRegistration::Unregister(env);
-        const bool unregistered = Babylon::DelayedTaskSchedulerRegistration::Get(env) == nullptr;
-        Babylon::DelayedTaskSchedulerRegistration::Register(env, *scheduler);
+        const auto nativeObject = env.Global().Get("_native");
+        env.Global().Set("_native", env.Undefined());
+        const bool independentOfJsRuntime = Scheduler::Get(env) == scheduler;
+        Scheduler::Unregister(env);
+        const bool unregistered = Scheduler::Get(env) == nullptr;
+        scheduler->Register(env);
+        const bool registered = Scheduler::Get(env) == scheduler;
+        env.Global().Set("_native", nativeObject);
         lifecyclePromise.set_value(
+            independentOfJsRuntime &&
             unregistered &&
-            Babylon::DelayedTaskSchedulerRegistration::Get(env) == scheduler);
+            registered);
     });
 
     auto lifecycleFuture = lifecyclePromise.get_future();
@@ -137,7 +155,7 @@ TEST(SchedulingLifecycle, UsesOwnedSchedulerWithoutRegistration)
     std::promise<void> timerPromise;
 
     runtime.Dispatch([&timerPromise](Napi::Env env) {
-        Babylon::DelayedTaskSchedulerRegistration::Unregister(env);
+        Scheduler::Unregister(env);
         Babylon::Polyfills::Scheduling::Initialize(env);
         env.Global().Set(
             "timerComplete",

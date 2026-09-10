@@ -20,6 +20,7 @@ add_library(UnitTestsJNI SHARED
     JNI.cpp
     ${UNIT_TESTS_DIR}/Shared/DelayedTaskScheduler.cpp
     ${UNIT_TESTS_DIR}/Shared/StandardStreamLogger.cpp
+    ${UNIT_TESTS_DIR}/Shared/TimeoutDispatcher.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
     ${UNIT_TESTS_DIR}/Shared/Shared.cpp)
 
@@ -41,7 +42,8 @@ target_link_libraries(UnitTestsJNI
     PRIVATE AppRuntime
     PRIVATE AbortController
     PRIVATE Console
-    PRIVATE Scheduling
+    PRIVATE SchedulingInternal
+    PRIVATE FoundationInternal
     PRIVATE ScriptLoader
     PRIVATE URL
     PRIVATE UrlLib

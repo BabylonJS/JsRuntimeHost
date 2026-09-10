@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Babylon/DelayedTaskScheduler.h>
 #include <Babylon/JsRuntime.h>
 #include <napi/napi.h>
 
@@ -23,6 +22,9 @@ namespace Babylon::Polyfills::Internal
         void Clear(TimeoutId id);
 
     private:
+        friend struct TimeoutDispatcherTestAccess;
+        TimeoutDispatcher(Napi::Env env, Babylon::JsRuntime& runtime, TimeoutId lastTimeoutId);
+
         struct State;
         std::shared_ptr<State> m_state;
     };

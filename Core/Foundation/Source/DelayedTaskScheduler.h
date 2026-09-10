@@ -1,11 +1,13 @@
 #pragma once
 
+#include <napi/env.h>
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
 
-namespace Babylon
+namespace Babylon::Internal
 {
     /// Native delayed-work queue used by setTimeout/setInterval and by host
     /// task runners. Callbacks run on the scheduler thread; callers that need
@@ -23,6 +25,12 @@ namespace Babylon
         DelayedTaskScheduler(const DelayedTaskScheduler&) = delete;
         DelayedTaskScheduler& operator=(const DelayedTaskScheduler&) = delete;
 
+        // Environment association is non-owning and accessed on the JavaScript
+        // thread. The registered scheduler must outlive its borrowers.
+        void Register(Napi::Env env);
+        static void Unregister(Napi::Env env);
+        static DelayedTaskScheduler* Get(Napi::Env env);
+
         Id Schedule(TimePoint when, Callback callback);
         Id Schedule(std::chrono::milliseconds delay, Callback callback);
 
@@ -34,6 +42,9 @@ namespace Babylon
         void Shutdown();
 
     private:
+        friend struct DelayedTaskSchedulerTestAccess;
+        explicit DelayedTaskScheduler(Id lastId);
+
         class Impl;
         std::unique_ptr<Impl> m_impl;
     };

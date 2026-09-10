@@ -1,7 +1,6 @@
 #include "AppRuntime.h"
 
-#include <Babylon/DelayedTaskScheduler.h>
-#include <Babylon/DelayedTaskSchedulerRegistration.h>
+#include "DelayedTaskScheduler.h"
 
 #include <arcana/threading/cancellation.h>
 #include <arcana/threading/dispatcher.h>
@@ -38,7 +37,7 @@ namespace Babylon
         std::optional<std::scoped_lock<std::mutex>> m_suspensionLock{};
         arcana::cancellation_source m_cancelSource{};
         arcana::manual_dispatcher<128> m_dispatcher{};
-        std::unique_ptr<DelayedTaskScheduler> m_delayedTaskScheduler{std::make_unique<DelayedTaskScheduler>()};
+        std::unique_ptr<Internal::DelayedTaskScheduler> m_delayedTaskScheduler{std::make_unique<Internal::DelayedTaskScheduler>()};
         bool m_delayedTaskSchedulerRegistered{};
         std::thread m_thread;
     };
@@ -56,7 +55,7 @@ namespace Babylon
 
         Dispatch([this](Napi::Env env) {
             JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); });
-            DelayedTaskSchedulerRegistration::Register(env, GetDelayedTaskScheduler());
+            GetDelayedTaskScheduler().Register(env);
             m_impl->m_delayedTaskSchedulerRegistered = true;
         });
     }
@@ -83,7 +82,7 @@ namespace Babylon
         m_impl->m_thread.join();
     }
 
-    void AppRuntime::Run(Napi::Env env, std::function<void()> shutdown)
+    void AppRuntime::Run(Napi::Env env)
     {
         m_impl->m_env = std::make_optional(env);
 
@@ -95,14 +94,11 @@ namespace Babylon
         }
 
         Napi::HandleScope scope{env};
-        if (shutdown)
-        {
-            shutdown();
-        }
+        ShutdownEnvironment(env);
 
         if (m_impl->m_delayedTaskSchedulerRegistered)
         {
-            DelayedTaskSchedulerRegistration::Unregister(env);
+            Internal::DelayedTaskScheduler::Unregister(env);
             m_impl->m_delayedTaskSchedulerRegistered = false;
         }
         GetDelayedTaskScheduler().Shutdown();
@@ -111,7 +107,7 @@ namespace Babylon
         m_impl->m_dispatcher.clear();
     }
 
-    DelayedTaskScheduler& AppRuntime::GetDelayedTaskScheduler()
+    Internal::DelayedTaskScheduler& AppRuntime::GetDelayedTaskScheduler()
     {
         return *m_impl->m_delayedTaskScheduler;
     }

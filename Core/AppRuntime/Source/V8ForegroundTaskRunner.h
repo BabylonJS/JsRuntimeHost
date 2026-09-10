@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Babylon/DelayedTaskScheduler.h>
+#include "DelayedTaskScheduler.h"
 #include <napi/env.h>
 
 #include <functional>

@@ -1,8 +1,6 @@
 set(SOURCES
-    "Include/Babylon/DelayedTaskSchedulerRegistration.h"
     "Include/Babylon/JsRuntime.h"
     "Include/Babylon/JsRuntimeScheduler.h"
-    "Source/DelayedTaskSchedulerRegistration.cpp"
     "Source/JsRuntime.cpp")
 
 add_library(JsRuntime ${SOURCES})
