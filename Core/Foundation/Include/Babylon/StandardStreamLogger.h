@@ -11,6 +11,15 @@ namespace Babylon::StandardStreamLogger
      * forwards to OutputDebugString while preserving the original stream destination.
      * Other Unix platforms already expose standard streams and leave them unchanged.
      *
+     * Private descriptors are non-inheritable, and the original standard-stream
+     * inheritance flags are preserved. Applications must serialize concurrent
+     * child-process creation with Start()/Stop(): redirection and flag restoration
+     * are not a single atomic operation. Apple additionally lacks atomic
+     * close-on-exec pipe creation.
+     *
+     * Platform diagnostics split long lines to fit their sink's size limit.
+     * Chunking does not affect the tee to the original stream destination.
+     *
      * Returns false if a platform stream could not be redirected. Repeated calls are
      * idempotent.
      */

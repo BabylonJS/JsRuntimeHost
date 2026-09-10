@@ -3,11 +3,13 @@
 
 struct ChannelPlatformState
 {
+    int OriginalDescriptorFlags{};
+    bool OriginalDescriptorOpen{};
 };
 
 int OsDuplicate(int fd)
 {
-    return ::dup(fd);
+    return ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
 }
 
 int OsDuplicateTo(int source, int target)
@@ -32,6 +34,11 @@ int64_t OsWrite(int fd, const void* data, size_t size)
 
 int OsCreatePipe(int fds[2])
 {
+#if defined(__linux__)
+    return ::pipe2(fds, O_CLOEXEC);
+#else
+    // Darwin has no pipe2; callers must serialize Start() with fork/exec to
+    // avoid inheritance between pipe() and fcntl().
     if (::pipe(fds) != 0)
     {
         return -1;
@@ -48,11 +55,12 @@ int OsCreatePipe(int fds[2])
         return -1;
     }
     return 0;
+#endif
 }
 
 bool OsOccupyTarget(int target)
 {
-    const int nullFd = ::open("/dev/null", O_WRONLY);
+    const int nullFd = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
     if (nullFd < 0)
     {
         return false;
@@ -67,17 +75,20 @@ bool OsOccupyTarget(int target)
     return duplicated;
 }
 
-bool OsOnStartChannel(ChannelPlatformState&, int, bool)
+bool OsOnStartChannel(ChannelPlatformState& state, int target, bool)
 {
-    return true;
+    state.OriginalDescriptorFlags = ::fcntl(target, F_GETFD);
+    state.OriginalDescriptorOpen = state.OriginalDescriptorFlags >= 0;
+    return state.OriginalDescriptorOpen || errno == EBADF;
 }
 
-bool OsOnRedirected(ChannelPlatformState&, int)
+bool OsOnRedirected(ChannelPlatformState& state, int target)
 {
-    return true;
+    const int flags = state.OriginalDescriptorOpen ? state.OriginalDescriptorFlags : FD_CLOEXEC;
+    return ::fcntl(target, F_SETFD, flags) == 0;
 }
 
-bool OsOnRestore(ChannelPlatformState&, int)
+bool OsOnRestore(ChannelPlatformState& state, int target)
 {
-    return true;
+    return !state.OriginalDescriptorOpen || ::fcntl(target, F_SETFD, state.OriginalDescriptorFlags) == 0;
 }

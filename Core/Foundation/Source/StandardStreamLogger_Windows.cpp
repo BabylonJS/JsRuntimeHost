@@ -11,6 +11,10 @@
 
 namespace
 {
+    constexpr intptr_t NO_CONSOLE_FILENO{-2};
+    // Some Windows SDKs hide HANDLE_FLAG_INHERIT from the app partition.
+    constexpr DWORD HANDLE_INHERIT_FLAG{0x00000001};
+
     void IgnoreInvalidParameter(
         const wchar_t*,
         const wchar_t*,
@@ -25,14 +29,100 @@ namespace
     {
         DWORD StandardHandle{};
         HANDLE OriginalHandle{INVALID_HANDLE_VALUE};
+        DWORD OriginalDescriptorHandleFlags{};
+        bool OriginalDescriptorOpen{};
         bool OriginalHandleUsesTarget{};
     };
 
+    void SetErrnoFromWin32Error(DWORD error)
+    {
+        _doserrno = error;
+        switch (error)
+        {
+        case ERROR_INVALID_HANDLE:
+            errno = EBADF;
+            break;
+        case ERROR_TOO_MANY_OPEN_FILES:
+            errno = EMFILE;
+            break;
+        case ERROR_NOT_ENOUGH_MEMORY:
+        case ERROR_OUTOFMEMORY:
+            errno = ENOMEM;
+            break;
+        case ERROR_ACCESS_DENIED:
+            errno = EACCES;
+            break;
+        case ERROR_INVALID_PARAMETER:
+            errno = EINVAL;
+            break;
+        case ERROR_BROKEN_PIPE:
+            errno = EPIPE;
+            break;
+        default:
+            errno = EIO;
+            break;
+        }
+    }
+
+    intptr_t GetOsHandle(int fd)
+    {
+        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
+        const intptr_t handle = ::_get_osfhandle(fd);
+        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
+        return handle;
+    }
+
+    bool SetDescriptorInheritance(int fd, bool inherit)
+    {
+        const intptr_t handle = GetOsHandle(fd);
+        if (handle == -1)
+        {
+            return false;
+        }
+        if (!::SetHandleInformation(
+                reinterpret_cast<HANDLE>(handle),
+                HANDLE_INHERIT_FLAG,
+                inherit ? HANDLE_INHERIT_FLAG : 0))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+        return true;
+    }
+
     int OsDuplicate(int fd)
     {
+        const intptr_t sourceHandle = GetOsHandle(fd);
+        if (sourceHandle == -1)
+        {
+            return -1;
+        }
+        if (sourceHandle == NO_CONSOLE_FILENO)
+        {
+            errno = EBADF;
+            _doserrno = 0;
+            return -1;
+        }
+
+        // _dup preserves the source descriptor's complete CRT state (including
+        // text mode), unlike rebuilding it with _open_osfhandle.
         const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
         const int duplicated = ::_dup(fd);
         (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
+
+        if (duplicated < 0)
+        {
+            return -1;
+        }
+        if (!SetDescriptorInheritance(duplicated, false))
+        {
+            const int error = errno;
+            const unsigned long dosError = _doserrno;
+            (void)::_close(duplicated);
+            errno = error;
+            _doserrno = dosError;
+            return -1;
+        }
         return duplicated;
     }
 
@@ -68,10 +158,11 @@ namespace
         HANDLE writeHandle{INVALID_HANDLE_VALUE};
         if (!::CreatePipe(&readHandle, &writeHandle, &attributes, 4096))
         {
+            SetErrnoFromWin32Error(::GetLastError());
             return -1;
         }
 
-        fds[0] = ::_open_osfhandle(reinterpret_cast<intptr_t>(readHandle), _O_BINARY);
+        fds[0] = ::_open_osfhandle(reinterpret_cast<intptr_t>(readHandle), _O_BINARY | _O_NOINHERIT);
         if (fds[0] < 0)
         {
             (void)::CloseHandle(readHandle);
@@ -79,7 +170,7 @@ namespace
             return -1;
         }
 
-        fds[1] = ::_open_osfhandle(reinterpret_cast<intptr_t>(writeHandle), _O_BINARY);
+        fds[1] = ::_open_osfhandle(reinterpret_cast<intptr_t>(writeHandle), _O_BINARY | _O_NOINHERIT);
         if (fds[1] < 0)
         {
             (void)::_close(fds[0]);
@@ -94,8 +185,11 @@ namespace
     {
         // Prefer the secure CRT form; UWP treats the deprecated _open as an error.
         int nullFd{-1};
-        if (::_sopen_s(&nullFd, "NUL", _O_WRONLY | _O_BINARY, _SH_DENYNO, 0) != 0)
+        const errno_t openError =
+            ::_sopen_s(&nullFd, "NUL", _O_WRONLY | _O_BINARY | _O_NOINHERIT, _SH_DENYNO, 0);
+        if (openError != 0)
         {
+            errno = openError;
             return false;
         }
         if (nullFd == target)
@@ -103,9 +197,28 @@ namespace
             return true;
         }
 
-        const bool duplicated = OsDuplicateTo(nullFd, target) == 0;
+        const bool targetDuplicated = OsDuplicateTo(nullFd, target) == 0;
+        const bool duplicated =
+            targetDuplicated &&
+            SetDescriptorInheritance(target, false);
+        const int error = errno;
+        const unsigned long dosError = _doserrno;
         (void)OsClose(nullFd);
+        if (!duplicated)
+        {
+            if (targetDuplicated)
+            {
+                (void)OsClose(target);
+            }
+            errno = error;
+            _doserrno = dosError;
+        }
         return duplicated;
+    }
+
+    size_t OsMaxPlatformLineSize(bool /*isError*/)
+    {
+        return 3800;
     }
 
     void OsWritePlatform(bool /*isError*/, const std::string& line)
@@ -115,21 +228,30 @@ namespace
         ::OutputDebugStringA(output.c_str());
     }
 
-    intptr_t GetOsHandle(int fd)
-    {
-        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
-        const intptr_t handle = ::_get_osfhandle(fd);
-        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
-        return handle;
-    }
-
     bool OsOnStartChannel(ChannelPlatformState& state, int target, bool isError)
     {
         state.StandardHandle = isError ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE;
         state.OriginalHandle = ::GetStdHandle(state.StandardHandle);
         const intptr_t targetHandle = GetOsHandle(target);
+        if (targetHandle == -1)
+        {
+            return errno == EBADF;
+        }
+        if (targetHandle == NO_CONSOLE_FILENO)
+        {
+            return true;
+        }
+
+        if (!::GetHandleInformation(
+                reinterpret_cast<HANDLE>(targetHandle),
+                &state.OriginalDescriptorHandleFlags))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+
+        state.OriginalDescriptorOpen = true;
         state.OriginalHandleUsesTarget =
-            targetHandle != -1 &&
             state.OriginalHandle != nullptr &&
             state.OriginalHandle != INVALID_HANDLE_VALUE &&
             state.OriginalHandle == reinterpret_cast<HANDLE>(targetHandle);
@@ -143,22 +265,48 @@ namespace
         {
             return false;
         }
-        return ::SetStdHandle(state.StandardHandle, reinterpret_cast<HANDLE>(pipeHandle)) != FALSE;
+
+        const bool inherit =
+            state.OriginalDescriptorOpen &&
+            (state.OriginalDescriptorHandleFlags & HANDLE_INHERIT_FLAG) != 0;
+        if (!SetDescriptorInheritance(target, inherit))
+        {
+            return false;
+        }
+        if (!::SetStdHandle(state.StandardHandle, reinterpret_cast<HANDLE>(pipeHandle)))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+        return true;
     }
 
     bool OsOnRestore(ChannelPlatformState& state, int target)
     {
         HANDLE handle = state.OriginalHandle;
-        if (state.OriginalHandleUsesTarget)
+        bool restored{true};
+        if (state.OriginalDescriptorOpen)
         {
             const intptr_t restoredHandle = GetOsHandle(target);
             if (restoredHandle == -1)
             {
                 return false;
             }
-            handle = reinterpret_cast<HANDLE>(restoredHandle);
+
+            const bool inherit =
+                (state.OriginalDescriptorHandleFlags & HANDLE_INHERIT_FLAG) != 0;
+            restored = SetDescriptorInheritance(target, inherit);
+            if (state.OriginalHandleUsesTarget)
+            {
+                handle = reinterpret_cast<HANDLE>(restoredHandle);
+            }
         }
-        return ::SetStdHandle(state.StandardHandle, handle) != FALSE;
+        if (!::SetStdHandle(state.StandardHandle, handle))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+        return restored;
     }
 }
 

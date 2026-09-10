@@ -27,6 +27,8 @@ add_library(UnitTestsJNI SHARED
     ${UNIT_TESTS_DIR}/Source/Tests.NodeApi.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.Scheduling.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.StandardStreamLogger.cpp
+    ${UNIT_TESTS_DIR}/Source/StandardStreamLoggerLines.cpp
+    ${UNIT_TESTS_DIR}/Source/StandardStreamLoggerPosix.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.TimeoutDispatcher.cpp)
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")

@@ -30,6 +30,8 @@ set(SOURCES
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Scheduling.cpp"
     "Source/Tests.StandardStreamLogger.cpp"
+    "Source/StandardStreamLoggerLines.cpp"
+    "Source/StandardStreamLoggerPosix.cpp"
     "Source/Tests.TimeoutDispatcher.cpp")
 
 if(APPLE)
