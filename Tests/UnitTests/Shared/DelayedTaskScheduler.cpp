@@ -1,6 +1,7 @@
 #include <Babylon/AppRuntime.h>
 #include <Babylon/DelayedTaskScheduler.h>
 #include <Babylon/DelayedTaskSchedulerRegistration.h>
+#include <Babylon/Internal/TimerId.h>
 #include <Babylon/Polyfills/Scheduling.h>
 
 #include <gtest/gtest.h>
@@ -8,11 +9,29 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <thread>
 
 using namespace std::chrono_literals;
+
+TEST(TimerId, StartsAtOne)
+{
+    EXPECT_EQ(Babylon::Internal::IncrementTimerId(0), 1);
+}
+
+TEST(TimerId, WrapsBeforeSignedOverflow)
+{
+    static_assert(Babylon::Internal::IncrementTimerId(std::numeric_limits<int32_t>::max()) == 1);
+    auto id = std::numeric_limits<int32_t>::max() - 1;
+    id = Babylon::Internal::IncrementTimerId(id);
+    EXPECT_EQ(id, std::numeric_limits<int32_t>::max());
+    id = Babylon::Internal::IncrementTimerId(id);
+    EXPECT_EQ(id, 1);
+    id = Babylon::Internal::IncrementTimerId(id);
+    EXPECT_EQ(id, 2);
+}
 
 TEST(DelayedTaskScheduler, RunsAtOrAfterRequestedTime)
 {

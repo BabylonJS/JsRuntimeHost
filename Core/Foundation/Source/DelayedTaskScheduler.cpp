@@ -1,4 +1,5 @@
 #include "DelayedTaskScheduler.h"
+#include "Internal/TimerId.h"
 
 #include <condition_variable>
 #include <map>
@@ -123,11 +124,7 @@ namespace Babylon
         {
             while (true)
             {
-                ++m_lastId;
-                if (m_lastId <= 0)
-                {
-                    m_lastId = 1;
-                }
+                m_lastId = Internal::IncrementTimerId(m_lastId);
 
                 if (m_idMap.find(m_lastId) == m_idMap.end())
                 {

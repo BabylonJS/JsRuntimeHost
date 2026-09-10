@@ -1,6 +1,7 @@
 #include "TimeoutDispatcher.h"
 
 #include <Babylon/DelayedTaskSchedulerRegistration.h>
+#include <Babylon/Internal/TimerId.h>
 
 #include <mutex>
 #include <optional>
@@ -55,11 +56,7 @@ namespace Babylon::Polyfills::Internal
         {
             while (true)
             {
-                ++lastTimeoutId;
-                if (lastTimeoutId <= 0)
-                {
-                    lastTimeoutId = 1;
-                }
+                lastTimeoutId = Babylon::Internal::IncrementTimerId(lastTimeoutId);
 
                 if (timeouts.find(lastTimeoutId) == timeouts.end())
                 {
