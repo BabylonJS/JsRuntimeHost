@@ -47,7 +47,7 @@ namespace Babylon::Polyfills::Internal
             : runtime{&runtime}
             , lastTimeoutId{lastTimeoutId}
         {
-            scheduler = DelayedTaskScheduler::Get(env);
+            scheduler = DelayedTaskScheduler::GetFromJavaScript(env);
             if (scheduler == nullptr)
             {
                 ownedScheduler = std::make_unique<DelayedTaskScheduler>();

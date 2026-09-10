@@ -55,7 +55,7 @@ namespace Babylon
 
         Dispatch([this](Napi::Env env) {
             JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); });
-            GetDelayedTaskScheduler().Register(env);
+            Internal::DelayedTaskScheduler::SetForJavaScript(env, GetDelayedTaskScheduler());
             m_impl->m_delayedTaskSchedulerRegistered = true;
         });
     }
@@ -98,7 +98,7 @@ namespace Babylon
 
         if (m_impl->m_delayedTaskSchedulerRegistered)
         {
-            Internal::DelayedTaskScheduler::Unregister(env);
+            Internal::DelayedTaskScheduler::ClearFromJavaScript(env);
             m_impl->m_delayedTaskSchedulerRegistered = false;
         }
         GetDelayedTaskScheduler().Shutdown();

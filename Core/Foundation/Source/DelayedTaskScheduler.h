@@ -26,10 +26,10 @@ namespace Babylon::Internal
         DelayedTaskScheduler& operator=(const DelayedTaskScheduler&) = delete;
 
         // Environment association is non-owning and accessed on the JavaScript
-        // thread. The registered scheduler must outlive its borrowers.
-        void Register(Napi::Env env);
-        static void Unregister(Napi::Env env);
-        static DelayedTaskScheduler* Get(Napi::Env env);
+        // thread. The associated scheduler must outlive its borrowers.
+        static void SetForJavaScript(Napi::Env env, DelayedTaskScheduler& scheduler);
+        static void ClearFromJavaScript(Napi::Env env);
+        static DelayedTaskScheduler* GetFromJavaScript(Napi::Env env);
 
         Id Schedule(TimePoint when, Callback callback);
         Id Schedule(std::chrono::milliseconds delay, Callback callback);

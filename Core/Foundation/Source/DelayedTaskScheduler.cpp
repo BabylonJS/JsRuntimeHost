@@ -195,17 +195,17 @@ namespace Babylon::Internal
 
     DelayedTaskScheduler::~DelayedTaskScheduler() = default;
 
-    void DelayedTaskScheduler::Register(Napi::Env env)
+    void DelayedTaskScheduler::SetForJavaScript(Napi::Env env, DelayedTaskScheduler& scheduler)
     {
-        env.Global().Set(JS_DELAYED_TASK_SCHEDULER_NAME, Napi::External<DelayedTaskScheduler>::New(env, this));
+        env.Global().Set(JS_DELAYED_TASK_SCHEDULER_NAME, Napi::External<DelayedTaskScheduler>::New(env, &scheduler));
     }
 
-    void DelayedTaskScheduler::Unregister(Napi::Env env)
+    void DelayedTaskScheduler::ClearFromJavaScript(Napi::Env env)
     {
         env.Global().Set(JS_DELAYED_TASK_SCHEDULER_NAME, env.Undefined());
     }
 
-    DelayedTaskScheduler* DelayedTaskScheduler::Get(Napi::Env env)
+    DelayedTaskScheduler* DelayedTaskScheduler::GetFromJavaScript(Napi::Env env)
     {
         const auto value = env.Global().Get(JS_DELAYED_TASK_SCHEDULER_NAME);
         return value.IsUndefined() ? nullptr : value.As<Napi::External<DelayedTaskScheduler>>().Data();

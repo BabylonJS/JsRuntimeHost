@@ -117,13 +117,13 @@ TEST(DelayedTaskScheduler, ShutdownWaitsForRunningCallbackAndRejectsNewWork)
     EXPECT_THROW(scheduler.Schedule(0ms, [] {}), std::runtime_error);
 }
 
-TEST(DelayedTaskScheduler, RegistrationDoesNotDependOnJsRuntimeNativeObject)
+TEST(DelayedTaskScheduler, AssociationDoesNotDependOnJsRuntimeNativeObject)
 {
     Babylon::AppRuntime runtime;
     std::promise<bool> lifecyclePromise;
 
     runtime.Dispatch([&lifecyclePromise](Napi::Env env) {
-        auto* const scheduler = Scheduler::Get(env);
+        auto* const scheduler = Scheduler::GetFromJavaScript(env);
         if (scheduler == nullptr)
         {
             lifecyclePromise.set_value(false);
@@ -132,16 +132,16 @@ TEST(DelayedTaskScheduler, RegistrationDoesNotDependOnJsRuntimeNativeObject)
 
         const auto nativeObject = env.Global().Get("_native");
         env.Global().Set("_native", env.Undefined());
-        const bool independentOfJsRuntime = Scheduler::Get(env) == scheduler;
-        Scheduler::Unregister(env);
-        const bool unregistered = Scheduler::Get(env) == nullptr;
-        scheduler->Register(env);
-        const bool registered = Scheduler::Get(env) == scheduler;
+        const bool independentOfJsRuntime = Scheduler::GetFromJavaScript(env) == scheduler;
+        Scheduler::ClearFromJavaScript(env);
+        const bool cleared = Scheduler::GetFromJavaScript(env) == nullptr;
+        Scheduler::SetForJavaScript(env, *scheduler);
+        const bool associated = Scheduler::GetFromJavaScript(env) == scheduler;
         env.Global().Set("_native", nativeObject);
         lifecyclePromise.set_value(
             independentOfJsRuntime &&
-            unregistered &&
-            registered);
+            cleared &&
+            associated);
     });
 
     auto lifecycleFuture = lifecyclePromise.get_future();
@@ -155,7 +155,7 @@ TEST(SchedulingLifecycle, UsesOwnedSchedulerWithoutRegistration)
     std::promise<void> timerPromise;
 
     runtime.Dispatch([&timerPromise](Napi::Env env) {
-        Scheduler::Unregister(env);
+        Scheduler::ClearFromJavaScript(env);
         Babylon::Polyfills::Scheduling::Initialize(env);
         env.Global().Set(
             "timerComplete",
