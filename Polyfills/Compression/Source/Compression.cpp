@@ -309,10 +309,12 @@ namespace Babylon::Polyfills::Internal
                     m_closed = true;
                     ReleasePendingStorage();
                     // This error is reported after EnqueuePending has called
-                    // back into JavaScript. Setting the pending exception
-                    // directly avoids a second C++ exception conversion in
-                    // Node-API backends with reentrant callback contexts.
-                    static_cast<void>(napi_throw_type_error(env, nullptr, failure.c_str()));
+                    // back into JavaScript. ThrowAsJavaScriptException only sets
+                    // the pending exception (it never throws C++), which avoids a
+                    // second C++ exception conversion in Node-API backends with
+                    // reentrant callback contexts -- and unlike the raw C API it
+                    // also exists on the JSI backend, which implements no napi_*.
+                    Napi::TypeError::New(Napi::Env{env}, failure).ThrowAsJavaScriptException();
                     return false;
                 }
 

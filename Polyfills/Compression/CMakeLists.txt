@@ -1,9 +1,11 @@
 if(APPLE)
     # FindZLIB exposes the SDK's usr/include as an explicit system include on
     # recent Xcode versions. That breaks libc++'s include_next ordering. The
-    # header and library are both SDK-provided, so only add the link library.
-    find_library(JSRUNTIMEHOST_COMPRESSION_ZLIB_LIBRARY NAMES z REQUIRED)
-    set(JSRUNTIMEHOST_COMPRESSION_ZLIB_TARGET "${JSRUNTIMEHOST_COMPRESSION_ZLIB_LIBRARY}")
+    # header and library are both SDK-provided, so only add the link library --
+    # by name, not via find_library: a configure-time path points into the
+    # device SDK, which the simulator link then rejects (libz.tbd "missing
+    # required architecture"). "-lz" resolves against whichever SDK is active.
+    set(JSRUNTIMEHOST_COMPRESSION_ZLIB_TARGET z)
 elseif(TARGET ZLIB::ZLIB)
     set(JSRUNTIMEHOST_COMPRESSION_ZLIB_TARGET ZLIB::ZLIB)
 elseif(TARGET zlibstatic)
