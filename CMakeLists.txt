@@ -67,7 +67,9 @@ if(IOS)
     FetchContent_MakeAvailable_With_Message(ios-cmake)
     set(CMAKE_TOOLCHAIN_FILE "${ios-cmake_SOURCE_DIR}/ios.toolchain.cmake" CACHE PATH "")
     set(PLATFORM "OS64COMBINED" CACHE STRING "")
-    set(DEPLOYMENT_TARGET "12" CACHE STRING "")
+    # std::filesystem (used by the Worker polyfill) is unavailable below iOS 13 / macOS 10.15,
+    # and the project floor is well above iOS 12 regardless; keep 13 as the minimum.
+    set(DEPLOYMENT_TARGET "13" CACHE STRING "")
     set(CMAKE_XCODE_GENERATE_SCHEME TRUE)
 endif()
 
