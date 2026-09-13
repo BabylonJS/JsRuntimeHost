@@ -350,7 +350,7 @@ namespace Babylon::Polyfills::Internal
                 const auto outputBuffer = view.ArrayBuffer();
                 auto destination = static_cast<std::byte*>(outputBuffer.Data()) + view.ByteOffset();
                 copyInto(destination, outputLength);
-                byobRequest.Get("respond").As<Napi::Function>().Call(byobRequest, {Napi::Number::New(callbackEnv, outputLength)});
+                byobRequest.Get("respond").As<Napi::Function>().Call(byobRequest, {Napi::Number::New(callbackEnv, static_cast<double>(outputLength))});
             }
             else
             {
