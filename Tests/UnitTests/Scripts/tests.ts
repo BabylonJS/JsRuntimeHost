@@ -2021,6 +2021,9 @@ describe("Blob", function () {
 
     // Scaled port of Firefox's dom/streams/test/xpcshell/large-pipeto.js.
     it("pipes nested shared Blob parts without corrupting chunk boundaries", async function () {
+        // 40k-chunk / nested-part workloads run through the Streams polyfill's per-chunk promise
+        // machinery; on the iOS simulator and Hermes that straddles mocha's default budget.
+        this.timeout(60000);
         const pattern = new Uint8Array(256 * 1024);
         for (let index = 0; index < pattern.length; ++index) {
             pattern[index] = index % 256;
