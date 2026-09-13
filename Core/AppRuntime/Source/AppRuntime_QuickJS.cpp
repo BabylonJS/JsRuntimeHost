@@ -1,8 +1,3 @@
-// pthread_getattr_np is declared by glibc only under the GNU feature set; gnu++20 predefines it,
-// but this translation unit should not depend on the language dialect for a system declaration.
-#if defined(__linux__) && !defined(_GNU_SOURCE)
-#define _GNU_SOURCE
-#endif
 #include "AppRuntime.h"
 #include <napi/env.h>
 
@@ -23,107 +18,95 @@
 #pragma warning(pop)
 #endif
 
-#if !defined(_WIN32)
-#include <pthread.h>
-#endif
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX // <windows.h> would otherwise define min/max macros that break std::min below
-#endif
-#include <windows.h>
-#endif
+#include <stdexcept>
 
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
+#if defined(__ANDROID__)
+#include <pthread.h>
+#include <exception>
+#include <functional>
+#include <utility>
+#endif
 
 namespace Babylon
 {
     namespace
     {
-        // QuickJS guards against JS recursion by comparing the C stack pointer against
-        // stack_top - stack_size, where stack_size defaults to JS_DEFAULT_STACK_SIZE (1 MiB in
-        // quickjs-ng). That is also the default size of a non-main thread on Android and Windows,
-        // so on those threads the limit sits below the real guard page: deep recursion faults
-        // (SIGSEGV) before QuickJS can raise "InternalError: stack overflow". Derive the limit
-        // from the thread that actually runs the runtime instead, keeping a margin for the native
-        // frames QuickJS and the host add between the check and the guard page.
-        // Bytes of C stack below the current frame, measured from the actual stack pointer to the
-        // thread's stack base, minus a margin for the native frames QuickJS and the host add between
-        // the check and the guard page. Measuring from the current position (rather than trusting
-        // the nominal size) also absorbs whatever the host already consumed above this call.
-        size_t JavaScriptStackLimit()
+        // Runs the QuickJS environment on the calling thread. QuickJS's interpreter recurses in C
+        // (one JS_CallInternal frame per JS call), so deep JS call stacks need a comparably deep C
+        // stack; QuickJS's own limit (JS_DEFAULT_STACK_SIZE, 1 MiB) guards against overrun.
+        void RunQuickJSEnvironment(AppRuntime& appRuntime, void (AppRuntime::*run)(Napi::Env))
         {
-            constexpr size_t Margin{96 * 1024};
-            constexpr size_t Fallback{256 * 1024};
-            volatile char marker{}; // the address of a local is a portable stack-pointer proxy (MSVC has no __builtin_frame_address)
-            const auto here = reinterpret_cast<uintptr_t>(&marker);
-            uintptr_t base{};
-#if defined(_WIN32)
-            ULONG_PTR low{};
-            ULONG_PTR high{};
-            GetCurrentThreadStackLimits(&low, &high);
-            base = static_cast<uintptr_t>(low);
-#elif defined(__APPLE__)
-            // pthread_getattr_np is a GNU/bionic extension; Apple exposes the bounds directly.
-            const auto top = reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(pthread_self()));
-            base = top - pthread_get_stacksize_np(pthread_self());
-#else
-            pthread_attr_t attributes;
-            if (pthread_getattr_np(pthread_self(), &attributes) == 0)
+            JSRuntime* runtime = JS_NewRuntime();
+            if (!runtime)
             {
-                void* address{};
-                size_t size{};
-                if (pthread_attr_getstack(&attributes, &address, &size) == 0)
-                {
-                    base = reinterpret_cast<uintptr_t>(address);
-                }
-                pthread_attr_destroy(&attributes);
+                throw std::runtime_error{"Failed to create QuickJS runtime"};
             }
-#endif
-            if (base == 0 || here <= base)
+
+            JSContext* context = JS_NewContext(runtime);
+            if (!context)
             {
-                return Fallback; // unknown: conservative, well under any plausible thread
+                JS_FreeRuntime(runtime);
+                throw std::runtime_error{"Failed to create QuickJS context"};
             }
-            const size_t usable = here - base;
-            if (usable <= 2 * Margin)
+
             {
-                return usable / 2; // a known small stack must not get a limit larger than itself
+                Napi::Env env = Napi::Attach(context);
+                (appRuntime.*run)(env);
+                Napi::Detach(env);
             }
-            return (std::min)(usable - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
+
+            JS_FreeContext(context);
+            JS_FreeRuntime(runtime);
         }
     }
 
     void AppRuntime::RunEnvironmentTier(const char* /*executablePath*/)
     {
-        // Create the runtime.
-        JSRuntime* runtime = JS_NewRuntime();
-        if (!runtime)
+#if defined(__ANDROID__)
+        // bionic gives this worker thread ~1 MiB of stack, at or below QuickJS's default 1 MiB
+        // recursion limit -- so deep-but-legal JS recursion faults the guard page (SIGSEGV) before
+        // QuickJS can raise a catchable "stack overflow", while clamping the limit below 1 MiB
+        // instead rejects call depths that every other engine (and desktop QuickJS on its ~8 MiB
+        // stack) accepts. Run the environment on a nested thread with a desktop-sized stack so
+        // QuickJS's own default limit sits safely below the guard page and ordinary recursion fits.
+        std::function<void()> body{[this] { RunQuickJSEnvironment(*this, &AppRuntime::Run); }};
+        std::exception_ptr thrown{};
+        auto payload = std::make_pair(&body, &thrown);
+        auto trampoline = [](void* arg) -> void* {
+            auto* p = static_cast<std::pair<std::function<void()>*, std::exception_ptr*>*>(arg);
+            try
+            {
+                (*p->first)();
+            }
+            catch (...)
+            {
+                *p->second = std::current_exception();
+            }
+            return nullptr;
+        };
+
+        pthread_attr_t attr;
+        if (pthread_attr_init(&attr) == 0)
         {
-            throw std::runtime_error{"Failed to create QuickJS runtime"};
+            pthread_attr_setstacksize(&attr, 8 * 1024 * 1024);
+            pthread_t tid{};
+            const int created = pthread_create(&tid, &attr, trampoline, &payload);
+            pthread_attr_destroy(&attr);
+            if (created == 0)
+            {
+                pthread_join(tid, nullptr);
+                if (thrown)
+                {
+                    std::rethrow_exception(thrown);
+                }
+                return;
+            }
         }
-        JS_SetMaxStackSize(runtime, JavaScriptStackLimit());
-
-        // Create the context.
-        JSContext* context = JS_NewContext(runtime);
-        if (!context)
-        {
-            JS_FreeRuntime(runtime);
-            throw std::runtime_error{"Failed to create QuickJS context"};
-        }
-
-        // Use the context within a scope.
-        {
-            Napi::Env env = Napi::Attach(context);
-
-            Run(env);
-
-            Napi::Detach(env);
-        }
-
-        // Destroy the context and runtime.
-        JS_FreeContext(context);
-        JS_FreeRuntime(runtime);
+        // Thread creation failed: fall back to the current thread.
+        RunQuickJSEnvironment(*this, &AppRuntime::Run);
+#else
+        RunQuickJSEnvironment(*this, &AppRuntime::Run);
+#endif
     }
 
     void AppRuntime::ShutdownEnvironment(Napi::Env)
