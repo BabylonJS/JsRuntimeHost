@@ -444,11 +444,15 @@ namespace Babylon::Polyfills::Internal
         }
         else if (blobPart.IsDataView())
         {
-            const auto view = blobPart.As<Napi::DataView>();
-            const auto buffer = view.ArrayBuffer();
+            // Read the view through its JS properties rather than Napi::DataView: the JSI
+            // backend's DataView wrapper is an unimplemented stub, and merely instantiating it
+            // fails the UWP build (its `throw "TODO"` leaves unreachable code, C4702 as error).
+            const auto view = blobPart.As<Napi::Object>();
+            const auto buffer = view.Get("buffer").As<Napi::ArrayBuffer>();
             const auto bufferData = static_cast<const std::byte*>(buffer.Data());
-            source = bufferData == nullptr ? nullptr : bufferData + view.ByteOffset();
-            length = view.ByteLength();
+            const auto byteOffset = static_cast<size_t>(view.Get("byteOffset").As<Napi::Number>().Int64Value());
+            source = bufferData == nullptr ? nullptr : bufferData + byteOffset;
+            length = static_cast<size_t>(view.Get("byteLength").As<Napi::Number>().Int64Value());
             isBufferSource = true;
         }
         else if (blobPart.IsObject())
