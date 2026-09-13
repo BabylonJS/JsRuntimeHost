@@ -71,7 +71,7 @@ if(NAPI_BUILD_ABI)
             # archives. Download only headers and link inputs, then use Android's libjsc.so
             # boundary or Linux's final LTO executable link instead of maintaining a separate
             # JSC build/package pipeline.
-            set(JSR_BUN_JSC_WEBKIT_REVISION "5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b")
+            set(JSR_BUN_JSC_WEBKIT_REVISION "1bd03678132783e3bb98a48205f4e8439253cf90")
             set(JSR_BUN_JSC_WEBKIT_RELEASE "autobuild-${JSR_BUN_JSC_WEBKIT_REVISION}")
             set(JSR_BUN_JSC_ROOT "" CACHE PATH
                 "Path to an extracted Bun WebKit 'bun-webkit' directory; empty downloads the pinned release")
@@ -163,7 +163,7 @@ if(NAPI_BUILD_ABI)
                 if(JSR_BUN_JSC_PROCESSOR MATCHES "^(x86_64|amd64)$")
                     # Use Bun's Nehalem-baseline full-LTO variant rather than imposing Haswell on
                     # every JsRuntimeHost Linux consumer.
-                    set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64-baseline-lto.tar.gz")
+                    set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64-lto.tar.gz")
                     set(JSR_BUN_JSC_SHA256 "2756c59963525ee01f8878c07d5bceff98f6e926ccbe79dff52dfe44f4a0b5c3")
                 elseif(JSR_BUN_JSC_PROCESSOR MATCHES "^(aarch64|arm64)$")
                     set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64-lto.tar.gz")
