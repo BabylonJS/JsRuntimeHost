@@ -305,16 +305,16 @@ if(NAPI_BUILD_ABI)
                     m)
             else()
                 set_property(TARGET bun_jsc PROPERTY INTERFACE_POSITION_INDEPENDENT_CODE ON)
+                # No -fwhole-program-vtables here: it forces -fsplit-lto-unit (LTO-unit splitting on),
+                # but Bun's prebuilt LTO archive is built with splitting OFF, and lld refuses to link
+                # LTO modules whose split-lto-unit state disagrees ("inconsistent LTO Unit splitting").
+                # Since the archive is immovable, the shim must match it: plain -flto, no WPD.
                 target_compile_options(bun_jsc PRIVATE
                     -O2
                     -flto=full
-                    -fwhole-program-vtables
-                    -fforce-emit-vtables
                     -fno-sanitize=all)
                 target_link_options(bun_jsc INTERFACE
                     -flto=full
-                    -fwhole-program-vtables
-                    -fforce-emit-vtables
                     -O2
                     -pie
                     "--ld-path=${JSR_BUN_JSC_LLD}"
