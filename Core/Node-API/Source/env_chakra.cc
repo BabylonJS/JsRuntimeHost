@@ -34,7 +34,25 @@ namespace Napi
         ThrowIfFailed(JsGetValueType(existingGlobalThis, &existingType));
         if (existingType == JsUndefined)
         {
-            ThrowIfFailed(JsSetProperty(global, propertyId, global, true));
+            // { value: globalThis, writable: true, enumerable: false, configurable: true } -- the
+            // spec's own data property; plain assignment would make it enumerable.
+            JsValueRef descriptor;
+            ThrowIfFailed(JsCreateObject(&descriptor));
+            JsValueRef trueValue;
+            ThrowIfFailed(JsGetTrueValue(&trueValue));
+            JsValueRef falseValue;
+            ThrowIfFailed(JsGetFalseValue(&falseValue));
+            JsPropertyIdRef descriptorPropertyId;
+            ThrowIfFailed(JsGetPropertyIdFromName(L"value", &descriptorPropertyId));
+            ThrowIfFailed(JsSetProperty(descriptor, descriptorPropertyId, global, true));
+            ThrowIfFailed(JsGetPropertyIdFromName(L"writable", &descriptorPropertyId));
+            ThrowIfFailed(JsSetProperty(descriptor, descriptorPropertyId, trueValue, true));
+            ThrowIfFailed(JsGetPropertyIdFromName(L"enumerable", &descriptorPropertyId));
+            ThrowIfFailed(JsSetProperty(descriptor, descriptorPropertyId, falseValue, true));
+            ThrowIfFailed(JsGetPropertyIdFromName(L"configurable", &descriptorPropertyId));
+            ThrowIfFailed(JsSetProperty(descriptor, descriptorPropertyId, trueValue, true));
+            bool defined;
+            ThrowIfFailed(JsDefineProperty(global, propertyId, descriptor, &defined));
         }
         ThrowIfFailed(JsGetPropertyIdFromName(L"Object", &propertyId));
         JsValueRef object;
