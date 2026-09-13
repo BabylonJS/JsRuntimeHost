@@ -2,7 +2,8 @@
 
 namespace Babylon::Polyfills::Internal::WorkerScripts
 {
-    inline constexpr char Common[] = R"JSRH(
+    inline constexpr char Common[] = 
+        R"JSRH(
 (() => {
   'use strict';
   const g = globalThis;
@@ -360,7 +361,8 @@ namespace Babylon::Polyfills::Internal::WorkerScripts
       built[id] = true;
       if (node.t === 'a') {
         value.length = node.i.length;
-        node.i.forEach((item, index) => { if (!(Array.isArray(item) && item[0] === 'h')) value[index] = decode(item); });
+        node.i.forEach((item, index) => { if (!(Array.isArray(item) && item[0] === 'h')) value[index] = de)JSRH"
+        R"JSRH(code(item); });
       } else if (node.t === 'm') {
         for (const pair of node.e) value.set(decode(pair[0]), decode(pair[1]));
       } else if (node.t === 's') {
