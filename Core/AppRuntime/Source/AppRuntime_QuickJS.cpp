@@ -48,41 +48,49 @@ namespace Babylon
         // (SIGSEGV) before QuickJS can raise "InternalError: stack overflow". Derive the limit
         // from the thread that actually runs the runtime instead, keeping a margin for the native
         // frames QuickJS and the host add between the check and the guard page.
+        // Bytes of C stack below the current frame, measured from the actual stack pointer to the
+        // thread's stack base, minus a margin for the native frames QuickJS and the host add between
+        // the check and the guard page. Measuring from the current position (rather than trusting
+        // the nominal size) also absorbs whatever the host already consumed above this call.
         size_t JavaScriptStackLimit()
         {
-            constexpr size_t Margin{256 * 1024};
+            constexpr size_t Margin{96 * 1024};
             constexpr size_t Fallback{256 * 1024};
-            size_t threadStack{};
+            volatile char marker{}; // the address of a local is a portable stack-pointer proxy (MSVC has no __builtin_frame_address)
+            const auto here = reinterpret_cast<uintptr_t>(&marker);
+            uintptr_t base{};
 #if defined(_WIN32)
             ULONG_PTR low{};
             ULONG_PTR high{};
             GetCurrentThreadStackLimits(&low, &high);
-            threadStack = static_cast<size_t>(high - low);
+            base = static_cast<uintptr_t>(low);
 #elif defined(__APPLE__)
-            // pthread_getattr_np is a GNU/bionic extension; Apple exposes the size directly.
-            threadStack = pthread_get_stacksize_np(pthread_self());
+            // pthread_getattr_np is a GNU/bionic extension; Apple exposes the bounds directly.
+            const auto top = reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(pthread_self()));
+            base = top - pthread_get_stacksize_np(pthread_self());
 #else
             pthread_attr_t attributes;
             if (pthread_getattr_np(pthread_self(), &attributes) == 0)
             {
-                void* base{};
+                void* address{};
                 size_t size{};
-                if (pthread_attr_getstack(&attributes, &base, &size) == 0)
+                if (pthread_attr_getstack(&attributes, &address, &size) == 0)
                 {
-                    threadStack = size;
+                    base = reinterpret_cast<uintptr_t>(address);
                 }
                 pthread_attr_destroy(&attributes);
             }
 #endif
-            if (threadStack == 0)
+            if (base == 0 || here <= base)
             {
                 return Fallback; // unknown: conservative, well under any plausible thread
             }
-            if (threadStack <= 2 * Margin)
+            const size_t usable = here - base;
+            if (usable <= 2 * Margin)
             {
-                return threadStack / 2; // a known small stack must not get a limit larger than itself
+                return usable / 2; // a known small stack must not get a limit larger than itself
             }
-            return (std::min)(threadStack - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
+            return (std::min)(usable - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
         }
     }
 
