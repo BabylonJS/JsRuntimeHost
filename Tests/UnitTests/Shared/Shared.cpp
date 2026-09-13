@@ -19,7 +19,6 @@
 #include <Babylon/Polyfills/Compression.h>
 #include <Babylon/Polyfills/Streams.h>
 #include <Babylon/Polyfills/Streams.h>
-#include <Babylon/Polyfills/Streams.h>
 #if defined(JSRUNTIMEHOST_TEST_WORKER)
 #include <Babylon/Polyfills/Worker.h>
 #endif
