@@ -1,3 +1,8 @@
+// pthread_getattr_np is declared by glibc only under the GNU feature set; gnu++20 predefines it,
+// but this translation unit should not depend on the language dialect for a system declaration.
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include "AppRuntime.h"
 #include <napi/env.h>
 
@@ -43,7 +48,7 @@ namespace Babylon
         size_t JavaScriptStackLimit()
         {
             constexpr size_t Margin{256 * 1024};
-            constexpr size_t Fallback{512 * 1024};
+            constexpr size_t Fallback{256 * 1024};
             size_t threadStack{};
 #if defined(_WIN32)
             ULONG_PTR low{};
@@ -66,9 +71,13 @@ namespace Babylon
                 pthread_attr_destroy(&attributes);
             }
 #endif
-            if (threadStack <= Margin)
+            if (threadStack == 0)
             {
-                return Fallback;
+                return Fallback; // unknown: conservative, well under any plausible thread
+            }
+            if (threadStack <= 2 * Margin)
+            {
+                return threadStack / 2; // a known small stack must not get a limit larger than itself
             }
             return std::min(threadStack - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
         }
