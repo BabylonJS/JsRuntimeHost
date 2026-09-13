@@ -18,8 +18,62 @@
 #pragma warning(pop)
 #endif
 
+#if !defined(_WIN32)
+#include <pthread.h>
+#endif
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+
 namespace Babylon
 {
+    namespace
+    {
+        // QuickJS guards against JS recursion by comparing the C stack pointer against
+        // stack_top - stack_size, where stack_size defaults to JS_DEFAULT_STACK_SIZE (1 MiB in
+        // quickjs-ng). That is also the default size of a non-main thread on Android and Windows,
+        // so on those threads the limit sits below the real guard page: deep recursion faults
+        // (SIGSEGV) before QuickJS can raise "InternalError: stack overflow". Derive the limit
+        // from the thread that actually runs the runtime instead, keeping a margin for the native
+        // frames QuickJS and the host add between the check and the guard page.
+        size_t JavaScriptStackLimit()
+        {
+            constexpr size_t Margin{256 * 1024};
+            constexpr size_t Fallback{512 * 1024};
+            size_t threadStack{};
+#if defined(_WIN32)
+            ULONG_PTR low{};
+            ULONG_PTR high{};
+            GetCurrentThreadStackLimits(&low, &high);
+            threadStack = static_cast<size_t>(high - low);
+#elif defined(__APPLE__)
+            // pthread_getattr_np is a GNU/bionic extension; Apple exposes the size directly.
+            threadStack = pthread_get_stacksize_np(pthread_self());
+#else
+            pthread_attr_t attributes;
+            if (pthread_getattr_np(pthread_self(), &attributes) == 0)
+            {
+                void* base{};
+                size_t size{};
+                if (pthread_attr_getstack(&attributes, &base, &size) == 0)
+                {
+                    threadStack = size;
+                }
+                pthread_attr_destroy(&attributes);
+            }
+#endif
+            if (threadStack <= Margin)
+            {
+                return Fallback;
+            }
+            return std::min(threadStack - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
+        }
+    }
+
     void AppRuntime::RunEnvironmentTier(const char* /*executablePath*/)
     {
         // Create the runtime.
@@ -28,6 +82,7 @@ namespace Babylon
         {
             throw std::runtime_error{"Failed to create QuickJS runtime"};
         }
+        JS_SetMaxStackSize(runtime, JavaScriptStackLimit());
 
         // Create the context.
         JSContext* context = JS_NewContext(runtime);
