@@ -19,6 +19,7 @@
 #endif
 
 #include <stdexcept>
+#include <cstddef>
 
 #if defined(__ANDROID__)
 #include <pthread.h>
@@ -34,12 +35,19 @@ namespace Babylon
         // Runs the QuickJS environment on the calling thread. QuickJS's interpreter recurses in C
         // (one JS_CallInternal frame per JS call), so deep JS call stacks need a comparably deep C
         // stack; QuickJS's own limit (JS_DEFAULT_STACK_SIZE, 1 MiB) guards against overrun.
-        void RunQuickJSEnvironment(AppRuntime& appRuntime, void (AppRuntime::*run)(Napi::Env))
+        // jsStackLimit: value for JS_SetMaxStackSize, or 0 to keep QuickJS's default (1 MiB). A
+        // non-default limit is only safe when the caller guarantees a stack large enough to hold it
+        // below the guard page -- see the Android nested-thread path below.
+        void RunQuickJSEnvironment(AppRuntime& appRuntime, void (AppRuntime::*run)(Napi::Env), size_t jsStackLimit)
         {
             JSRuntime* runtime = JS_NewRuntime();
             if (!runtime)
             {
                 throw std::runtime_error{"Failed to create QuickJS runtime"};
+            }
+            if (jsStackLimit != 0)
+            {
+                JS_SetMaxStackSize(runtime, jsStackLimit);
             }
 
             JSContext* context = JS_NewContext(runtime);
@@ -68,8 +76,14 @@ namespace Babylon
         // QuickJS can raise a catchable "stack overflow", while clamping the limit below 1 MiB
         // instead rejects call depths that every other engine (and desktop QuickJS on its ~8 MiB
         // stack) accepts. Run the environment on a nested thread with a desktop-sized stack so
-        // QuickJS's own default limit sits safely below the guard page and ordinary recursion fits.
-        std::function<void()> body{[this] { RunQuickJSEnvironment(*this, &AppRuntime::Run); }};
+        // QuickJS's raised limit sits safely below the guard page and deep recursion fits. The
+        // stack must be generous because connectedAndroidTest is an unoptimized Debug build, whose
+        // JS_CallInternal frames are several times larger than a release build's -- depth-128
+        // recursion (which release QuickJS clears within the 1 MiB default) needs well over 1 MiB
+        // here, so QuickJS's default limit would still reject it on any thread size.
+        constexpr size_t NestedStackSize{8 * 1024 * 1024};
+        constexpr size_t JsStackLimit{6 * 1024 * 1024}; // < NestedStackSize guard; > debug depth-128 need
+        std::function<void()> body{[this] { RunQuickJSEnvironment(*this, &AppRuntime::Run, JsStackLimit); }};
         std::exception_ptr thrown{};
         auto payload = std::make_pair(&body, &thrown);
         auto trampoline = [](void* arg) -> void* {
@@ -88,7 +102,7 @@ namespace Babylon
         pthread_attr_t attr;
         if (pthread_attr_init(&attr) == 0)
         {
-            pthread_attr_setstacksize(&attr, 8 * 1024 * 1024);
+            pthread_attr_setstacksize(&attr, NestedStackSize);
             pthread_t tid{};
             const int created = pthread_create(&tid, &attr, trampoline, &payload);
             pthread_attr_destroy(&attr);
@@ -102,10 +116,11 @@ namespace Babylon
                 return;
             }
         }
-        // Thread creation failed: fall back to the current thread.
-        RunQuickJSEnvironment(*this, &AppRuntime::Run);
+        // Thread creation failed: fall back to the current (small) worker thread, where only
+        // QuickJS's default limit is safe.
+        RunQuickJSEnvironment(*this, &AppRuntime::Run, 0);
 #else
-        RunQuickJSEnvironment(*this, &AppRuntime::Run);
+        RunQuickJSEnvironment(*this, &AppRuntime::Run, 0);
 #endif
     }
 
