@@ -27,6 +27,9 @@
 #include <pthread.h>
 #endif
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX // <windows.h> would otherwise define min/max macros that break std::min below
+#endif
 #include <windows.h>
 #endif
 
@@ -79,7 +82,7 @@ namespace Babylon
             {
                 return threadStack / 2; // a known small stack must not get a limit larger than itself
             }
-            return std::min(threadStack - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
+            return (std::min)(threadStack - Margin, static_cast<size_t>(JS_DEFAULT_STACK_SIZE) * 8);
         }
     }
 
