@@ -108,10 +108,10 @@ if(NAPI_BUILD_ABI)
                 # arm64 and x86_64 builds; the full-LTO variants are Linux-only.
                 if(ANDROID_ABI STREQUAL "arm64-v8a")
                     set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64-android.tar.gz")
-                    set(JSR_BUN_JSC_SHA256 "63c18a18c89dc3e1c0a93107f95290c27fbe310eb90e30dc197a7936804d034b")
+                    set(JSR_BUN_JSC_SHA256 "2e082e6fdad7441c167a5079764a4c989bde73b114115125be10bc821b62d5a9")
                 elseif(ANDROID_ABI STREQUAL "x86_64")
                     set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64-android.tar.gz")
-                    set(JSR_BUN_JSC_SHA256 "c198efb68c17ae65ff66968f7d04bdab4845a5abaefb941b15e0e2b36aaab774")
+                    set(JSR_BUN_JSC_SHA256 "b1bb4bc6c489af5409466a4d31d89550c197baae800c9a2ab42d79158201135f")
                 else()
                     message(FATAL_ERROR
                         "Bun Android JavaScriptCore supports only arm64-v8a and x86_64; got '${ANDROID_ABI}'")
@@ -164,10 +164,10 @@ if(NAPI_BUILD_ABI)
                     # Use Bun's Nehalem-baseline full-LTO variant rather than imposing Haswell on
                     # every JsRuntimeHost Linux consumer.
                     set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64-lto.tar.gz")
-                    set(JSR_BUN_JSC_SHA256 "2756c59963525ee01f8878c07d5bceff98f6e926ccbe79dff52dfe44f4a0b5c3")
+                    set(JSR_BUN_JSC_SHA256 "a2d781473f54e674d4aff44528a0c6177d48d091f85a4d50726cb841eba9e490")
                 elseif(JSR_BUN_JSC_PROCESSOR MATCHES "^(aarch64|arm64)$")
                     set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64-lto.tar.gz")
-                    set(JSR_BUN_JSC_SHA256 "5739c4e6b32258f30db22aeeddefe9dfa3b05d6edb5ea92985b8fbefa85a2cfe")
+                    set(JSR_BUN_JSC_SHA256 "3f54821a771f2507586e05357f31d8e70f07181dc87f5e444d858a0bf0018471")
                 else()
                     message(FATAL_ERROR
                         "Bun Linux JavaScriptCore supports only x86_64 and arm64; got '${CMAKE_SYSTEM_PROCESSOR}'")
