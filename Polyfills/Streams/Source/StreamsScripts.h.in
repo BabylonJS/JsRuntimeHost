@@ -5,33 +5,36 @@
 
 namespace Babylon::Polyfills::Internal::StreamsScripts
 {
-    inline constexpr char PonyfillPart1[] = R"JSRHSTREAM(
+    // The vendored bundle is split by CMake into PonyfillPart1..N raw-string literals of at most
+    // 16,000 bytes each (MSVC C2026) and joined below. The prologue and epilogue wrap it as a
+    // CommonJS module so its exports can be read back. Nothing is inserted between parts: a
+    // separator could divide an identifier or string literal when the bundle is regenerated.
+    inline constexpr char PonyfillPrologue[] = R"JSRHSTREAM(
 (function() {
     var exports = {};
     var module = { exports: exports };
-@WEB_STREAMS_POLYFILL_SOURCE_1@)JSRHSTREAM";
+)JSRHSTREAM";
 
-    // Keep the split transparent: inserting whitespace here can divide an
-    // identifier or string literal when the vendored bundle is regenerated.
-    inline constexpr char PonyfillPart2[] = R"JSRHSTREAM(@WEB_STREAMS_POLYFILL_SOURCE_2@
+@WEB_STREAMS_POLYFILL_PARTS@
+    inline constexpr char PonyfillEpilogue[] = R"JSRHSTREAM(
     return module.exports;
 })()
 )JSRHSTREAM";
 
-    template<std::size_t Part1Size, std::size_t Part2Size>
-    consteval auto Join(const char (&part1)[Part1Size], const char (&part2)[Part2Size])
+    template<std::size_t... Sizes>
+    consteval auto Join(const char (&... parts)[Sizes])
     {
-        std::array<char, Part1Size + Part2Size - 1> result{};
-        for (std::size_t index{}; index < Part1Size - 1; ++index)
-        {
-            result[index] = part1[index];
-        }
-        for (std::size_t index{}; index < Part2Size; ++index)
-        {
-            result[Part1Size - 1 + index] = part2[index];
-        }
+        std::array<char, (Sizes + ...) - sizeof...(Sizes) + 1> result{};
+        std::size_t offset{};
+        auto append = [&](const char* part, std::size_t size) {
+            for (std::size_t index{}; index + 1 < size; ++index)
+            {
+                result[offset++] = part[index];
+            }
+        };
+        (append(parts, Sizes), ...);
         return result;
     }
 
-    inline constexpr auto Ponyfill = Join(PonyfillPart1, PonyfillPart2);
+    inline constexpr auto Ponyfill = Join(PonyfillPrologue@WEB_STREAMS_POLYFILL_PART_NAMES@, PonyfillEpilogue);
 }
