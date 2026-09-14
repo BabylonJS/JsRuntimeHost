@@ -327,6 +327,11 @@ if(NAPI_BUILD_ABI)
 
             set(MI_INSTALL_TOPLEVEL OFF CACHE BOOL "" FORCE)
 
+            # ThreadSanitizer instruments mimalloc through the global compile options, but its
+            # lock-free paths read a few fields racily on purpose; MI_TSAN switches those to
+            # atomics so an instrumented build only reports real races.
+            set(MI_TSAN ${ENABLE_THREAD_SANITIZER} CACHE BOOL "" FORCE)
+
             FetchContent_MakeAvailable(bun_mimalloc)
 
             set_property(TARGET mimalloc-static PROPERTY POSITION_INDEPENDENT_CODE ON)

@@ -54,7 +54,7 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg
           echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-21 lld-21 ${{ inputs.bun-jsc-lto && 'llvm-21' || '' }}
+          sudo apt-get install -y --no-install-recommends clang-21 lld-21 ${{ (inputs.bun-jsc-lto || inputs.enable-thread-sanitizer) && 'llvm-21' || '' }}
 
       - name: Install Clang sanitizer runtimes
         if: (inputs.enable-sanitizers || inputs.enable-thread-sanitizer) && (inputs.cc == 'clang-21' || inputs.cxx == 'clang++-21')
@@ -108,7 +108,9 @@ jobs:
         working-directory: Build/ubuntu/Tests/UnitTests
         run: ./UnitTests
         env:
-          TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
+          # llvm-21 ships the symbolizer as llvm-symbolizer-21 only; without the explicit path TSan
+          # prints bare addresses for every frame, which makes a report undiagnosable.
+          TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt:external_symbolizer_path=/usr/bin/llvm-symbolizer-21', github.workspace) || '' }}
           # JSC's concurrent GC on Linux uses SIGUSR1 + sem_wait to suspend mutator
           # threads at safepoints. TSan's signal interception delays SIGUSR1 delivery
           # indefinitely, deadlocking the Collector Thread's sem_wait. Disabling the
