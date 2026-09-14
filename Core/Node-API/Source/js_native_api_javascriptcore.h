@@ -47,7 +47,13 @@ struct napi_env__ {
     deinit_symbol(function_info_symbol);
     deinit_symbol(constructor_info_symbol);
     JSGlobalContextRelease(context);
-    napi_envs.erase(context);
+    // Erase only this environment's own registration. JavaScriptCore can hand a new environment the
+    // address of a context that was released just before this destructor runs (Detach must follow
+    // JSGlobalContextRelease so finalizers can still resolve their env), and an unconditional erase
+    // would then drop that newer environment's entry, leaving its callbacks with ToNapi() == nullptr.
+    if (const auto it = napi_envs.find(context); it != napi_envs.end() && it->second == this) {
+      napi_envs.erase(it);
+    }
   }
 
   static napi_env get(JSGlobalContextRef context) {
