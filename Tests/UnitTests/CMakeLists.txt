@@ -8,7 +8,9 @@ set(TYPE_SCRIPTS
 file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 
 set(SOURCES
+    "Shared/DelayedTaskScheduler.cpp"
     "Shared/StandardStreamLogger.cpp"
+    "Shared/TimeoutDispatcher.cpp"
     "Shared/Shared.cpp"
     "Shared/Shared.h")
 
@@ -45,8 +47,13 @@ elseif(UNIX AND NOT ANDROID)
 endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+    target_sources(UnitTests PRIVATE "Shared/V8ForegroundTaskRunner.cpp")
+    target_link_libraries(UnitTests PRIVATE AppRuntimeInternal)
+endif()
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+target_compile_definitions(UnitTests PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
 # Engine-specific compile-time gate so tests can select behavior by the active Node-API engine
 # without a runtime string comparison, e.g.:
 #   JSRUNTIMEHOST_NAPI_ENGINE_V8, JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore,
@@ -59,7 +66,7 @@ target_link_libraries(UnitTests
     PRIVATE AppRuntime
     PRIVATE Console
     PRIVATE AbortController
-    PRIVATE Scheduling
+    PRIVATE SchedulingInternal
     PRIVATE ScriptLoader
     PRIVATE URL
     PRIVATE UrlLib
@@ -67,7 +74,7 @@ target_link_libraries(UnitTests
     PRIVATE Fetch
     PRIVATE WebSocket
     PRIVATE gtest_main
-    PRIVATE Foundation
+    PRIVATE FoundationInternal
     PRIVATE Blob
     PRIVATE File
     PRIVATE Performance

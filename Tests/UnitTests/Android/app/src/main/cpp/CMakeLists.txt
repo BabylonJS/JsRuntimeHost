@@ -18,12 +18,20 @@ npm(install --silent WORKING_DIRECTORY ${TESTS_DIR})
 
 add_library(UnitTestsJNI SHARED
     JNI.cpp
+    ${UNIT_TESTS_DIR}/Shared/DelayedTaskScheduler.cpp
     ${UNIT_TESTS_DIR}/Shared/StandardStreamLogger.cpp
+    ${UNIT_TESTS_DIR}/Shared/TimeoutDispatcher.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
     ${UNIT_TESTS_DIR}/Shared/Shared.cpp)
 
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
+    target_sources(UnitTestsJNI PRIVATE ${UNIT_TESTS_DIR}/Shared/V8ForegroundTaskRunner.cpp)
+    target_link_libraries(UnitTestsJNI PRIVATE AppRuntimeInternal)
+endif()
+
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+target_compile_definitions(UnitTestsJNI PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
 # Engine-specific compile-time gate (e.g. JSRUNTIMEHOST_NAPI_ENGINE_V8), matching Tests/UnitTests/CMakeLists.txt.
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_${NAPI_JAVASCRIPT_ENGINE})
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
@@ -37,7 +45,8 @@ target_link_libraries(UnitTestsJNI
     PRIVATE AppRuntime
     PRIVATE AbortController
     PRIVATE Console
-    PRIVATE Scheduling
+    PRIVATE SchedulingInternal
+    PRIVATE FoundationInternal
     PRIVATE ScriptLoader
     PRIVATE URL
     PRIVATE UrlLib

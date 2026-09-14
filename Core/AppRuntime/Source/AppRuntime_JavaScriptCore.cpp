@@ -89,6 +89,10 @@ namespace Babylon
         Napi::Detach(env);
     }
 
+    void AppRuntime::ShutdownEnvironment(Napi::Env)
+    {
+    }
+
     void AppRuntime::DrainMicrotasks(Napi::Env)
     {
         // JavaScriptCore drains microtasks automatically at script boundaries.
