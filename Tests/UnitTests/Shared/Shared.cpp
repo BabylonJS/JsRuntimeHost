@@ -58,7 +58,13 @@
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #elif defined(_WIN32)
-#include <cstdlib>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #endif
 
 namespace
@@ -78,8 +84,11 @@ namespace
             return std::filesystem::weakly_canonical(std::filesystem::path{path.c_str()}).parent_path();
         }
 #elif defined(_WIN32)
-        wchar_t* path{nullptr};
-        if (_get_wpgmptr(&path) == 0 && path != nullptr)
+        // Not _get_wpgmptr: the CRT only fills _wpgmptr for wide entry points and fast-fails
+        // (STATUS_STACK_BUFFER_OVERRUN) when it is asked for the uninitialized one.
+        wchar_t path[MAX_PATH]{};
+        const auto length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+        if (length > 0 && length < MAX_PATH)
         {
             return std::filesystem::path{path}.parent_path();
         }
