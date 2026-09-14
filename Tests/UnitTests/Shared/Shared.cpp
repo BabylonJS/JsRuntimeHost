@@ -51,8 +51,49 @@
 #include "../../NodeApi/test_main.h"
 #endif
 
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_V8)
+#include <napi/env.h>
+#endif
+
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(_WIN32)
+#include <cstdlib>
+#endif
+
 namespace
 {
+    // Worker scripts resolve against a filesystem ScriptRoot. The test assets are staged next to
+    // the executable (see the UnitTests CMakeLists), which is not necessarily the working
+    // directory: an iOS app starts at "/", and launching the binary from the repository root
+    // makes every worker script "unable to load".
+    std::filesystem::path TestAssetRoot()
+    {
+#if defined(__APPLE__)
+        uint32_t size{0};
+        _NSGetExecutablePath(nullptr, &size);
+        std::string path(size, '\0');
+        if (_NSGetExecutablePath(path.data(), &size) == 0)
+        {
+            return std::filesystem::weakly_canonical(std::filesystem::path{path.c_str()}).parent_path();
+        }
+#elif defined(_WIN32)
+        wchar_t* path{nullptr};
+        if (_get_wpgmptr(&path) == 0 && path != nullptr)
+        {
+            return std::filesystem::path{path}.parent_path();
+        }
+#elif defined(__linux__) && !defined(__ANDROID__)
+        std::error_code error;
+        const auto path = std::filesystem::read_symlink("/proc/self/exe", error);
+        if (!error)
+        {
+            return path.parent_path();
+        }
+#endif
+        return std::filesystem::current_path();
+    }
+
 #if defined(__ANDROID__) && defined(NODE_API_AVAILABLE_NATIVE_TESTS)
     namespace
     {
@@ -294,7 +335,7 @@ TEST(JavaScript, All)
 
 #if defined(JSRUNTIMEHOST_TEST_WORKER)
         Babylon::Polyfills::Worker::Options workerOptions{};
-        workerOptions.ScriptRoot = std::filesystem::current_path().string();
+        workerOptions.ScriptRoot = TestAssetRoot().string();
         Babylon::Polyfills::Worker::Initialize(env, std::move(workerOptions));
 #endif
 
@@ -990,7 +1031,7 @@ TEST(Worker, PreservesHostDOMException)
         global.Set("DOMException", hostDOMException);
 
         Babylon::Polyfills::Worker::Options options{};
-        options.ScriptRoot = std::filesystem::current_path().string();
+        options.ScriptRoot = TestAssetRoot().string();
         Babylon::Polyfills::Worker::Initialize(env, std::move(options));
 
         // Worker is composed with independent browser polyfills. Installing
@@ -1028,7 +1069,7 @@ TEST(Worker, WebPlatformTests)
         Babylon::Polyfills::URL::Initialize(env);
 
         Babylon::Polyfills::Worker::Options options{};
-        options.ScriptRoot = (std::filesystem::current_path() / "WebPlatformTests").string();
+        options.ScriptRoot = (TestAssetRoot() / "WebPlatformTests").string();
         options.ConsoleCallback = [](const char* message) {
             std::cerr << "[Worker] " << message << std::endl;
         };
