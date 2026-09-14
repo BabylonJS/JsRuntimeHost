@@ -41,8 +41,12 @@ jobs:
       - name: Run Tests
         run: |
           xcrun simctl install booted "Build/iOS/Tests/UnitTests/RelWithDebInfo-iphonesimulator/UnitTests.app"
-          xcrun simctl launch --console booted "com.jsruntimehost.unittests" 2> /tmp/exitCode
-          (exit $(cat /tmp/exitCode))
+          # The app reports its exit code as the last line of stderr (see iOS/App.mm). Tests also
+          # write progress there (the Worker WPT runner does), so only the last line is the code:
+          # handing the whole capture to `exit` made every run with such output fail with 255.
+          xcrun simctl launch --console booted "com.jsruntimehost.unittests" 2> /tmp/stderr
+          cat /tmp/stderr
+          (exit "$(tail -n 1 /tmp/stderr)")
 
       # A crashed app writes nothing to the exit-code pipe (the step then fails with 255) and the
       # console shows only what was flushed before the crash; the simulator's crash report is the
