@@ -884,8 +884,9 @@ TEST(NodeApi, PropertyAccessCoercesPrimitiveReceiver)
 
     std::promise<bool> coerced;
     std::promise<bool> rejected;
+    std::promise<bool> calledOnPrimitive;
 
-    runtime.Dispatch([&coerced, &rejected](Napi::Env env) {
+    runtime.Dispatch([&coerced, &rejected, &calledOnPrimitive](Napi::Env env) {
         napi_env nenv{env};
 
         napi_value text{Napi::String::New(env, "hello")};
@@ -904,10 +905,18 @@ TEST(NodeApi, PropertyAccessCoercesPrimitiveReceiver)
         napi_value exception{};
         napi_get_and_clear_last_exception(nenv, &exception);
         rejected.set_value(status == napi_object_expected && pending);
+
+        // A primitive receiver is boxed for napi_call_function as well.
+        napi_value toUpperCase{env.Global().Get("String").As<Napi::Object>().Get("prototype").As<Napi::Object>().Get("toUpperCase")};
+        napi_value upper{};
+        calledOnPrimitive.set_value(
+            napi_call_function(nenv, text, toUpperCase, 0, nullptr, &upper) == napi_ok &&
+            Napi::Value(env, upper).As<Napi::String>().Utf8Value() == "HELLO");
     });
 
     EXPECT_TRUE(coerced.get_future().get());
     EXPECT_TRUE(rejected.get_future().get());
+    EXPECT_TRUE(calledOnPrimitive.get_future().get());
 }
 
 TEST(NodeApi, ReferencesToPrimitivesFollowNode)

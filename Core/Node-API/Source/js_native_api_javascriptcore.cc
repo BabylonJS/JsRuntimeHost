@@ -807,6 +807,11 @@ struct napi_ref__ {
       // A primitive released at count zero cannot come back; Node reports a count of zero too.
       return;
     }
+    if (_count == 0 && _kind == Kind::Object && !IsObjectAlive(env)) {
+      // The weak target has been collected (or its address reused by another object): promoting
+      // it would protect a stale pointer. Node likewise leaves such a reference at zero.
+      return;
+    }
     if (_count++ == 0 && !_protected) {
       protect(env);
     }
@@ -839,20 +844,25 @@ struct napi_ref__ {
       *result = _value;
       return napi_ok;
     }
-    if (env->active_ref_values.find(_value) != env->active_ref_values.end()) {
-      std::uintptr_t objectId{};
-      // NOTE: This check is needed for the same reason we need a similar check in the init function.
-      // See the comment in init for more details.
-      CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &objectId));
-      if (objectId == _objectId) {
-        *result = _value;
-      }
+    if (IsObjectAlive(env)) {
+      *result = _value;
     }
 
     return napi_ok;
   }
 
  private:
+  // Whether the weakly tracked object is still the one this reference was created for. The
+  // sentinel finalizer removes the active entry once the object is collected, and the object id
+  // check catches an address reused by a newer object before that finalizer ran (see init).
+  bool IsObjectAlive(napi_env env) const {
+    if (env->active_ref_values.find(_value) == env->active_ref_values.end()) {
+      return false;
+    }
+    std::uintptr_t objectId{};
+    return ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId;
+  }
+
   enum class Kind {
     Object,
     Symbol,
@@ -1764,11 +1774,18 @@ napi_status napi_call_function(napi_env env,
   // constructors as not-a-function (see napi_typeof).
   RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(func)), napi_function_expected);
 
+  // The receiver may be any value. A primitive is boxed as ToObject would; undefined and null
+  // become the null receiver, for which JavaScriptCore supplies the global object.
+  JSObjectRef receiver{};
+  if (!JSValueIsUndefined(env->context, ToJSValue(recv)) && !JSValueIsNull(env->context, ToJSValue(recv))) {
+    CHECK_NAPI(ToJSObjectCoerced(env, recv, &receiver));
+  }
+
   JSValueRef exception{};
   JSValueRef return_value{JSObjectCallAsFunction(
     env->context,
     ToJSObject(env, func),
-    JSValueIsUndefined(env->context, ToJSValue(recv)) ? nullptr : ToJSObject(env, recv),
+    receiver,
     argc,
     ToJSValues(argv),
     &exception)};
@@ -2345,7 +2362,13 @@ napi_status napi_instanceof(napi_env env,
   CHECK_ARG(env, object);
   CHECK_ARG(env, constructor);
   CHECK_ARG(env, result);
-  RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(constructor)), napi_function_expected);
+  // Either predicate: some JavaScriptCore builds report JSObjectMakeConstructor constructors as
+  // not-a-function (see napi_typeof).
+  RETURN_STATUS_IF_FALSE(env,
+    JSValueIsObject(env->context, ToJSValue(constructor)) &&
+      (JSObjectIsFunction(env->context, ToJSObject(env, constructor)) ||
+       JSObjectIsConstructor(env->context, ToJSObject(env, constructor))),
+    napi_function_expected);
 
   JSValueRef exception{};
   *result = JSValueIsInstanceOfConstructor(

@@ -29,6 +29,11 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
     target_link_libraries(UnitTestsJNI PRIVATE AppRuntimeInternal)
 endif()
 
+# Mirrors Tests/UnitTests/CMakeLists.txt so the JavaScriptCore-only Node-API tests run here too.
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
+    target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_JAVASCRIPTCORE)
+endif()
+
 target_compile_definitions(UnitTestsJNI PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTestsJNI PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
 target_compile_definitions(UnitTestsJNI PRIVATE ARCANA_TEST_HOOKS)
