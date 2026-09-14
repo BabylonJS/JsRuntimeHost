@@ -104,7 +104,9 @@ if(NAPI_BUILD_ABI)
                         "Bun's pinned Android WebKit archives target API 28; set Android minSdkVersion to 28 or newer")
                 endif()
 
-                # Bun does not publish Android LTO archives. These are its optimized native
+                # Bun now also publishes Android ThinLTO archives (bun-webkit-linux-*-android-lto), but
+                # the NDK toolchain is not LLVM 21, so cross-module LTO with them is not possible here;
+                # these are its optimized native
                 # arm64 and x86_64 builds; the full-LTO variants are Linux-only.
                 if(ANDROID_ABI STREQUAL "arm64-v8a")
                     set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64-android.tar.gz")
@@ -131,10 +133,22 @@ if(NAPI_BUILD_ABI)
                         "Bun JavaScriptCore currently supports glibc Linux in JsRuntimeHost; musl requires Bun's separate musl archive")
                 endif()
 
-                if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
-                   NOT CMAKE_CXX_COMPILER_VERSION MATCHES "^21\\.")
+                # Bun publishes two flavours of its Linux JavaScriptCore: plain native archives, and
+                # ThinLTO bitcode archives (module summaries, EnableSplitLTOUnit=0) produced by LLVM 21.
+                # The bitcode flavour lets the final link optimize across JSC and this runtime, but it
+                # couples the whole build to one LLVM: the same major must compile the bitcode we add
+                # to the LTO unit, index the archives (llvm-ar, not binutils ar), and run the LTO link
+                # (lld). Default to the plain archives so a stock toolchain works; opt in to the
+                # cross-module LTO build with -D JSR_BUN_JSC_LTO=ON on an LLVM 21 toolchain.
+                option(JSR_BUN_JSC_LTO
+                    "Link Bun's ThinLTO JavaScriptCore archives (requires clang, lld and llvm-ar/ranlib from LLVM 21)" OFF)
+                if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
                     message(FATAL_ERROR
-                        "Bun's Linux JavaScriptCore LTO archives require Clang 21")
+                        "Bun's Linux JavaScriptCore archives are built against Clang/libstdc++; build with Clang")
+                endif()
+                if(JSR_BUN_JSC_LTO AND NOT CMAKE_CXX_COMPILER_VERSION MATCHES "^21\\.")
+                    message(FATAL_ERROR
+                        "JSR_BUN_JSC_LTO needs Clang 21 (Bun's bitcode is LLVM 21); found ${CMAKE_CXX_COMPILER_VERSION}")
                 endif()
 
                 set(JSR_BUN_JSC_SAVED_CXX_STANDARD "${CMAKE_CXX_STANDARD}")
@@ -154,20 +168,46 @@ if(NAPI_BUILD_ABI)
                     COMMAND "${JSR_BUN_JSC_LLD}" --version
                     OUTPUT_VARIABLE JSR_BUN_JSC_LLD_VERSION
                     OUTPUT_STRIP_TRAILING_WHITESPACE)
-                if(NOT JSR_BUN_JSC_LLD_VERSION MATCHES "LLD 21\\.")
-                    message(FATAL_ERROR
-                        "Bun's Linux JavaScriptCore LTO archives require LLD 21; found '${JSR_BUN_JSC_LLD_VERSION}'")
+                if(JSR_BUN_JSC_LTO)
+                    if(NOT JSR_BUN_JSC_LLD_VERSION MATCHES "LLD 21\\.")
+                        message(FATAL_ERROR
+                            "JSR_BUN_JSC_LTO needs LLD 21 to LTO-link Bun's LLVM 21 bitcode; found '${JSR_BUN_JSC_LLD_VERSION}'")
+                    endif()
+                    # Static archives of bitcode need an LLVM-aware archiver for their symbol index;
+                    # binutils ar (with or without a mismatched LLVMgold plugin) cannot read LLVM 21
+                    # bitcode and leaves the index empty, which the LTO link then fails on.
+                    execute_process(
+                        COMMAND "${CMAKE_AR}" --version
+                        OUTPUT_VARIABLE JSR_BUN_JSC_AR_VERSION
+                        ERROR_QUIET
+                        OUTPUT_STRIP_TRAILING_WHITESPACE)
+                    if(NOT JSR_BUN_JSC_AR_VERSION MATCHES "LLVM version 21\\.")
+                        message(FATAL_ERROR
+                            "JSR_BUN_JSC_LTO needs llvm-ar/llvm-ranlib from LLVM 21 as the archiver: configure with "
+                            "-D CMAKE_AR=/usr/bin/llvm-ar-21 -D CMAKE_RANLIB=/usr/bin/llvm-ranlib-21 -D CMAKE_NM=/usr/bin/llvm-nm-21 "
+                            "(CMAKE_AR is '${CMAKE_AR}': '${JSR_BUN_JSC_AR_VERSION}')")
+                    endif()
                 endif()
 
                 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" JSR_BUN_JSC_PROCESSOR)
                 if(JSR_BUN_JSC_PROCESSOR MATCHES "^(x86_64|amd64)$")
                     # Use Bun's Nehalem-baseline full-LTO variant rather than imposing Haswell on
                     # every JsRuntimeHost Linux consumer.
-                    set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64-lto.tar.gz")
-                    set(JSR_BUN_JSC_SHA256 "a2d781473f54e674d4aff44528a0c6177d48d091f85a4d50726cb841eba9e490")
+                    if(JSR_BUN_JSC_LTO)
+                        set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64-lto.tar.gz")
+                        set(JSR_BUN_JSC_SHA256 "a2d781473f54e674d4aff44528a0c6177d48d091f85a4d50726cb841eba9e490")
+                    else()
+                        set(JSR_BUN_JSC_ASSET "bun-webkit-linux-amd64.tar.gz")
+                        set(JSR_BUN_JSC_SHA256 "dd3d3a304a1227fc8ffea071a2f2894ccb53fcc497a4d500e46b6d21554458c2")
+                    endif()
                 elseif(JSR_BUN_JSC_PROCESSOR MATCHES "^(aarch64|arm64)$")
-                    set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64-lto.tar.gz")
-                    set(JSR_BUN_JSC_SHA256 "3f54821a771f2507586e05357f31d8e70f07181dc87f5e444d858a0bf0018471")
+                    if(JSR_BUN_JSC_LTO)
+                        set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64-lto.tar.gz")
+                        set(JSR_BUN_JSC_SHA256 "3f54821a771f2507586e05357f31d8e70f07181dc87f5e444d858a0bf0018471")
+                    else()
+                        set(JSR_BUN_JSC_ASSET "bun-webkit-linux-arm64.tar.gz")
+                        set(JSR_BUN_JSC_SHA256 "3a5bb3a25ffd8bf8a45e961580cb158c17bcf03408c6c54ccfd5b12b98c6a5f9")
+                    endif()
                 else()
                     message(FATAL_ERROR
                         "Bun Linux JavaScriptCore supports only x86_64 and arm64; got '${CMAKE_SYSTEM_PROCESSOR}'")
@@ -305,20 +345,33 @@ if(NAPI_BUILD_ABI)
                     m)
             else()
                 set_property(TARGET bun_jsc PROPERTY INTERFACE_POSITION_INDEPENDENT_CODE ON)
-                # No -fwhole-program-vtables here: it forces -fsplit-lto-unit (LTO-unit splitting on),
-                # but Bun's prebuilt LTO archive is built with splitting OFF, and lld refuses to link
-                # LTO modules whose split-lto-unit state disagrees ("inconsistent LTO Unit splitting").
-                # Since the archive is immovable, the shim must match it: plain -flto, no WPD.
-                target_compile_options(bun_jsc PRIVATE
-                    -O2
-                    -flto=full
-                    -fno-sanitize=all)
-                target_link_options(bun_jsc INTERFACE
-                    -flto=full
-                    -O2
-                    -pie
-                    "--ld-path=${JSR_BUN_JSC_LLD}"
-                    "-Wl,--gc-sections")
+                if(JSR_BUN_JSC_LTO)
+                    # Bun's bitcode archives are ThinLTO (module summaries, EnableSplitLTOUnit=0), so
+                    # the bitcode this runtime contributes must be ThinLTO too: clang emits -flto-unit
+                    # (splitting ON) for every -flto=full translation unit regardless of
+                    # -fno-split-lto-unit, and lld rejects a link whose modules disagree
+                    # ("inconsistent LTO Unit splitting"). No -fwhole-program-vtables for the same reason.
+                    set(JSR_BUN_JSC_LTO_FLAG -flto=thin)
+                    target_compile_options(bun_jsc PRIVATE
+                        -O2
+                        ${JSR_BUN_JSC_LTO_FLAG}
+                        -fno-sanitize=all)
+                    target_link_options(bun_jsc INTERFACE
+                        ${JSR_BUN_JSC_LTO_FLAG}
+                        -O2
+                        -pie
+                        "--ld-path=${JSR_BUN_JSC_LLD}"
+                        "-Wl,--gc-sections")
+                else()
+                    target_compile_options(bun_jsc PRIVATE
+                        -O2
+                        -fno-sanitize=all)
+                    target_link_options(bun_jsc INTERFACE
+                        -O2
+                        -pie
+                        "--ld-path=${JSR_BUN_JSC_LLD}"
+                        "-Wl,--gc-sections")
+                endif()
                 find_package(Threads REQUIRED)
                 target_link_libraries(bun_jsc PUBLIC
                     "-Wl,--whole-archive"

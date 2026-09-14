@@ -23,6 +23,13 @@ on:
         required: false
         type: boolean
         default: false
+      bun-jsc-lto:
+        # Link Bun's ThinLTO JavaScriptCore archives. Needs the LLVM 21 toolchain end-to-end
+        # (clang-21, lld-21, llvm-ar/ranlib-21) so bitcode archives are indexed and LTO-linked by
+        # the same LLVM that produced Bun's bitcode (21.1.x).
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -47,7 +54,7 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg
           echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-21 lld-21
+          sudo apt-get install -y --no-install-recommends clang-21 lld-21 ${{ inputs.bun-jsc-lto && 'llvm-21' || '' }}
 
       - name: Install Clang sanitizer runtimes
         if: (inputs.enable-sanitizers || inputs.enable-thread-sanitizer) && (inputs.cc == 'clang-21' || inputs.cxx == 'clang++-21')
@@ -64,7 +71,9 @@ jobs:
             -D ENABLE_SANITIZERS=${{ inputs.enable-sanitizers && 'ON' || 'OFF' }} \
             -D ENABLE_THREAD_SANITIZER=${{ inputs.enable-thread-sanitizer && 'ON' || 'OFF' }} \
             -D CMAKE_C_COMPILER=${{ inputs.cc }} \
-            -D CMAKE_CXX_COMPILER=${{ inputs.cxx }}
+            -D CMAKE_CXX_COMPILER=${{ inputs.cxx }} \
+            -D JSR_BUN_JSC_LTO=${{ inputs.bun-jsc-lto && 'ON' || 'OFF' }} \
+            ${{ inputs.bun-jsc-lto && '-D CMAKE_AR=/usr/bin/llvm-ar-21 -D CMAKE_RANLIB=/usr/bin/llvm-ranlib-21 -D CMAKE_NM=/usr/bin/llvm-nm-21' || '' }}
 
       - name: Build
         run: ninja -C Build/ubuntu

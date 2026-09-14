@@ -130,6 +130,8 @@ jobs:
   # Linux
   Ubuntu_JSC_LTO:
     uses: ./.github/workflows/build-linux.yml
+    with:
+      bun-jsc-lto: true
 
   Ubuntu_QuickJS_gcc:
     uses: ./.github/workflows/build-linux.yml
