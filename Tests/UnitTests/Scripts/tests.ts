@@ -1855,7 +1855,7 @@ describe("napi_get_property_names (#216)", function () {
     // bring their own key collection, and the JSI adapter forwards to
     // `jsi::Object::getPropertyNames`, so their behaviour here is not ours to
     // specify.
-    const usesSharedWalk = napiEngine === "Chakra" || napiEngine === "QuickJS" || napiEngine === "JavaScriptCore";
+    const usesSharedWalk = hostEngine === "Chakra" || hostEngine === "QuickJS" || hostEngine === "JavaScriptCore";
     const describeCycles = usesSharedWalk ? describe : describe.skip;
 
     // A cycle can only be built with a `getPrototypeOf` trap, so observing one
@@ -1868,7 +1868,7 @@ describe("napi_get_property_names (#216)", function () {
     // backend. That is a pre-existing limitation of `napi_get_prototype`, not
     // of the walk, so it is left alone here; the termination check below is
     // still correct and harmless on JavaScriptCore.
-    const proxyTrapsReachPrototypeWalk = usesSharedWalk && napiEngine !== "JavaScriptCore";
+    const proxyTrapsReachPrototypeWalk = usesSharedWalk && hostEngine !== "JavaScriptCore";
     const itTrapped = proxyTrapsReachPrototypeWalk ? it : it.skip;
 
     describeCycles("cyclic prototype chains", function () {

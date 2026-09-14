@@ -887,7 +887,7 @@ TEST(NodeApi, GetPropertyNamesReportsLastErrorConsistently)
     // path returns bare napi_ok through GET_RETURN_STATUS without clearing.
     // Both are upstream's to define, not ours to redefine here. Hermes and the
     // JSI adapter likewise supply their own.
-    const std::string_view engine{JSRUNTIMEHOST_NAPI_ENGINE};
+    const std::string_view engine{NAPI_JAVASCRIPT_ENGINE};
     if (engine != "Chakra" && engine != "QuickJS" && engine != "JavaScriptCore")
     {
         GTEST_SKIP() << engine << " supplies its own napi_get_property_names.";
