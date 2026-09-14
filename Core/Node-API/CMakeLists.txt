@@ -344,6 +344,26 @@ if(NAPI_BUILD_ABI)
                     ${CMAKE_DL_LIBS}
                     m)
             else()
+                # Bun's Linux JavaScriptCore builds allocate through Bun's fork of mimalloc (the
+                # mi_theap_* thread-heap entry points exist only there) and the archives do not
+                # bundle it, so the host has to provide it. Build the fork's static library with the
+                # standard allocator untouched (MI_OVERRIDE=OFF): JavaScriptCore calls the mi_* API
+                # explicitly, and nothing else in the process should change allocator.
+                include(FetchContent)
+                FetchContent_Declare(bun_mimalloc
+                    GIT_REPOSITORY https://github.com/oven-sh/mimalloc.git
+                    GIT_TAG 58460467413a27ca426951e9e06c5a222be9553c
+                    EXCLUDE_FROM_ALL)
+                set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
+                set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+                set(MI_BUILD_STATIC ON CACHE BOOL "" FORCE)
+                set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+                set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+                set(MI_INSTALL_TOPLEVEL OFF CACHE BOOL "" FORCE)
+                FetchContent_MakeAvailable(bun_mimalloc)
+                set_property(TARGET mimalloc-static PROPERTY POSITION_INDEPENDENT_CODE ON)
+                set_property(TARGET mimalloc-static PROPERTY FOLDER Dependencies)
+
                 set_property(TARGET bun_jsc PROPERTY INTERFACE_POSITION_INDEPENDENT_CODE ON)
                 if(JSR_BUN_JSC_LTO)
                     # Bun's bitcode archives are ThinLTO (module summaries, EnableSplitLTOUnit=0), so
@@ -383,6 +403,7 @@ if(NAPI_BUILD_ABI)
                     "${BUN_JSC_DIR}/lib/libicui18n.a"
                     "${BUN_JSC_DIR}/lib/libicuuc.a"
                     "${BUN_JSC_DIR}/lib/libicudata.a"
+                    mimalloc-static
                     "-Wl,--end-group"
                     Threads::Threads
                     ${CMAKE_DL_LIBS}
