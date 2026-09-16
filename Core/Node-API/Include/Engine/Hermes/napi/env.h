@@ -15,12 +15,10 @@ namespace Napi
     void Detach(Napi::Env env);
 
     // Compile and execute UTF-8 source on the current Hermes runtime.
-    // `sourceUrl` is attached to stack traces.  Unlike the other engines
-    // we don't go through `Env::RunScript` because Hermes's standard
-    // `napi_run_script` is the canonical 3-argument signature, while the
-    // shared header carries a Babylon-specific 4-argument variant with a
-    // `source_url` parameter that Hermes doesn't provide.  Instead we call
-    // Hermes's `hermes_run_script` directly inside the engine TU.
+    // `sourceUrl` is attached to stack traces.  This calls Hermes's
+    // `hermes_run_script` directly with a zero-copy buffer; `Env::RunScript`
+    // works too, through the source-URL overload of `napi_run_script` that
+    // env_hermes.cc defines.
     Napi::Value Eval(Napi::Env env, const char* source, const char* sourceUrl);
 
     // Pump Hermes's job queue (drains microtasks and pending finalizers).

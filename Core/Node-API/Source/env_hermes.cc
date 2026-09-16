@@ -20,11 +20,9 @@
 // `<napi/env.h>` chain FIRST so:
 //   * the Napi:: C++ wrappers (`Napi::Env`, `Napi::Value`, `Napi::Error`)
 //     line up with the rest of the project,
-//   * the Babylon-extended 4-arg `napi_run_script` declaration matches the
-//     inline `Env::RunScript` body in napi-inl.h (which we never actually
-//     call in this engine — Napi::Eval below routes through
-//     `hermes_run_script` directly — so the linker is never asked to find
-//     the 4-arg symbol).
+//   * the Babylon source-URL overload of `napi_run_script` (a C++ overload in
+//     the shared header) resolves to the definition below, which runs through
+//     `hermes_run_script`; the standard 3-arg C entry point stays Hermes's own.
 //
 // We keep `NAPI_VERSION` at the shared default (5) so the inline wrappers
 // in napi-inl.h that target newer NAPI revisions (e.g.
@@ -95,6 +93,43 @@ namespace
         }
         return it->second.runtime.get();
     }
+}
+
+// The source-URL overload of napi_run_script (a C++ overload, see js_native_api.h). Hermes
+// exports only the standard three-argument entry point, so Env::RunScript(script, url) lands here
+// and runs through hermes_run_script like Napi::Eval below; the standard form binds to Hermes's own
+// symbol. Before the overload had C++ linkage, that call bound to the three-argument symbol and
+// passed the URL where Hermes expected the result pointer.
+napi_status napi_run_script(napi_env env, napi_value script, const char* source_url, napi_value* result)
+{
+    if (env == nullptr || script == nullptr || result == nullptr)
+    {
+        return napi_invalid_arg;
+    }
+
+    size_t length = 0;
+    napi_status status = napi_get_value_string_utf8(env, script, nullptr, 0, &length);
+    if (status != napi_ok)
+    {
+        return status;
+    }
+
+    // hermes_run_script takes ownership of the buffer and wants the terminator counted in `size`.
+    const size_t size = length + 1;
+    auto* source = new uint8_t[size];
+    status = napi_get_value_string_utf8(env, script, reinterpret_cast<char*>(source), size, &length);
+    if (status != napi_ok)
+    {
+        delete[] source;
+        return status;
+    }
+
+    hermes_run_script_flags flags{};
+    flags.struct_size = sizeof(flags);
+    const auto finalize = [](const uint8_t* data, size_t /*size*/, void* /*hint*/) {
+        delete[] data;
+    };
+    return hermes_run_script(env, source, size, finalize, /*finalize_hint=*/nullptr, source_url, &flags, result);
 }
 
 namespace Napi

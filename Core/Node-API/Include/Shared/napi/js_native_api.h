@@ -490,10 +490,8 @@ NAPI_EXTERN napi_status NAPI_CDECL napi_is_promise(napi_env env,
                                                    bool* is_promise);
 
 // Running a script
-// [BABYLON-NATIVE-ADDITION]
 NAPI_EXTERN napi_status NAPI_CDECL napi_run_script(napi_env env,
                                                    napi_value script,
-                                                   const char* source_url,
                                                    napi_value* result);
 
 // Memory management
@@ -630,5 +628,18 @@ NAPI_EXTERN napi_status NAPI_CDECL napi_object_seal(napi_env env,
 #endif  // NAPI_VERSION >= 8
 
 EXTERN_C_END
+
+#ifdef __cplusplus
+// [BABYLON-NATIVE-ADDITION]
+// Runs a script with a source URL for stack traces and diagnostics. This is a C++ overload on
+// purpose: engines that ship their own Node-API implementation (Hermes) export the standard
+// three-argument napi_run_script above with C linkage, and declaring this four-argument form
+// with C linkage made Env::RunScript bind to that symbol and pass the URL where the engine
+// expected the result pointer.
+NAPI_EXTERN napi_status NAPI_CDECL napi_run_script(napi_env env,
+                                                   napi_value script,
+                                                   const char* source_url,
+                                                   napi_value* result);
+#endif
 
 #endif  // SRC_JS_NATIVE_API_H_
