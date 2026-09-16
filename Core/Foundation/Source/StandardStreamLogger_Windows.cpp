@@ -1,4 +1,5 @@
 #include "StandardStreamLoggerPlatform.h"
+#include "StandardStreamLoggerLines.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -32,6 +33,8 @@ namespace
         DWORD OriginalDescriptorHandleFlags{};
         bool OriginalDescriptorOpen{};
         bool OriginalHandleUsesTarget{};
+        int OriginalMode{_O_BINARY};
+        std::string PendingUtf16{};
     };
 
     void SetErrnoFromWin32Error(DWORD error)
@@ -104,31 +107,59 @@ namespace
             return -1;
         }
 
-        // _dup preserves the source descriptor's complete CRT state (including
-        // text mode), unlike rebuilding it with _open_osfhandle.
-        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
-        const int duplicated = ::_dup(fd);
-        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
-
-        if (duplicated < 0)
+        HANDLE handle{INVALID_HANDLE_VALUE};
+        if (!::DuplicateHandle(
+                ::GetCurrentProcess(), reinterpret_cast<HANDLE>(sourceHandle),
+                ::GetCurrentProcess(), &handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
         {
+            SetErrnoFromWin32Error(::GetLastError());
             return -1;
         }
-        if (!SetDescriptorInheritance(duplicated, false))
+
+        // Both the kernel handle and the CRT entry must be non-inheritable.
+        // Binary tees must not translate bytes that the target already translated.
+        // Other CRT flags, including _O_APPEND, cannot be copied through this API.
+        const int duplicated = ::_open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_NOINHERIT);
+        if (duplicated < 0)
         {
             const int error = errno;
             const unsigned long dosError = _doserrno;
-            (void)::_close(duplicated);
+            (void)::CloseHandle(handle);
             errno = error;
             _doserrno = dosError;
-            return -1;
         }
         return duplicated;
     }
 
-    int OsDuplicateTo(int source, int target)
+    int OsDuplicateTo(int source, int target, const ChannelPlatformState* state = nullptr)
     {
+        // Set the private source's mode first so _dup2 installs the correct mode
+        // atomically with the target handle, on redirect as well as restoration.
+        if (state != nullptr && ::_setmode(source, state->OriginalMode) < 0)
+        {
+            return -1;
+        }
         return ::_dup2(source, target);
+    }
+
+    int GetDescriptorMode(int fd)
+    {
+        // Probe a temporary copy rather than changing a live standard stream.
+        // This short-lived _dup is covered by Start/Stop's child-creation exclusion.
+        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
+        const int probe = ::_dup(fd);
+        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
+        if (probe < 0)
+        {
+            return -1;
+        }
+        const int mode = ::_setmode(probe, _O_BINARY);
+        const int error = errno;
+        const unsigned long dosError = _doserrno;
+        (void)::_close(probe);
+        errno = error;
+        _doserrno = dosError;
+        return mode;
     }
 
     int OsClose(int fd)
@@ -228,6 +259,19 @@ namespace
         ::OutputDebugStringA(output.c_str());
     }
 
+    void OsAppendPlatformBytes(ChannelPlatformState& state, std::string& pending, const char* data, size_t size, bool flush)
+    {
+        if (state.OriginalMode == _O_WTEXT || state.OriginalMode == _O_U16TEXT)
+        {
+            state.PendingUtf16.append(data, size);
+            Babylon::StandardStreamLogger::Detail::AppendUtf16LE(pending, state.PendingUtf16, flush);
+        }
+        else
+        {
+            pending.append(data, size);
+        }
+    }
+
     bool OsOnStartChannel(ChannelPlatformState& state, int target, bool isError)
     {
         state.StandardHandle = isError ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE;
@@ -250,6 +294,11 @@ namespace
             return false;
         }
 
+        state.OriginalMode = GetDescriptorMode(target);
+        if (state.OriginalMode < 0)
+        {
+            return false;
+        }
         state.OriginalDescriptorOpen = true;
         state.OriginalHandleUsesTarget =
             state.OriginalHandle != nullptr &&

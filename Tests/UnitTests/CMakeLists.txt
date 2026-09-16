@@ -43,6 +43,10 @@ if(APPLE)
 elseif(WIN32)
     set(SOURCES ${SOURCES}
         Win32/App.cpp)
+    if(NOT WINDOWS_STORE)
+        set(SOURCES ${SOURCES}
+            "Shared/StandardStreamLoggerWindows.cpp")
+    endif()
 elseif(UNIX AND NOT ANDROID)
     set(SOURCES ${SOURCES}
         Linux/App.cpp)
