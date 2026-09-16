@@ -1053,6 +1053,58 @@ TEST(Worker, PreservesHostDOMException)
     done.get_future().get();
 }
 
+TEST(Worker, UndefinedTypeMeansClassic)
+{
+    // WorkerOptions is a WebIDL dictionary, so `{ type: undefined }` is the same as passing no type
+    // (a spread of optional options produces exactly that); only a value that is present and not
+    // "classic"/"module" is a TypeError.
+    std::promise<void> done;
+    bool undefinedTypeAccepted{false};
+    bool bogusTypeRejected{false};
+    Babylon::AppRuntime runtime{};
+
+    runtime.Dispatch([&](Napi::Env env) {
+        Babylon::Polyfills::Scheduling::Initialize(env);
+        Babylon::Polyfills::URL::Initialize(env);
+
+        Babylon::Polyfills::Worker::Options options{};
+        options.ScriptRoot = TestAssetRoot().string();
+        Babylon::Polyfills::Worker::Initialize(env, std::move(options));
+
+        const auto workerConstructor = env.Global().Get("Worker").As<Napi::Function>();
+        const auto scriptUrl = Napi::String::New(env, "app:///Scripts/symlink_target.js");
+
+        auto undefinedType = Napi::Object::New(env);
+        undefinedType.Set("type", env.Undefined());
+        try
+        {
+            auto worker = workerConstructor.New({scriptUrl, undefinedType});
+            worker.Get("terminate").As<Napi::Function>().Call(worker, {});
+            undefinedTypeAccepted = true;
+        }
+        catch (const Napi::Error&)
+        {
+        }
+
+        auto bogusType = Napi::Object::New(env);
+        bogusType.Set("type", Napi::String::New(env, "bogus"));
+        try
+        {
+            workerConstructor.New({scriptUrl, bogusType});
+        }
+        catch (const Napi::Error& error)
+        {
+            bogusTypeRejected = error.Get("name").ToString().Utf8Value() == "TypeError";
+        }
+
+        done.set_value();
+    });
+
+    done.get_future().get();
+    EXPECT_TRUE(undefinedTypeAccepted);
+    EXPECT_TRUE(bogusTypeRejected);
+}
+
 TEST(Worker, WebPlatformTests)
 {
     struct Result

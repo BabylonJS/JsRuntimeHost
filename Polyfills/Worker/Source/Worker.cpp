@@ -297,9 +297,12 @@ namespace Babylon::Polyfills::Internal
         if (info.Length() > 1 && info[1].IsObject())
         {
             const auto options = info[1].As<Napi::Object>();
-            if (options.Has("type"))
+            // WorkerOptions is a WebIDL dictionary: a member set to undefined counts as absent, so
+            // `{ type: undefined }` (what a spread of optional options produces) means "classic".
+            const auto typeValue = options.Get("type");
+            if (!typeValue.IsUndefined())
             {
-                const auto type = options.Get("type").ToString().Utf8Value();
+                const auto type = typeValue.ToString().Utf8Value();
                 if (type != "classic" && type != "module")
                 {
                     throw Napi::TypeError::New(info.Env(), "Worker type must be 'classic' or 'module'");
