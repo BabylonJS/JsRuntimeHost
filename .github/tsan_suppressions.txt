@@ -2,16 +2,16 @@
 #
 # These suppress data races internal to third-party libraries that we cannot fix.
 # TSan on macOS (JavaScriptCore via Xcode) passes clean — these suppressions are
-# only needed for the Ubuntu JSC build (libjavascriptcoregtk).
+# only needed for the Ubuntu Bun JSC build.
 
-# JavaScriptCore internal races in libjavascriptcoregtk.
-# Races manifest in TSan interceptors (free/malloc/memcpy/close) called from
-# JSC's JIT worker threads. function-name suppressions are needed because the
-# top frame is a libc interceptor attributed to UnitTests, not libjavascriptcoregtk.
-called_from_lib:libjavascriptcoregtk
+# Bun's Linux JavaScriptCore is statically linked into the final executable, so
+# a called_from_lib suppression cannot identify it. Match the interceptor frames
+# previously observed on JSC's JIT worker threads instead.
+# Races manifest in TSan interceptors (free/memcpy/close) called from
+# JSC's JIT worker threads.
 race:free
 race:close
 race:memcpy
 
 # JSC signal handler that doesn't save/restore errno
-signal:libjavascriptcoregtk
+signal:WTF::jscSignalHandler

@@ -128,30 +128,24 @@ jobs:
       simulator: 'iPhone 17'
 
   # Linux
-  Ubuntu_gcc:
-    uses: ./.github/workflows/build-linux.yml
-
-  Ubuntu_clang:
+  Ubuntu_JSC_LTO:
     uses: ./.github/workflows/build-linux.yml
     with:
-      cc: clang
-      cxx: clang++
+      bun-jsc-lto: true
 
-  Ubuntu_QuickJS:
+  Ubuntu_QuickJS_gcc:
     uses: ./.github/workflows/build-linux.yml
     with:
+      cc: gcc
+      cxx: g++
       js-engine: QuickJS
 
   Ubuntu_Sanitizers_clang:
     uses: ./.github/workflows/build-linux.yml
     with:
-      cc: clang
-      cxx: clang++
       enable-sanitizers: true
 
   Ubuntu_ThreadSanitizer_clang:
     uses: ./.github/workflows/build-linux.yml
     with:
-      cc: clang
-      cxx: clang++
       enable-thread-sanitizer: true
