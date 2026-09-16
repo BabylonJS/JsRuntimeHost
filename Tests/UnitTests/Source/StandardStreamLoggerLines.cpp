@@ -44,6 +44,86 @@ namespace
     };
 
     constexpr std::array<size_t, 3> Limits{255, 1023, 3800};
+
+    std::string Utf16Bytes(const std::u16string& text)
+    {
+        std::string bytes;
+        for (const auto unit : text)
+        {
+            bytes.push_back(static_cast<char>(unit & 0xFF));
+            bytes.push_back(static_cast<char>(unit >> 8));
+        }
+        return bytes;
+    }
+}
+
+TEST(StandardStreamLoggerLines, DecodesUtf16AcrossEveryReadBoundary)
+{
+    const auto bytes = Utf16Bytes(u"A\u00A9\u2603\U0001F600\r\n");
+    const std::string expected = "A\xC2\xA9\xE2\x98\x83\xF0\x9F\x98\x80\r\n";
+    for (size_t chunk = 1; chunk <= bytes.size(); ++chunk)
+    {
+        SCOPED_TRACE(chunk);
+        std::string pending;
+        std::string decoded;
+        for (size_t offset = 0; offset < bytes.size(); offset += chunk)
+        {
+            pending += bytes.substr(offset, chunk);
+            Babylon::StandardStreamLogger::Detail::AppendUtf16LE(decoded, pending, false);
+            EXPECT_LE(pending.size(), 3u);
+        }
+        Babylon::StandardStreamLogger::Detail::AppendUtf16LE(decoded, pending, true);
+        EXPECT_EQ(decoded, expected);
+        EXPECT_TRUE(pending.empty());
+    }
+}
+
+TEST(StandardStreamLoggerLines, BoundsDecodedUtf16ByUtf8Bytes)
+{
+    for (const auto limit : Limits)
+    {
+        LineCapture capture{limit};
+        const auto bytes = Utf16Bytes(std::u16string(limit - 1, u'x') + u"\U0001F600\u2603\r\n");
+        std::string pending;
+        for (size_t offset = 0; offset < bytes.size(); offset += 7)
+        {
+            pending += bytes.substr(offset, 7);
+            std::string decoded;
+            Babylon::StandardStreamLogger::Detail::AppendUtf16LE(decoded, pending, false);
+            capture.Write(decoded);
+        }
+        std::string decoded;
+        Babylon::StandardStreamLogger::Detail::AppendUtf16LE(decoded, pending, true);
+        capture.Write(decoded, true);
+        ASSERT_EQ(capture.Lines.size(), 2u);
+        EXPECT_EQ(capture.Lines[0], std::string(limit - 1, 'x'));
+        EXPECT_EQ(capture.Lines[1], "\xF0\x9F\x98\x80\xE2\x98\x83");
+    }
+}
+
+TEST(StandardStreamLoggerLines, ReplacesMalformedAndTruncatedUtf16OnFlush)
+{
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {std::string{"\x00", 1}, "\xEF\xBF\xBD"},
+        {std::string{"\x00\xD8", 2}, "\xEF\xBF\xBD"},
+        {std::string{"\x00\xD8\x00", 3}, "\xEF\xBF\xBD"},
+        {std::string{"\x00\xDC", 2}, "\xEF\xBF\xBD"},
+        {std::string{"\x00\xD8\x41\x00", 4}, "\xEF\xBF\xBD"
+                                             "A"},
+    };
+    for (const auto& [bytes, expected] : cases)
+    {
+        std::string pending;
+        std::string decoded;
+        for (const auto byte : bytes)
+        {
+            pending.push_back(byte);
+            Babylon::StandardStreamLogger::Detail::AppendUtf16LE(decoded, pending, false);
+        }
+        Babylon::StandardStreamLogger::Detail::AppendUtf16LE(decoded, pending, true);
+        EXPECT_EQ(decoded, expected);
+        EXPECT_TRUE(pending.empty());
+    }
 }
 
 TEST(StandardStreamLoggerLines, CompleteLineAcrossReadsIsBounded)

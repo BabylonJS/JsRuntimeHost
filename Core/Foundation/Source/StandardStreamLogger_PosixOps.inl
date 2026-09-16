@@ -12,7 +12,7 @@ int OsDuplicate(int fd)
     return ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
 }
 
-int OsDuplicateTo(int source, int target)
+int OsDuplicateTo(int source, int target, const ChannelPlatformState* /*state*/ = nullptr)
 {
     return ::dup2(source, target) < 0 ? -1 : 0;
 }
@@ -30,6 +30,11 @@ int64_t OsRead(int fd, void* data, size_t size)
 int64_t OsWrite(int fd, const void* data, size_t size)
 {
     return ::write(fd, data, size);
+}
+
+void OsAppendPlatformBytes(ChannelPlatformState&, std::string& pending, const char* data, size_t size, bool)
+{
+    pending.append(data, size);
 }
 
 int OsCreatePipe(int fds[2])
