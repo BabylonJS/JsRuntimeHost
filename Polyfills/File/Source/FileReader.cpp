@@ -242,17 +242,21 @@ namespace Babylon::Polyfills::Internal
 
         // Snapshot the listener list so that mutations during dispatch
         // (e.g. a handler that calls removeEventListener) do not invalidate
-        // the iterator we are walking.
-        std::vector<Napi::Function> snapshot;
+        // the iterator we are walking. The snapshot holds references rather
+        // than bare values: a handler that removes a *later* listener drops
+        // the only strong reference to it, and on JavaScriptCore nothing
+        // else roots a napi_value that lives on the C++ heap, so a bare
+        // function could be collected before this loop reached it.
+        std::vector<Napi::FunctionReference> snapshot;
         snapshot.reserve(it->second.size());
         for (const auto& ref : it->second)
         {
-            snapshot.push_back(ref.Value());
+            snapshot.push_back(Napi::Persistent(ref.Value()));
         }
 
         for (const auto& listener : snapshot)
         {
-            listener.Call(jsThis, {event});
+            listener.Value().Call(jsThis, {event});
             if (env.IsExceptionPending())
             {
                 env.GetAndClearPendingException();
