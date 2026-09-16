@@ -1,7 +1,6 @@
 #include "../Shared/Shared.h"
 #include <Windows.h>
 #include "Babylon/DebugTrace.h"
-#include <gtest/gtest.h>
 
 int main(int argc, char** argv)
 {
@@ -10,6 +9,5 @@ int main(int argc, char** argv)
     Babylon::DebugTrace::EnableDebugTrace(true);
     Babylon::DebugTrace::SetTraceOutput([](const char* trace) { OutputDebugStringA(trace); });
 
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    return RunTests(argc, argv);
 }
