@@ -6,6 +6,7 @@
 #include <arcana/threading/dispatcher.h>
 
 #include <cassert>
+#include <cstdlib>
 #include <optional>
 #include <mutex>
 #include <thread>
