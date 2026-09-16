@@ -22,7 +22,8 @@ add_library(UnitTestsJNI SHARED
     ${UNIT_TESTS_DIR}/Shared/StandardStreamLogger.cpp
     ${UNIT_TESTS_DIR}/Shared/TimeoutDispatcher.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
-    ${UNIT_TESTS_DIR}/Shared/Shared.cpp)
+    ${UNIT_TESTS_DIR}/Shared/Shared.cpp
+    ${UNIT_TESTS_DIR}/Shared/TestHttpServer.cpp)
 
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
     target_sources(UnitTestsJNI PRIVATE ${UNIT_TESTS_DIR}/Shared/V8ForegroundTaskRunner.cpp)

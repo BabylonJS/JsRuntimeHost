@@ -7,6 +7,21 @@ Mocha.reporter('spec');
 
 declare const hostPlatform: string;
 declare const hostEngine: string;
+declare const hostTestServer: string;
+
+// Loopback HTTP server the host starts for this run (Shared/TestHttpServer.h); the network tests use
+// it instead of public hosts so they never depend on github.com being reachable from the runner.
+const testServer = {
+    ok: `${hostTestServer}/`,
+    notFound: `${hostTestServer}/babylonJS/BabylonNative404`,
+    // The same file name, "στρογγυλεμένος % κύβος.glb", in three spellings the client must all put on
+    // the wire as one correctly percent-encoded request-target.
+    unicodeAssetEscaped: `${hostTestServer}/assets/%CF%83%CF%84%CF%81%CE%BF%CE%B3%CE%B3%CF%85%CE%BB%CE%B5%CE%BC%CE%AD%CE%BD%CE%BF%CF%82%20%25%20%CE%BA%CF%8D%CE%B2%CE%BF%CF%82.glb`,
+    unicodeAssetUnescaped: `${hostTestServer}/assets/στρογγυλεμένος%20%25%20κύβος.glb`,
+    unicodeAssetUnescapedWithSpaces: `${hostTestServer}/assets/στρογγυλεμένος %25 κύβος.glb`,
+    // Responds after two seconds, so an abort issued right after send() is guaranteed to land in-flight.
+    slow: `${hostTestServer}/delay/2000`,
+};
 declare const setExitCode: (code: number) => void;
 
 
@@ -124,39 +139,39 @@ describe("XMLHTTPRequest", function () {
     this.timeout(0);
 
     it("should have readyState=4 when load ends", async function () {
-        const xhr = await createRequest("GET", "https://github.com/");
+        const xhr = await createRequest("GET", testServer.ok);
         expect(xhr.readyState).to.equal(4);
     });
 
     it("should have status=200 for a file that exists", async function () {
-        const xhr = await createRequest("GET", "https://github.com/");
+        const xhr = await createRequest("GET", testServer.ok);
         expect(xhr.status).to.equal(200);
     });
 
     it("should load URLs with escaped unicode characters", async function () {
-        const xhr = await createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/%CF%83%CF%84%CF%81%CE%BF%CE%B3%CE%B3%CF%85%CE%BB%CE%B5%CE%BC%CE%AD%CE%BD%CE%BF%CF%82%20%25%20%CE%BA%CF%8D%CE%B2%CE%BF%CF%82.glb");
+        const xhr = await createRequest("GET", testServer.unicodeAssetEscaped);
         expect(xhr.status).to.equal(200);
     });
 
     it("should load URLs with unescaped unicode characters", async function () {
-        const xhr = await createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/στρογγυλεμένος%20%25%20κύβος.glb");
+        const xhr = await createRequest("GET", testServer.unicodeAssetUnescaped);
         expect(xhr.status).to.equal(200);
     });
 
     it("should load URLs with unescaped unicode characters and spaces", async function () {
-        const xhr = await createRequest("GET", "https://raw.githubusercontent.com/BabylonJS/Assets/master/meshes/στρογγυλεμένος %25 κύβος.glb");
+        const xhr = await createRequest("GET", testServer.unicodeAssetUnescapedWithSpaces);
         expect(xhr.status).to.equal(200);
     });
 
     it("should have status=404 for a file that does not exist", async function () {
-        const xhr = await createRequest("GET", "https://github.com/babylonJS/BabylonNative404");
+        const xhr = await createRequest("GET", testServer.notFound);
         expect(xhr.status).to.equal(404);
     });
 
     it("should expose statusText", async function () {
-        const okXhr = await createRequest("GET", "https://github.com/");
+        const okXhr = await createRequest("GET", testServer.ok);
         expect(okXhr.statusText).to.equal("OK");
-        const notFoundXhr = await createRequest("GET", "https://github.com/babylonJS/BabylonNative404");
+        const notFoundXhr = await createRequest("GET", testServer.notFound);
         expect(notFoundXhr.statusText).to.equal("Not Found");
     });
 
@@ -176,7 +191,7 @@ describe("XMLHTTPRequest", function () {
                 clearTimeout(guard);
                 resolve({ errorFired, loadendFired, status: xhr.status, readyState: xhr.readyState });
             });
-            xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
+            xhr.open("GET", testServer.notFound);
             xhr.send();
         });
         expect(result.status).to.equal(404);
@@ -306,21 +321,21 @@ describe("fetch", function () {
     this.timeout(30000);
 
     it("should resolve with ok=true and status=200 for a resource that exists", async function () {
-        const response = await fetch("https://github.com/");
+        const response = await fetch(testServer.ok);
         expect(response.ok).to.equal(true);
         expect(response.status).to.equal(200);
     });
 
     it("should resolve (not reject) with ok=false and status=404 for a resource that does not exist", async function () {
-        const response = await fetch("https://github.com/babylonJS/BabylonNative404");
+        const response = await fetch(testServer.notFound);
         expect(response.ok).to.equal(false);
         expect(response.status).to.equal(404);
     });
 
     it("should expose statusText", async function () {
-        const okResponse = await fetch("https://github.com/");
+        const okResponse = await fetch(testServer.ok);
         expect(okResponse.statusText).to.equal("OK");
-        const notFoundResponse = await fetch("https://github.com/babylonJS/BabylonNative404");
+        const notFoundResponse = await fetch(testServer.notFound);
         expect(notFoundResponse.statusText).to.equal("Not Found");
     });
 
@@ -362,7 +377,7 @@ describe("fetch", function () {
     });
 
     it("headers.get() should be case-insensitive and headers.has() should work", async function () {
-        const response = await fetch("https://github.com/");
+        const response = await fetch(testServer.ok);
         expect(response.headers.has("Content-Type")).to.equal(true);
         expect(response.headers.get("CONTENT-TYPE")).to.equal(response.headers.get("content-type"));
     });
@@ -375,7 +390,7 @@ describe("fetch", function () {
     });
 
     it("should accept a method in the init object", async function () {
-        const response = await fetch("https://github.com/", { method: "GET" });
+        const response = await fetch(testServer.ok, { method: "GET" });
         expect(response.status).to.equal(200);
     });
 
@@ -436,7 +451,7 @@ describe("fetch", function () {
 
         let error: any;
         try {
-            await fetch("https://github.com/", { signal: controller.signal } as any);
+            await fetch(testServer.ok, { signal: controller.signal } as any);
         } catch (e) {
             error = e;
         }
@@ -447,7 +462,7 @@ describe("fetch", function () {
     it("should reject with an AbortError when aborted in-flight", async function () {
         this.timeout(30000);
         const controller = new AbortController();
-        const promise = fetch("https://github.com/", { signal: controller.signal } as any);
+        const promise = fetch(testServer.slow, { signal: controller.signal } as any);
         // Abort before the response can arrive.
         controller.abort();
 

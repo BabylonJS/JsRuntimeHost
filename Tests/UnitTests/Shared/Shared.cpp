@@ -1,4 +1,5 @@
 #include "Shared.h"
+#include "TestHttpServer.h"
 #include <Babylon/AppRuntime.h>
 #include <Babylon/ScriptLoader.h>
 #include <Babylon/Polyfills/AbortController.h>
@@ -62,9 +63,12 @@ TEST(JavaScript, All)
         options.WaitForDebugger = true;
     }
 
+    // The network tests talk to this loopback server (see TestHttpServer.h) rather than to public hosts.
+    Babylon::Test::TestHttpServer testServer{};
+
     Babylon::AppRuntime runtime{options};
 
-    runtime.Dispatch([&exitCodePromise](Napi::Env env) mutable {
+    runtime.Dispatch([&exitCodePromise, &testServer](Napi::Env env) mutable {
         Babylon::Polyfills::Console::Initialize(env, [env](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
             std::cout << "[" << EnumToString(logLevel) << "] " << message;
             if (logLevel == Babylon::Polyfills::Console::LogLevel::Error)
@@ -101,6 +105,7 @@ TEST(JavaScript, All)
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
         env.Global().Set("hostEngine", Napi::Value::From(env, NAPI_JAVASCRIPT_ENGINE));
+        env.Global().Set("hostTestServer", Napi::Value::From(env, testServer.Origin()));
     });
 
     Babylon::ScriptLoader loader{runtime};
