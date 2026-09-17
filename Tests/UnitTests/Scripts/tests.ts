@@ -1323,7 +1323,8 @@ describe("URL.createObjectURL", function () {
             const url = URL.createObjectURL(real);
             expect(url.indexOf("blob:")).to.equal(0);
             URL.revokeObjectURL(url);
-            expect(() => URL.createObjectURL(new LookAlikeBlob() as any)).to.throw(TypeError, /not a Blob/);
+            // Message only: the JSI adapter still surfaces native throws as plain Errors.
+            expect(() => URL.createObjectURL(new LookAlikeBlob() as any)).to.throw(/not a Blob/);
         } finally {
             globalObject.Blob = NativeBlob;
         }
