@@ -164,12 +164,12 @@ namespace Babylon::Polyfills::Internal
         auto& list = m_eventHandlerRefs[eventType];
         for (const auto& existing : list)
         {
-            if (existing.Value() == handler)
+            if (existing->callback.Value() == handler)
             {
                 return;
             }
         }
-        list.push_back(Napi::Persistent(handler));
+        list.push_back(std::make_shared<EventListener>(Napi::Persistent(handler)));
     }
 
     void FileReader::RemoveEventListener(const Napi::CallbackInfo& info)
@@ -191,8 +191,9 @@ namespace Babylon::Polyfills::Internal
         auto& list = it->second;
         for (auto i = list.begin(); i != list.end(); ++i)
         {
-            if (i->Value() == handler)
+            if ((*i)->callback.Value() == handler)
             {
+                (*i)->removed = true;
                 list.erase(i);
                 return;
             }
@@ -240,23 +241,19 @@ namespace Babylon::Polyfills::Internal
             return;
         }
 
-        // Snapshot the listener list so that mutations during dispatch
-        // (e.g. a handler that calls removeEventListener) do not invalidate
-        // the iterator we are walking. The snapshot holds references rather
-        // than bare values: a handler that removes a *later* listener drops
-        // the only strong reference to it, and on JavaScriptCore nothing
-        // else roots a napi_value that lives on the C++ heap, so a bare
-        // function could be collected before this loop reached it.
-        std::vector<Napi::FunctionReference> snapshot;
-        snapshot.reserve(it->second.size());
-        for (const auto& ref : it->second)
-        {
-            snapshot.push_back(Napi::Persistent(ref.Value()));
-        }
+        // Share listener records: keep callbacks rooted without invalidating iteration,
+        // but observe removals even in nested dispatches. Re-adding a callback creates a
+        // new record that is not in this snapshot (DOM's invoke / inner invoke algorithms).
+        const auto snapshot = it->second;
 
         for (const auto& listener : snapshot)
         {
-            listener.Value().Call(jsThis, {event});
+            if (listener->removed)
+            {
+                continue;
+            }
+
+            listener->callback.Value().Call(jsThis, {event});
             if (env.IsExceptionPending())
             {
                 env.GetAndClearPendingException();

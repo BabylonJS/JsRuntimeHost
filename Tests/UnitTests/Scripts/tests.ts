@@ -2238,36 +2238,103 @@ describe("FileReader", function () {
         reader.readAsText(blob);
     });
 
-    it("keeps the dispatch snapshot alive when an earlier listener removes a later one", function (done) {
+    it("skips a listener removed during dispatch and still calls the final listener", function (done) {
         const reader = new FileReader();
         const blob = new Blob(["abc"]);
-        let laterListenerCalled = false;
+        const calls: string[] = [];
         let laterListener: (() => void) | null = function () {
-            laterListenerCalled = true;
+            calls.push("removed");
         };
 
         reader.addEventListener("load", function () {
+            calls.push("first");
             reader.removeEventListener("load", laterListener);
             laterListener = null;
 
-            // JSC_collectContinuously=1 collects during these allocations. The listener must
-            // remain rooted by the dispatch snapshot even after the registered reference is gone.
+            // Add allocation pressure for JSC_collectContinuously=1 runs. The assertion
+            // below is deterministic and does not depend on whether collection occurs.
             const pressure = [];
             for (let i = 0; i < 64; ++i) {
                 pressure.push(new Uint8Array(16 * 1024));
             }
-            expect(pressure).to.have.lengthOf(64);
+            calls.push(`allocated ${pressure.length}`);
         });
         reader.addEventListener("load", laterListener);
+        reader.addEventListener("load", function () {
+            calls.push("last");
+        });
         reader.onloadend = function () {
             try {
-                expect(laterListenerCalled).to.equal(true);
+                expect(calls).to.deep.equal(["first", "allocated 64", "last"]);
                 done();
             } catch (e) {
                 done(e);
             }
         };
         reader.readAsText(blob);
+    });
+
+    it("defers a removed and re-added listener until the next dispatch", function () {
+        const reader = new FileReader();
+        const calls: string[] = [];
+        const later = () => calls.push("later");
+        const first = function () {
+            calls.push("first");
+            reader.removeEventListener("load", first);
+            reader.removeEventListener("load", later);
+            reader.addEventListener("load", later);
+        };
+        reader.addEventListener("load", first);
+        reader.addEventListener("load", later);
+        reader.addEventListener("load", () => calls.push("last"));
+
+        reader.dispatchEvent({ type: "load" });
+        expect(calls).to.deep.equal(["first", "last"]);
+        calls.length = 0;
+        reader.dispatchEvent({ type: "load" });
+        expect(calls).to.deep.equal(["last", "later"]);
+    });
+
+    it("allows self-removal and defers newly added listeners", function () {
+        const reader = new FileReader();
+        const calls: string[] = [];
+        const added = () => calls.push("added");
+        const first = function () {
+            calls.push("first");
+            reader.removeEventListener("load", first);
+            reader.addEventListener("load", added);
+        };
+        reader.addEventListener("load", first);
+        reader.addEventListener("load", () => calls.push("last"));
+
+        reader.dispatchEvent({ type: "load" });
+        expect(calls).to.deep.equal(["first", "last"]);
+        calls.length = 0;
+        reader.dispatchEvent({ type: "load" });
+        expect(calls).to.deep.equal(["last", "added"]);
+    });
+
+    it("observes removals made by a nested dispatch", function () {
+        const reader = new FileReader();
+        const calls: string[] = [];
+        const first = function () {
+            calls.push("first");
+            reader.removeEventListener("load", first);
+            reader.dispatchEvent({ type: "load" });
+        };
+        const middle = function () {
+            calls.push("middle");
+            reader.removeEventListener("load", middle);
+        };
+        reader.addEventListener("load", first);
+        reader.addEventListener("load", middle);
+        reader.addEventListener("load", () => calls.push("last"));
+
+        reader.dispatchEvent({ type: "load" });
+        expect(calls).to.deep.equal(["first", "middle", "last", "last"]);
+        calls.length = 0;
+        reader.dispatchEvent({ type: "load" });
+        expect(calls).to.deep.equal(["last"]);
     });
 
     // -------------------------------- abort --------------------------------

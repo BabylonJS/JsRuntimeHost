@@ -3,6 +3,7 @@
 #include <napi/napi.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -21,6 +22,12 @@ namespace Babylon::Polyfills::Internal
         explicit FileReader(const Napi::CallbackInfo& info);
 
     private:
+        struct EventListener
+        {
+            Napi::FunctionReference callback;
+            bool removed{false};
+        };
+
         enum class ReadMode
         {
             ArrayBuffer,
@@ -65,7 +72,7 @@ namespace Babylon::Polyfills::Internal
         // wrapper is kept alive by an externally-held anchor (see StartRead),
         // so `this` is always valid when a continuation reads this field.
         uint64_t m_readId{0};
-        std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
+        std::unordered_map<std::string, std::vector<std::shared_ptr<EventListener>>> m_eventHandlerRefs;
 
         // readonly attribute state, surfaced through the getters above.
         int32_t m_readyState{EMPTY};
