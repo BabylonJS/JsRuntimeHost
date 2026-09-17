@@ -24,6 +24,13 @@ describe("native exceptions", function () {
         expect(fromConstructor.message).to.match(/Invalid URL/);
         expect(fromConstructor.message).to.not.match(/HostFunction/);
     });
+
+    it("propagate from the pending exception slot after a reentrant callback", function () {
+        let callbackRan = false;
+        expect(() => throwPendingAfterCallback(() => { callbackRan = true; }))
+            .to.throw(TypeError, "pending exception after callback");
+        expect(callbackRan).to.equal(true);
+    });
 });
 
 describe("napi class prototype isolation (#172)", function () {
