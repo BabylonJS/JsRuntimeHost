@@ -857,7 +857,7 @@ TEST(NodeApi, EvalThrowIsCatchable)
                 EXPECT_TRUE(error.Value().StrictEquals(env.Global().Get("evalError")));
 #endif
                 // V8JSI 0.64.33's ReportException reconstructs the Error before Eval receives it.
-                // JsiEval tests identity at our conversion boundary with an original JSError value.
+                // JsiEval tests the private conversion helper with an original JSError value.
             }
 
             const auto sum = Napi::Eval(env, "1 + 1", "eval-throw.js");

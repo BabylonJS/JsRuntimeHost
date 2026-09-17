@@ -2,6 +2,7 @@ set(SOURCES
     "include/napi/env.h"
     "include/napi/napi.h"
     "include/napi/napi-inl.h"
+    "Source/EvalInternal.h"
     "source/env.cc")
 
 add_library(napi ${SOURCES})

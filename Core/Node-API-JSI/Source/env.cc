@@ -1,6 +1,6 @@
 #include <napi/env.h>
 
-#include <utility>
+#include "EvalInternal.h"
 
 namespace Napi
 {
@@ -25,19 +25,11 @@ namespace Napi
         }
         catch (const facebook::jsi::JSError& error)
         {
-            // Napi::Error is object-backed in this JSI implementation. Preserve JSError objects exactly;
-            // represent primitive throws with a new Error rather than calling asObject and leaking a
-            // second JSIException into AppRuntime's fatal catch-all.
-            auto value = facebook::jsi::Value{env_ptr->rt, error.value()};
-            if (value.isObject())
-            {
-                throw Napi::Error{env_ptr, std::move(value)};
-            }
-            throw Napi::Error::New(env, error.what());
+            throw Internal::ConvertEvalException(env, error);
         }
         catch (const facebook::jsi::JSIException& error)
         {
-            throw Napi::Error::New(env, error.what());
+            throw Internal::ConvertEvalException(env, error);
         }
     }
 }
