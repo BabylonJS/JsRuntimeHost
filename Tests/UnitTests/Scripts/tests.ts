@@ -1310,20 +1310,22 @@ describe("URL.createObjectURL", function () {
         // A page or test harness may install its own Blob class. Identity must come from the
         // polyfill's own constructor: a real Blob still works and a foreign instance is a clean
         // TypeError, not a bare "Invalid argument" from unwrapping an object that wraps nothing.
+        // ChakraCore has no globalThis; the sloppy-mode Function trick reaches the global object everywhere.
+        const globalObject: any = Function("return this")();
         const NativeBlob = Blob;
         const real = new NativeBlob(["hello"], { type: "text/plain" });
         class LookAlikeBlob {
             size = 5;
             type = "text/plain";
         }
-        (globalThis as any).Blob = LookAlikeBlob;
+        globalObject.Blob = LookAlikeBlob;
         try {
             const url = URL.createObjectURL(real);
             expect(url.indexOf("blob:")).to.equal(0);
             URL.revokeObjectURL(url);
             expect(() => URL.createObjectURL(new LookAlikeBlob() as any)).to.throw(TypeError, /not a Blob/);
         } finally {
-            (globalThis as any).Blob = NativeBlob;
+            globalObject.Blob = NativeBlob;
         }
     });
 
