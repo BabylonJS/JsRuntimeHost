@@ -8,6 +8,7 @@ Mocha.reporter('spec');
 declare const hostPlatform: string;
 declare const hostEngine: string;
 declare const setExitCode: (code: number) => void;
+declare const throwPendingAfterCallback: (callback: () => void) => void;
 
 
 describe("AbortController", function () {
@@ -1314,6 +1315,13 @@ describe("native exceptions", function () {
         expect(fromConstructor).to.be.an.instanceof(TypeError);
         expect(fromConstructor.message).to.match(/Invalid URL/);
         expect(fromConstructor.message).to.not.match(/HostFunction/);
+    });
+
+    it("propagate from the pending exception slot after a reentrant callback", function () {
+        let callbackRan = false;
+        expect(() => throwPendingAfterCallback(() => { callbackRan = true; }))
+            .to.throw(TypeError, "pending exception after callback");
+        expect(callbackRan).to.equal(true);
     });
 });
 
