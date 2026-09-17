@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <future>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <thread>
 
 namespace
@@ -836,43 +838,86 @@ TEST(NodeApi, EvalThrowIsCatchable)
     // treats as fatal (std::abort).
     Babylon::AppRuntime runtime{};
 
-    std::promise<bool> outcome;
-    auto outcomeFuture = outcome.get_future();
-    runtime.Dispatch([&outcome](Napi::Env env) {
+    auto outcome = std::make_shared<std::promise<bool>>();
+    auto outcomeFuture = outcome->get_future();
+    runtime.Dispatch([outcome](Napi::Env env) {
         try
         {
             bool caughtErrorObject{false};
             try
             {
-                Napi::Eval(env, "throw new Error('boom');", "eval-throw.js");
+                Napi::Eval(env, "var evalError = new Error('boom'); throw evalError;", "eval-throw.js");
             }
             catch (const Napi::Error& error)
             {
-                caughtErrorObject = error.Message() == "boom";
-            }
-
-            bool caughtPrimitive{false};
-            try
-            {
-                Napi::Eval(env, "throw 'primitive boom';", "eval-primitive-throw.js");
-            }
-            catch (const Napi::Error&)
-            {
-                caughtPrimitive = true;
+                caughtErrorObject = error.Message() == "boom" && error.Value().StrictEquals(env.Global().Get("evalError"));
             }
 
             const auto sum = Napi::Eval(env, "1 + 1", "eval-throw.js");
-            outcome.set_value(caughtErrorObject && caughtPrimitive && sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 2);
+            outcome->set_value(caughtErrorObject && sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 2);
+        }
+        catch (const std::exception& error)
+        {
+            // Runtime-backed exceptions must be destroyed on this thread, before env is detached.
+            outcome->set_exception(std::make_exception_ptr(std::runtime_error{error.what()}));
         }
         catch (...)
         {
-            outcome.set_exception(std::current_exception());
+            outcome->set_exception(std::make_exception_ptr(std::runtime_error{"Unexpected non-standard exception during Eval"}));
         }
     });
 
     ASSERT_EQ(outcomeFuture.wait_for(std::chrono::seconds{5}), std::future_status::ready);
     EXPECT_TRUE(outcomeFuture.get());
 }
+
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+// Primitive throws on JavaScriptCore require the separate fix in #239. Here we
+// exercise JSI's object-backed Napi::Error conversion without that dependency.
+TEST(NodeApi, EvalPrimitiveThrowsAreCatchable)
+{
+    Babylon::AppRuntime runtime{};
+
+    auto outcome = std::make_shared<std::promise<bool>>();
+    auto outcomeFuture = outcome->get_future();
+    runtime.Dispatch([outcome](Napi::Env env) {
+        try
+        {
+            for (const char* script : {"throw 'primitive boom';", "throw 42;", "throw true;", "throw null;", "throw undefined;", "throw Symbol('boom');"})
+            {
+                bool caughtPrimitive{false};
+                try
+                {
+                    Napi::Eval(env, script, "eval-primitive-throw.js");
+                }
+                catch (const Napi::Error& error)
+                {
+                    caughtPrimitive = !error.Message().empty();
+                }
+
+                const auto sum = Napi::Eval(env, "1 + 1", "eval-primitive-throw.js");
+                if (!caughtPrimitive || !sum.IsNumber() || sum.As<Napi::Number>().Int32Value() != 2)
+                {
+                    outcome->set_value(false);
+                    return;
+                }
+            }
+            outcome->set_value(true);
+        }
+        catch (const std::exception& error)
+        {
+            outcome->set_exception(std::make_exception_ptr(std::runtime_error{error.what()}));
+        }
+        catch (...)
+        {
+            outcome->set_exception(std::make_exception_ptr(std::runtime_error{"Unexpected non-standard exception during Eval"}));
+        }
+    });
+
+    ASSERT_EQ(outcomeFuture.wait_for(std::chrono::seconds{5}), std::future_status::ready);
+    EXPECT_TRUE(outcomeFuture.get());
+}
+#endif
 
 int RunTests()
 {
