@@ -3,15 +3,15 @@
 #include <Babylon/Polyfills/Blob.h>
 #include <Babylon/Polyfills/BlobInternal.h>
 
+namespace
+{
+    constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
+    // Hidden global holding the polyfill's own constructor (see Babylon::Polyfills::Blob::TryGetData).
+    constexpr auto JS_BLOB_CONSTRUCTOR_KEY = "__jsRuntimeHostBlob";
+}
+
 namespace Babylon::Polyfills::Internal
 {
-    namespace
-    {
-        constexpr auto JS_BLOB_CONSTRUCTOR_NAME = "Blob";
-        // Hidden global holding the polyfill's own constructor (see TryGetData).
-        constexpr auto JS_BLOB_CONSTRUCTOR_KEY = "__jsRuntimeHostBlob";
-    }
-
     void Blob::Initialize(Napi::Env env)
     {
         if (env.Global().Get(JS_BLOB_CONSTRUCTOR_NAME).IsUndefined())
