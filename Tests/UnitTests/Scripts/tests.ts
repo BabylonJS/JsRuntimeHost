@@ -2238,6 +2238,38 @@ describe("FileReader", function () {
         reader.readAsText(blob);
     });
 
+    it("keeps the dispatch snapshot alive when an earlier listener removes a later one", function (done) {
+        const reader = new FileReader();
+        const blob = new Blob(["abc"]);
+        let laterListenerCalled = false;
+        let laterListener: (() => void) | null = function () {
+            laterListenerCalled = true;
+        };
+
+        reader.addEventListener("load", function () {
+            reader.removeEventListener("load", laterListener);
+            laterListener = null;
+
+            // JSC_collectContinuously=1 collects during these allocations. The listener must
+            // remain rooted by the dispatch snapshot even after the registered reference is gone.
+            const pressure = [];
+            for (let i = 0; i < 64; ++i) {
+                pressure.push(new Uint8Array(16 * 1024));
+            }
+            expect(pressure).to.have.lengthOf(64);
+        });
+        reader.addEventListener("load", laterListener);
+        reader.onloadend = function () {
+            try {
+                expect(laterListenerCalled).to.equal(true);
+                done();
+            } catch (e) {
+                done(e);
+            }
+        };
+        reader.readAsText(blob);
+    });
+
     // -------------------------------- abort --------------------------------
     it("transitions readyState to DONE after abort()", function (done) {
         const reader = new FileReader();
