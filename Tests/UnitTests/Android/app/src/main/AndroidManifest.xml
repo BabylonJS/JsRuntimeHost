@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <application android:label="@string/app_name" />
+    <!-- The unit tests talk to a loopback HTTP server the test host starts (Shared/TestHttpServer.h);
+         plain http:// to 127.0.0.1 is cleartext, which targetSdk 28+ blocks unless opted in. -->
+    <application android:label="@string/app_name" android:usesCleartextTraffic="true" />
 
     <uses-permission android:name="android.permission.INTERNET" />
 
