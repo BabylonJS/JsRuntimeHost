@@ -15,9 +15,9 @@ namespace Napi
     void Detach(Napi::Env env);
 
     // Compile and execute UTF-8 source on the current Hermes runtime.
-    // `sourceUrl` is attached to stack traces.  This calls Hermes's
-    // `hermes_run_script` directly with a zero-copy buffer; `Env::RunScript`
-    // works too, through the source-URL overload of `napi_run_script` that
+    // `sourceUrl` is attached to stack traces. This calls Hermes's
+    // `hermes_run_script` with an owned source copy; `Env::RunScript` works
+    // too, through the source-URL overload of `napi_run_script` that
     // env_hermes.cc defines.
     Napi::Value Eval(Napi::Env env, const char* source, const char* sourceUrl);
 
