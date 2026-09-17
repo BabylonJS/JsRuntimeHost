@@ -1,5 +1,7 @@
 #include <napi/env.h>
 
+#include <utility>
+
 namespace Napi
 {
   Env Attach(facebook::jsi::Runtime& rt)
@@ -23,9 +25,15 @@ namespace Napi
     }
     catch (const facebook::jsi::JSError& error)
     {
-      // A script exception (any thrown value, primitives included) has to reach callers as the
-      // Napi::Error the other engines throw; AppRuntime's dispatch treats anything else as fatal.
-      throw Napi::Error{env_ptr, facebook::jsi::Value{env_ptr->rt, error.value()}};
+      // Napi::Error is object-backed in this JSI implementation. Preserve thrown objects exactly;
+      // represent primitive throws with a new Error rather than calling asObject and leaking a
+      // second JSIException into AppRuntime's fatal catch-all.
+      auto value = facebook::jsi::Value{env_ptr->rt, error.value()};
+      if (value.isObject())
+      {
+        throw Napi::Error{env_ptr, std::move(value)};
+      }
+      throw Napi::Error::New(env, error.what());
     }
     catch (const facebook::jsi::JSIException& error)
     {
