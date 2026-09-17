@@ -1291,6 +1291,32 @@ describe("URL", function () {
 });
 
 // URL.createObjectURL / revokeObjectURL (blob: URL registry)
+describe("native exceptions", function () {
+    it("reach scripts as the thrown error object, with its class and message, on every engine", function () {
+        // A polyfill throwing Napi::TypeError from native code must arrive as that TypeError. The JSI
+        // adapter used to deliver a generic Error("Exception in HostFunction: ...") instead.
+        let fromMethod: any;
+        try {
+            URL.createObjectURL({} as any);
+        } catch (e) {
+            fromMethod = e;
+        }
+        expect(fromMethod).to.be.an.instanceof(TypeError);
+        expect(fromMethod.message).to.match(/not a Blob/);
+        expect(fromMethod.message).to.not.match(/HostFunction/);
+
+        let fromConstructor: any;
+        try {
+            new URL("not a url");
+        } catch (e) {
+            fromConstructor = e;
+        }
+        expect(fromConstructor).to.be.an.instanceof(TypeError);
+        expect(fromConstructor.message).to.match(/Invalid URL/);
+        expect(fromConstructor.message).to.not.match(/HostFunction/);
+    });
+});
+
 describe("URL.createObjectURL", function () {
     this.timeout(0);
 
