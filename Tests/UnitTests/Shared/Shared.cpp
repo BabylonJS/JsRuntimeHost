@@ -850,11 +850,23 @@ TEST(NodeApi, EvalThrowIsCatchable)
             }
             catch (const Napi::Error& error)
             {
-                caughtErrorObject = error.Message() == "boom" && error.Value().StrictEquals(env.Global().Get("evalError"));
+                caughtErrorObject = true;
+                EXPECT_EQ(error.Message(), "boom");
+                EXPECT_TRUE(env.Global().Get("evalError").IsObject());
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+                EXPECT_TRUE(error.Value().StrictEquals(env.Global().Get("evalError")));
+#endif
+                // V8JSI 0.64.33's ReportException reconstructs the Error before Eval receives it.
+                // JsiEval tests identity at our conversion boundary with an original JSError value.
             }
 
             const auto sum = Napi::Eval(env, "1 + 1", "eval-throw.js");
-            outcome->set_value(caughtErrorObject && sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 2);
+            EXPECT_TRUE(sum.IsNumber());
+            if (sum.IsNumber())
+            {
+                EXPECT_EQ(sum.As<Napi::Number>().Int32Value(), 2);
+            }
+            outcome->set_value(caughtErrorObject);
         }
         catch (const std::exception& error)
         {
