@@ -9,6 +9,7 @@ file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 
 set(SOURCES
     "Shared/DelayedTaskScheduler.cpp"
+    "Shared/JsRuntimeScheduler.cpp"
     "Shared/StandardStreamLogger.cpp"
     "Shared/TimeoutDispatcher.cpp"
     "Shared/Shared.cpp"
