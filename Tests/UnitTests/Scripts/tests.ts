@@ -1750,6 +1750,24 @@ describe("napi_get_property_names (#216)", function () {
         expect(napiGetPropertyNames(object)).to.deep.equal(["shared"]);
     });
 
+    it("distinguishes property names containing different lone surrogates", function () {
+        const object = Object.create({ ["\udc00"]: 1 });
+        object["\ud800"] = 2;
+        expect(napiGetPropertyNames(object)).to.deep.equal(["\ud800", "\udc00"]);
+    });
+
+    it("takes one ownKeys snapshot per prototype level", function () {
+        let ownKeysCalls = 0;
+        const object = new Proxy({ own: 1 }, {
+            ownKeys(target) {
+                ++ownKeysCalls;
+                return Reflect.ownKeys(target);
+            },
+        });
+        expect(napiGetPropertyNames(object)).to.deep.equal(["own"]);
+        expect(ownKeysCalls).to.equal(1);
+    });
+
     it("omits an inherited property shadowed by a non-enumerable own property", function () {
         const object = Object.create({ shared: 1 });
         Object.defineProperty(object, "shared", { value: 2, enumerable: false });
@@ -1858,34 +1876,21 @@ describe("napi_get_property_names (#216)", function () {
     const usesSharedWalk = hostEngine === "Chakra" || hostEngine === "QuickJS" || hostEngine === "JavaScriptCore";
     const describeCycles = usesSharedWalk ? describe : describe.skip;
 
-    // A cycle can only be built with a `getPrototypeOf` trap, so observing one
-    // additionally requires `napi_get_prototype` to consult that trap.
-    // JavaScriptCore's does not: it calls `JSObjectGetPrototype`, which reads
-    // the internal [[Prototype]] slot directly and never runs proxy traps
-    // (`js_native_api_javascriptcore.cc:1348`). A trapped chain there simply
-    // reports the target's real prototype, so the cycle -- and the throwing
-    // trap -- are both invisible, and the walk was never at risk on that
-    // backend. That is a pre-existing limitation of `napi_get_prototype`, not
-    // of the walk, so it is left alone here; the termination check below is
-    // still correct and harmless on JavaScriptCore.
-    const proxyTrapsReachPrototypeWalk = usesSharedWalk && hostEngine !== "JavaScriptCore";
-    const itTrapped = proxyTrapsReachPrototypeWalk ? it : it.skip;
-
     describeCycles("cyclic prototype chains", function () {
         this.timeout(5000);
 
-        itTrapped("terminates when a proxy is its own prototype", function () {
+        it("throws for a proxy that is its own prototype", function () {
             let object: any;
             object = new Proxy({ own: 1 }, { getPrototypeOf() { return object; } });
-            expect(napiGetPropertyNames(object)).to.deep.equal(["own"]);
+            expect(() => napiGetPropertyNames(object)).to.throw(RangeError);
         });
 
-        itTrapped("terminates on a two-object cycle and reports each level once", function () {
+        it("throws for a two-object prototype cycle", function () {
             let first: any;
             let second: any;
             first = new Proxy({ a: 1 }, { getPrototypeOf() { return second; } });
             second = new Proxy({ b: 2 }, { getPrototypeOf() { return first; } });
-            expect(napiGetPropertyNames(first)).to.deep.equal(["a", "b"]);
+            expect(() => napiGetPropertyNames(first)).to.throw(RangeError);
         });
 
         it("still reports a long acyclic chain in full", function () {
@@ -1897,11 +1902,11 @@ describe("napi_get_property_names (#216)", function () {
             expect(napiGetPropertyNames(leaf)).to.deep.equal(["own", "middle", "deep"]);
         });
 
-        itTrapped("propagates a throwing getPrototypeOf trap instead of hanging", function () {
+        it("preserves an exception from a throwing getPrototypeOf trap", function () {
             const object = new Proxy({ own: 1 }, {
                 getPrototypeOf() { throw new Error("trap"); },
             });
-            expect(() => napiGetPropertyNames(object)).to.throw();
+            expect(() => napiGetPropertyNames(object)).to.throw("trap");
         });
     });
 });

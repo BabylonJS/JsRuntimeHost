@@ -2,8 +2,6 @@
 
 #include <napi/js_native_api.h>
 
-#include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace napi_shared {
@@ -16,38 +14,10 @@ namespace napi_shared {
         }                                                   \
       } while (0)
 
-    napi_status GetUtf8Value(napi_env env, napi_value value, std::string& result) {
-      size_t length{};
-      RETURN_IF_NOT_OK(napi_get_value_string_utf8(env, value, nullptr, 0, &length));
-
-      std::vector<char> buffer(length + 1);
-      size_t copied{};
-      RETURN_IF_NOT_OK(napi_get_value_string_utf8(env, value, buffer.data(), buffer.size(), &copied));
-
-      result.assign(buffer.data(), copied);
-      return napi_ok;
-    }
-
     napi_status IsObjectLike(napi_env env, napi_value value, bool& result) {
       napi_valuetype type{};
       RETURN_IF_NOT_OK(napi_typeof(env, value, &type));
       result = (type == napi_object || type == napi_function || type == napi_external);
-      return napi_ok;
-    }
-
-    // Appends every element of the string array `names` to `shadowed`.
-    napi_status AddAll(napi_env env, napi_value names, std::unordered_set<std::string>& shadowed) {
-      uint32_t count{};
-      RETURN_IF_NOT_OK(napi_get_array_length(env, names, &count));
-
-      std::string key{};
-      for (uint32_t index = 0; index < count; ++index) {
-        napi_value name{};
-        RETURN_IF_NOT_OK(napi_get_element(env, names, index, &name));
-        RETURN_IF_NOT_OK(GetUtf8Value(env, name, key));
-        shadowed.insert(std::move(key));
-      }
-
       return napi_ok;
     }
 
@@ -68,28 +38,26 @@ namespace napi_shared {
   }
 
   napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result) {
-    // `Object.keys` reports one level's own enumerable string-keyed properties
-    // in specification order, which is exactly what `for...in` visits at that
-    // level. `Object.getOwnPropertyNames` additionally reports the
-    // non-enumerable ones: `for...in` does not visit those, but they still
-    // shadow same-named properties further up the prototype chain, so they have
-    // to be tracked as well.
+    // Take one own-key snapshot per prototype level, then inspect each
+    // descriptor to determine enumerability. This matches `for...in` for
+    // proxies, whose `ownKeys` trap must not be invoked twice at one level.
     napi_value global{};
     napi_value objectConstructor{};
-    napi_value keys{};
     napi_value getOwnPropertyNames{};
+    napi_value getOwnPropertyDescriptor{};
+    napi_value getPrototypeOf{};
     RETURN_IF_NOT_OK(napi_get_global(env, &global));
     RETURN_IF_NOT_OK(napi_get_named_property(env, global, "Object", &objectConstructor));
-    RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "keys", &keys));
     RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "getOwnPropertyNames", &getOwnPropertyNames));
+    RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "getOwnPropertyDescriptor", &getOwnPropertyDescriptor));
+    RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "getPrototypeOf", &getPrototypeOf));
 
     napi_value names{};
     RETURN_IF_NOT_OK(napi_create_array(env, &names));
     uint32_t nameCount{};
 
-    std::unordered_set<std::string> shadowed{};
+    std::vector<napi_value> shadowed{};
     std::vector<napi_value> visited{};
-    std::string key{};
 
     // `ToObject` is what the specification (and the V8 implementation) applies
     // to the argument, so a primitive is wrapped and its properties reported.
@@ -113,48 +81,53 @@ namespace napi_shared {
         break;
       }
 
-      // A `getPrototypeOf` Proxy trap can return an object that is already on
-      // the chain -- nothing in the specification forbids it, so
-      // `Object.getPrototypeOf(p) === p` is reachable from script -- which
-      // makes this walk cyclic. V8 recurses and so terminates with a
-      // `RangeError`; this loop is iterative and would spin forever.
-      //
-      // Stopping at the repeat is exact rather than a bail-out: every level
-      // adds its own property names to `shadowed` before the walk continues,
-      // so a level visited a second time can only re-encounter names that are
-      // already shadowed. Breaking here therefore yields the same result the
-      // non-terminating walk converges on.
       bool alreadyVisited{};
       RETURN_IF_NOT_OK(Contains(env, visited, current, alreadyVisited));
       if (alreadyVisited) {
-        break;
+        RETURN_IF_NOT_OK(napi_throw_range_error(env, nullptr, "Cyclic prototype chain"));
+        return napi_pending_exception;
       }
       visited.push_back(current);
 
-      napi_value ownEnumerableNames{};
-      RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, keys, 1, &current, &ownEnumerableNames));
+      napi_value ownNames{};
+      RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getOwnPropertyNames, 1, &current, &ownNames));
 
-      uint32_t ownEnumerableCount{};
-      RETURN_IF_NOT_OK(napi_get_array_length(env, ownEnumerableNames, &ownEnumerableCount));
-      for (uint32_t index = 0; index < ownEnumerableCount; ++index) {
+      uint32_t ownNameCount{};
+      RETURN_IF_NOT_OK(napi_get_array_length(env, ownNames, &ownNameCount));
+      for (uint32_t index = 0; index < ownNameCount; ++index) {
         napi_value name{};
-        RETURN_IF_NOT_OK(napi_get_element(env, ownEnumerableNames, index, &name));
-        RETURN_IF_NOT_OK(GetUtf8Value(env, name, key));
-        if (shadowed.find(key) == shadowed.end()) {
+        RETURN_IF_NOT_OK(napi_get_element(env, ownNames, index, &name));
+
+        bool alreadyShadowed{};
+        RETURN_IF_NOT_OK(Contains(env, shadowed, name, alreadyShadowed));
+        if (alreadyShadowed) {
+          continue;
+        }
+
+        napi_value descriptorArgs[]{current, name};
+        napi_value descriptor{};
+        RETURN_IF_NOT_OK(napi_call_function(
+            env, objectConstructor, getOwnPropertyDescriptor, 2, descriptorArgs, &descriptor));
+
+        napi_valuetype descriptorType{};
+        RETURN_IF_NOT_OK(napi_typeof(env, descriptor, &descriptorType));
+        if (descriptorType == napi_undefined) {
+          continue;
+        }
+
+        shadowed.push_back(name);
+
+        napi_value enumerableValue{};
+        RETURN_IF_NOT_OK(napi_get_named_property(env, descriptor, "enumerable", &enumerableValue));
+        bool enumerable{};
+        RETURN_IF_NOT_OK(napi_get_value_bool(env, enumerableValue, &enumerable));
+        if (enumerable) {
           RETURN_IF_NOT_OK(napi_set_element(env, names, nameCount++, name));
         }
       }
 
       napi_value next{};
-      RETURN_IF_NOT_OK(napi_get_prototype(env, current, &next));
-
-      bool hasNextLevel{};
-      RETURN_IF_NOT_OK(IsObjectLike(env, next, hasNextLevel));
-      if (hasNextLevel) {
-        napi_value ownNames{};
-        RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getOwnPropertyNames, 1, &current, &ownNames));
-        RETURN_IF_NOT_OK(AddAll(env, ownNames, shadowed));
-      }
+      RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getPrototypeOf, 1, &current, &next));
 
       current = next;
     }

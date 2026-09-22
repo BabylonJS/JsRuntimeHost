@@ -136,7 +136,10 @@ TEST(JavaScript, All)
                     if (napi_is_exception_pending(rawEnv, &isExceptionPending) == napi_ok && isExceptionPending)
                     {
                         napi_value error{};
-                        napi_get_and_clear_last_exception(rawEnv, &error);
+                        if (napi_get_and_clear_last_exception(rawEnv, &error) == napi_ok)
+                        {
+                            throw Napi::Error{info.Env(), error};
+                        }
                     }
 
                     throw Napi::Error::New(info.Env(), "napi_get_property_names failed with status " + std::to_string(status));
