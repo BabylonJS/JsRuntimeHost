@@ -99,11 +99,10 @@ namespace Babylon::Polyfills::Internal
             return listener.isEventHandler;
         });
 
-        // `EventHandler` attributes are declared [LegacyTreatNonObjectAsNull] in WebIDL, so a
-        // non-callable assignment is coerced to null rather than throwing: `xhr.onload = 0`
-        // leaves `xhr.onload === null`. We extend that to non-callable objects too -- storing a
-        // value we could never invoke would only defer the failure to dispatch time.
-        if (!value.IsFunction())
+        // `EventHandler` attributes are declared [LegacyTreatNonObjectAsNull] in WebIDL:
+        // primitive assignments clear the handler, while a non-callable object fails callback
+        // conversion with a TypeError.
+        if (!value.IsObject())
         {
             if (it != listeners.end())
             {
@@ -111,6 +110,10 @@ namespace Babylon::Polyfills::Internal
             }
 
             return;
+        }
+        if (!value.IsFunction())
+        {
+            throw Napi::TypeError::New(Env(), "Event handler must be callable");
         }
 
         if (it != listeners.end())
