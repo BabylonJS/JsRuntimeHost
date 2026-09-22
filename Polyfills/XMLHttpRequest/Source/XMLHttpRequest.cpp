@@ -81,9 +81,9 @@ namespace Babylon::Polyfills::Internal
         {
             for (const auto& listener : it->second)
             {
-                if (listener.isEventHandler)
+                if (listener->active && listener->isEventHandler)
                 {
-                    return listener.callback.Value();
+                    return listener->callback.Value();
                 }
             }
         }
@@ -95,36 +95,32 @@ namespace Babylon::Polyfills::Internal
     void XMLHttpRequest::SetEventHandler(const Napi::CallbackInfo&, const Napi::Value& value)
     {
         auto& listeners = m_listeners[EVENT_TYPE_NAMES[static_cast<size_t>(Index)]];
-        const auto it = std::find_if(listeners.begin(), listeners.end(), [](const Listener& listener) {
-            return listener.isEventHandler;
+        const auto it = std::find_if(listeners.begin(), listeners.end(), [](const std::shared_ptr<Listener>& listener) {
+            return listener->isEventHandler;
         });
 
-        // `EventHandler` attributes are declared [LegacyTreatNonObjectAsNull] in WebIDL:
-        // primitive assignments clear the handler, while a non-callable object fails callback
-        // conversion with a TypeError.
+        // Event handler attributes treat primitive values as null. Object values are retained
+        // verbatim for the getter; non-callable objects are simply skipped during dispatch.
         if (!value.IsObject())
         {
             if (it != listeners.end())
             {
+                (*it)->active = false;
                 listeners.erase(it);
             }
 
             return;
-        }
-        if (!value.IsFunction())
-        {
-            throw Napi::TypeError::New(Env(), "Event handler must be callable");
         }
 
         if (it != listeners.end())
         {
             // Replace in place so reassignment keeps this listener's position in the
             // dispatch order.
-            it->callback = Napi::Persistent(value.As<Napi::Function>());
+            (*it)->callback = Napi::Persistent(value.As<Napi::Object>());
         }
         else
         {
-            listeners.push_back(Listener{Napi::Persistent(value.As<Napi::Function>()), true});
+            listeners.push_back(std::make_shared<Listener>(Listener{Napi::Persistent(value.As<Napi::Object>()), true}));
         }
     }
 
@@ -194,14 +190,14 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponse(const Napi::CallbackInfo&)
     {
-        if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
+        if (m_request->ResponseType() == UrlLib::UrlResponseType::String)
         {
-            const std::string_view responseString{m_request.ResponseString()};
+            const std::string_view responseString{m_request->ResponseString()};
             return Napi::String::New(Env(), responseString.data(), responseString.size());
         }
         else
         {
-            gsl::span<const std::byte> responseBuffer{m_request.ResponseBuffer()};
+            gsl::span<const std::byte> responseBuffer{m_request->ResponseBuffer()};
             auto arrayBuffer{Napi::ArrayBuffer::New(Env(), responseBuffer.size())};
             std::memcpy(arrayBuffer.Data(), responseBuffer.data(), arrayBuffer.ByteLength());
             return arrayBuffer;
@@ -214,66 +210,66 @@ namespace Babylon::Polyfills::Internal
         // example, inlines the .wasm payload as a JavaScript string literal. Passing .data()
         // alone would hand a const char* to Napi and truncate at the first null, so the length
         // has to be supplied explicitly.
-        const std::string_view responseString{m_request.ResponseString()};
+        const std::string_view responseString{m_request->ResponseString()};
         return Napi::String::New(Env(), responseString.data(), responseString.size());
     }
 
     Napi::Value XMLHttpRequest::GetResponseType(const Napi::CallbackInfo&)
     {
-        return Napi::Value::From(Env(), ResponseType::EnumToString(m_request.ResponseType()));
+        return Napi::Value::From(Env(), ResponseType::EnumToString(m_request->ResponseType()));
     }
 
     void XMLHttpRequest::SetResponseType(const Napi::CallbackInfo&, const Napi::Value& value)
     {
-        m_request.ResponseType(ResponseType::StringToEnum(value.As<Napi::String>().Utf8Value()));
+        m_request->ResponseType(ResponseType::StringToEnum(value.As<Napi::String>().Utf8Value()));
     }
 
     Napi::Value XMLHttpRequest::GetResponseURL(const Napi::CallbackInfo&)
     {
-        return Napi::Value::From(Env(), m_request.ResponseUrl().data());
+        return Napi::Value::From(Env(), m_request->ResponseUrl().data());
     }
 
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
-        return Napi::Value::From(Env(), arcana::underlying_cast(m_request.StatusCode()));
+        return Napi::Value::From(Env(), arcana::underlying_cast(m_request->StatusCode()));
     }
 
     Napi::Value XMLHttpRequest::GetStatusText(const Napi::CallbackInfo&)
     {
         // Per the XHR spec, statusText is the empty string until a response is available
         // (status 0 means UNSENT/OPENED or a network error).
-        if (arcana::underlying_cast(m_request.StatusCode()) == 0)
+        if (arcana::underlying_cast(m_request->StatusCode()) == 0)
         {
             return Napi::String::New(Env(), "");
         }
 
-        return Napi::String::New(Env(), std::string{m_request.StatusText()});
+        return Napi::String::New(Env(), std::string{m_request->StatusText()});
     }
 
     Napi::Value XMLHttpRequest::GetErrorCode(const Napi::CallbackInfo&)
     {
         // Stable symbolic token for a transport failure (e.g. "CURLE_COULDNT_CONNECT",
         // "NSURLErrorTimedOut", "AppResourceNotFound"); empty when there was no transport failure.
-        return Napi::String::New(Env(), std::string{m_request.ErrorSymbol()});
+        return Napi::String::New(Env(), std::string{m_request->ErrorSymbol()});
     }
 
     Napi::Value XMLHttpRequest::GetErrorDetail(const Napi::CallbackInfo&)
     {
         // Full normalized "<domain>:<symbol>(<code>): <detail>" string; empty when there was no
         // transport failure.
-        return Napi::String::New(Env(), std::string{m_request.ErrorString()});
+        return Napi::String::New(Env(), std::string{m_request->ErrorString()});
     }
 
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
     {
         const auto headerName = info[0].As<Napi::String>().Utf8Value();
-        const auto header = m_request.GetResponseHeader(headerName);
+        const auto header = m_request->GetResponseHeader(headerName);
         return header ? Napi::Value::From(Env(), header.value()) : info.Env().Null();
     }
 
     Napi::Value XMLHttpRequest::GetAllResponseHeaders(const Napi::CallbackInfo&)
     {
-        auto responseHeaders = m_request.GetAllResponseHeaders();
+        auto responseHeaders = m_request->GetAllResponseHeaders();
         Napi::Object responseHeadersObject = Napi::Object::New(Env());
 
         for (auto& iter : responseHeaders)
@@ -288,7 +284,7 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::SetRequestHeader(const Napi::CallbackInfo& info)
     {
-        m_request.SetRequestHeader(info[0].As<Napi::String>().Utf8Value(), info[1].As<Napi::String>().Utf8Value());
+        m_request->SetRequestHeader(info[0].As<Napi::String>().Utf8Value(), info[1].As<Napi::String>().Utf8Value());
     }
 
     void XMLHttpRequest::AddEventListener(const Napi::CallbackInfo& info)
@@ -302,7 +298,7 @@ namespace Babylon::Polyfills::Internal
             // Deliberately skips the `on<event>` entry: `xhr.onload = f` followed by
             // `xhr.addEventListener("load", f)` is two independent registrations, and a browser
             // calls `f` twice rather than collapsing them.
-            if (!listener.isEventHandler && listener.callback.Value() == eventHandler)
+            if (listener->active && !listener->isEventHandler && listener->callback.Value() == eventHandler)
             {
                 // Per DOM, re-adding an identical (type, callback, capture) triple is a silent
                 // no-op rather than an error: "If eventTarget's event listener list does not
@@ -312,7 +308,7 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        listeners.push_back(Listener{Napi::Persistent(eventHandler), false});
+        listeners.push_back(std::make_shared<Listener>(Listener{Napi::Persistent(eventHandler.As<Napi::Object>()), false}));
     }
 
     void XMLHttpRequest::RemoveEventListener(const Napi::CallbackInfo& info)
@@ -327,8 +323,9 @@ namespace Babylon::Polyfills::Internal
             {
                 // removeEventListener never removes an `on<event>` handler; that is done by
                 // assigning null to the property.
-                if (!it->isEventHandler && it->callback.Value() == eventHandler)
+                if ((*it)->active && !(*it)->isEventHandler && (*it)->callback.Value() == eventHandler)
                 {
+                    (*it)->active = false;
                     listeners.erase(it);
                     break;
                 }
@@ -338,11 +335,25 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Abort(const Napi::CallbackInfo&)
     {
-        // Record the caller's intent so the in-flight continuation reports this as an abort
-        // rather than a transport error. If no request is in flight this is inert, matching the
-        // DOM, where abort() on an unsent request produces no observable events.
-        m_aborted = true;
-        m_request.Abort();
+        if (m_readyState == ReadyState::Done)
+        {
+            m_readyState = ReadyState::Unsent;
+            return;
+        }
+
+        if (!m_sendActive)
+        {
+            return;
+        }
+
+        m_sendActive = false;
+        ++m_sendId;
+        m_request->Abort();
+
+        SetReadyState(ReadyState::Done);
+        RaiseEvent(EventType::Abort);
+        RaiseEvent(EventType::LoadEnd);
+        m_readyState = ReadyState::Unsent;
     }
 
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
@@ -351,7 +362,14 @@ namespace Babylon::Polyfills::Internal
 
         try
         {
-            m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
+            if (m_sendActive)
+            {
+                m_request->Abort();
+                m_sendActive = false;
+            }
+            ++m_sendId;
+            m_request = std::make_shared<UrlLib::UrlRequest>();
+            m_request->Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
         }
         catch (const std::exception& e)
         {
@@ -381,7 +399,7 @@ namespace Babylon::Polyfills::Internal
 
             if (info[0].IsString())
             {
-                m_request.SetRequestBody(info[0].As<Napi::String>().Utf8Value());
+                m_request->SetRequestBody(info[0].As<Napi::String>().Utf8Value());
             }
         }
 
@@ -398,17 +416,26 @@ namespace Babylon::Polyfills::Internal
         // automatically once the request settles and the lambda is destroyed --
         // no member self-reference to clear. (Mirrors FileReader's anchor.)
         auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
+        const auto request = m_request;
+        const auto sendId = ++m_sendId;
+        m_sendActive = true;
 
-        m_request.SendAsync()
+        request->SendAsync()
             .then(arcana::inline_scheduler, arcana::cancellation::none(), [sendRegion{std::move(sendRegion)}]() mutable {
                 sendRegion.reset();
             })
-            .then(m_runtimeScheduler, arcana::cancellation::none(), [this, anchor{std::move(anchor)}](const arcana::expected<void, std::exception_ptr>& result) {
+            .then(m_runtimeScheduler, arcana::cancellation::none(), [this, anchor{std::move(anchor)}, request, sendId](const arcana::expected<void, std::exception_ptr>& result) {
+                if (sendId != m_sendId)
+                {
+                    return;
+                }
+
+                m_sendActive = false;
                 // Run on every outcome -- transport exception OR underlying request succeeded but ended in a non-2xx
                 // status (e.g. a missing local file on UWP, where UrlLib silently retains status 0). The previous
                 // success-only continuation here skipped readyState=Done / loadend / error and let the JS observer
                 // hang.
-                const auto statusCode = arcana::underlying_cast(m_request.StatusCode());
+                const auto statusCode = arcana::underlying_cast(request->StatusCode());
                 // `error` is reserved for transport-level failure. A completed HTTP transaction
                 // that returned a non-2xx status (e.g. 404) is still a successful exchange, so it
                 // dispatches `load` and the caller branches on `xhr.status` inside the handler.
@@ -420,13 +447,11 @@ namespace Babylon::Polyfills::Internal
                 const bool failed = result.has_error() || statusCode == 0;
 
                 SetReadyState(ReadyState::Done);
-                if (m_aborted)
+                if (sendId != m_sendId)
                 {
-                    // A cancelled request is not a transport failure: the DOM reports it as
-                    // 'abort' + 'loadend' and never raises 'error'.
-                    RaiseEvent(EventType::Abort);
+                    return;
                 }
-                else if (failed)
+                if (failed)
                 {
                     RaiseEvent(EventType::Error);
                 }
@@ -435,10 +460,6 @@ namespace Babylon::Polyfills::Internal
                     RaiseEvent(EventType::Load);
                 }
                 RaiseEvent(EventType::LoadEnd);
-
-                // Assume the XMLHttpRequest will only be used for a single request and clear the event handlers.
-                // Single use seems to be the standard pattern, and we need to release our strong refs to event handlers.
-                m_listeners.clear();
             });
     }
 
@@ -455,37 +476,65 @@ namespace Babylon::Polyfills::Internal
 
         Napi::Env env = Env();
 
-        // Snapshot the handlers before dispatching. A handler may call addEventListener,
+        // Snapshot stable listener records before dispatching. A handler may call addEventListener,
         // removeEventListener, or reassign an on<event> property while it runs, which would
         // otherwise reallocate the vector or rehash the map out from under this dispatch.
-        // (Mirrors FileReader::Dispatch.)
-        std::vector<Napi::Function> handlers{};
+        std::vector<std::shared_ptr<Listener>> listeners{};
 
         const auto it = m_listeners.find(eventType);
         if (it != m_listeners.end())
         {
-            // One pass over the single list, so handlers run in registration order regardless of
-            // whether they arrived via addEventListener or an `on<event>` property.
-            handlers.reserve(it->second.size());
-            for (const auto& listener : it->second)
+            listeners = it->second;
+        }
+
+        const auto jsThis = Value();
+        auto event = Napi::Object::New(env);
+        event.Set("type", eventType);
+        event.Set("target", jsThis);
+        event.Set("currentTarget", jsThis);
+        if (std::strcmp(eventType, EventType::ReadyStateChange) != 0)
+        {
+            event.Set("lengthComputable", false);
+            event.Set("loaded", 0);
+            event.Set("total", 0);
+        }
+
+        std::vector<std::shared_ptr<Napi::ObjectReference>> unhandledErrors{};
+        for (const auto& listener : listeners)
+        {
+            if (!listener->active)
             {
-                if (!listener.callback.IsEmpty())
-                {
-                    handlers.push_back(listener.callback.Value());
-                }
+                continue;
+            }
+
+            const auto callback = listener->callback.Value();
+            if (!callback.IsFunction())
+            {
+                continue;
+            }
+
+            try
+            {
+                callback.As<Napi::Function>().Call(jsThis, {event});
+            }
+            catch (const Napi::Error& error)
+            {
+                unhandledErrors.push_back(std::make_shared<Napi::ObjectReference>(Napi::Persistent(error.Value())));
+                continue;
+            }
+
+            if (env.IsExceptionPending())
+            {
+                auto error = env.GetAndClearPendingException();
+                unhandledErrors.push_back(std::make_shared<Napi::ObjectReference>(Napi::Persistent(error.Value())));
             }
         }
 
-        for (const auto& handler : handlers)
+        for (const auto& error : unhandledErrors)
         {
-            handler.Call({});
-
-            // A throwing handler must not abort the remaining dispatch, and the exception must
-            // not escape into the native completion continuation that called us.
-            if (env.IsExceptionPending())
-            {
-                env.GetAndClearPendingException();
-            }
+            m_runtimeScheduler([env, error]() {
+                Napi::Error{env, error->Value()}.ThrowAsJavaScriptException();
+            });
         }
     }
 }

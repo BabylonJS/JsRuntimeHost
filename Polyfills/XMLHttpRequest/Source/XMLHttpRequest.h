@@ -5,6 +5,8 @@
 #include <napi/napi.h>
 #include <UrlLib/UrlLib.h>
 
+#include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -73,16 +75,17 @@ namespace Babylon::Polyfills::Internal
         // moving to the end ("If eventHandler's listener is not null, then return").
         struct Listener
         {
-            Napi::FunctionReference callback;
+            Napi::ObjectReference callback;
             bool isEventHandler;
+            bool active{true};
         };
 
         std::string m_url{};
-        UrlLib::UrlRequest m_request{};
+        std::shared_ptr<UrlLib::UrlRequest> m_request{std::make_shared<UrlLib::UrlRequest>()};
         JsRuntimeScheduler m_runtimeScheduler;
         ReadyState m_readyState{ReadyState::Unsent};
-        // Set by abort(); makes the in-flight continuation report 'abort' instead of 'error'.
-        bool m_aborted{false};
-        std::unordered_map<std::string, std::vector<Listener>> m_listeners;
+        uint64_t m_sendId{};
+        bool m_sendActive{false};
+        std::unordered_map<std::string, std::vector<std::shared_ptr<Listener>>> m_listeners;
     };
 }
