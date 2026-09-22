@@ -118,12 +118,11 @@ namespace Babylon::Polyfills::Internal
         return Napi::Value::From(Env(), arcana::underlying_cast(m_readyState));
     }
 
-    Napi::Value XMLHttpRequest::GetResponse(const Napi::CallbackInfo&)
+    Napi::Value XMLHttpRequest::GetResponse(const Napi::CallbackInfo& info)
     {
         if (m_request.ResponseType() == UrlLib::UrlResponseType::String)
         {
-            const std::string_view responseString{m_request.ResponseString()};
-            return Napi::String::New(Env(), responseString.data(), responseString.size());
+            return GetResponseText(info);
         }
         else
         {
@@ -135,14 +134,17 @@ namespace Babylon::Polyfills::Internal
     }
 
     Napi::Value XMLHttpRequest::GetResponseText(const Napi::CallbackInfo&)
+    {
+        std::string_view responseString{m_request.ResponseString()};
+        constexpr std::string_view utf8Bom{"\xEF\xBB\xBF"};
+        if (responseString.starts_with(utf8Bom))
         {
-            // The body may legitimately contain embedded nulls: Emscripten's EXPORT_ES6 output, for
-            // example, inlines the .wasm payload as a JavaScript string literal. Passing .data()
-            // alone would hand a const char* to Napi and truncate at the first null, so the length
-            // has to be supplied explicitly.
-            const std::string_view responseString{m_request.ResponseString()};
-            return Napi::String::New(Env(), responseString.data(), responseString.size());
+            responseString.remove_prefix(utf8Bom.size());
         }
+
+        // Preserve embedded nulls, such as the inlined wasm payload in Emscripten output.
+        return Napi::String::New(Env(), responseString.data(), responseString.size());
+    }
 
     Napi::Value XMLHttpRequest::GetResponseType(const Napi::CallbackInfo&)
     {

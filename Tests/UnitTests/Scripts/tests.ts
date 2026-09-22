@@ -315,6 +315,54 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.responseText.length).to.equal(16);
         expect(xhr.response).to.equal(xhr.responseText);
     });
+
+    it("should consume a leading UTF-8 BOM in text responses", async function () {
+        const url = URL.createObjectURL(new Blob(['\uFEFF{"value":42}'], { type: "application/json" }));
+        try {
+            for (const responseType of [undefined, "text"]) {
+                const xhr = await createRequest("GET", url, undefined, responseType);
+                expect(xhr.status).to.equal(200);
+                expect(xhr.responseText).to.equal('{"value":42}');
+                expect(xhr.response).to.equal(xhr.responseText);
+                expect(JSON.parse(xhr.response)).to.deep.equal({ value: 42 });
+            }
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    });
+
+    it("should consume only one leading UTF-8 BOM and preserve embedded characters", async function () {
+        for (const [body, expected] of [
+            ["", ""],
+            ["a", "a"],
+            ["ab", "ab"],
+            ["\uFEFF", ""],
+            ["\uFEFF\uFEFFstart\0middle\uFEFFend", "\uFEFFstart\0middle\uFEFFend"],
+            ["start\uFEFF\0end", "start\uFEFF\0end"],
+        ]) {
+            const url = URL.createObjectURL(new Blob([body], { type: "text/plain" }));
+            try {
+                const xhr = await createRequest("GET", url);
+                expect(xhr.status).to.equal(200);
+                expect(xhr.responseText).to.equal(expected);
+                expect(xhr.response).to.equal(expected);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        }
+    });
+
+    it("should preserve the UTF-8 BOM in arraybuffer responses", async function () {
+        const bytes = new Uint8Array([0xEF, 0xBB, 0xBF, 0x61, 0, 0x62]);
+        const url = URL.createObjectURL(new Blob([bytes]));
+        try {
+            const xhr = await createRequest("GET", url, undefined, "arraybuffer");
+            expect(xhr.status).to.equal(200);
+            expect(Array.from(new Uint8Array(xhr.response))).to.deep.equal(Array.from(bytes));
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    });
 });
 
 describe("fetch", function () {
@@ -2275,11 +2323,10 @@ describe("FileReader", function () {
 describe("WebAssembly", function () {
     this.timeout(30000);
 
-    // Only the V8 AppRuntime pumps V8's foreground task queue, which is what lets these promises
-    // settle. The other engines' runtimes have the same class of gap and hang here instead of
-    // failing, so scope the suite rather than leave a 30s timeout on every non-V8 leg.
+    // V8 pumps its foreground queue; Apple's JavaScriptCore pumps its CFRunLoop.
     beforeEach(function () {
-        if (hostEngine !== "V8" || typeof WebAssembly === "undefined") {
+        const hasAsyncTasks = hostEngine === "V8" || (hostEngine === "JavaScriptCore" && (hostPlatform === "macOS" || hostPlatform === "iOS"));
+        if (!hasAsyncTasks || typeof WebAssembly === "undefined") {
             this.skip();
         }
     });
