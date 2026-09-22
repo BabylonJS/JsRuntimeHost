@@ -829,6 +829,24 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
 
 #endif
 
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, RunScriptWithSourceUrl)
+{
+    // Regression: Env::RunScript(script, url) calls the source-URL overload of napi_run_script.
+    // On Hermes that call used to bind to the engine's standard three-argument C symbol and hand
+    // it the URL where it expected the result pointer (an access violation on every host).
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> evaluated;
+    runtime.Dispatch([&evaluated](Napi::Env env) {
+        const auto sum = env.RunScript("40 + 2", "run-script-with-url.js");
+        evaluated.set_value(sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 42);
+    });
+
+    EXPECT_TRUE(evaluated.get_future().get());
+}
+#endif
+
 int RunTests()
 {
     testing::InitGoogleTest();
