@@ -3,8 +3,8 @@
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <arcana/tracing/trace_region.h>
 #include <algorithm>
-#include <cstring>
 #include <sstream>
+#include <string_view>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -63,6 +63,86 @@ namespace Babylon::Polyfills::Internal
             constexpr const char* Load = "load";
             constexpr const char* Abort = "abort";
         }
+
+        constexpr const char* EVENT_FACTORY_NAME = "__jsRuntimeHostMakeXHREvent";
+        constexpr const char* EVENT_FACTORY_SOURCE = R"JS(
+            (function (global) {
+                if (typeof global.Event !== "function") {
+                    function Event(type, init) {
+                        init = init || {};
+                        this.type = String(type);
+                        this.bubbles = !!init.bubbles;
+                        this.cancelable = !!init.cancelable;
+                        this.composed = !!init.composed;
+                        this.defaultPrevented = false;
+                        this.target = null;
+                        this.currentTarget = null;
+                        this.eventPhase = 0;
+                        this.timeStamp = Date.now();
+                        this.isTrusted = false;
+                        this.cancelBubble = false;
+                    }
+                    Event.prototype.preventDefault = function () {
+                        if (this.cancelable) this.defaultPrevented = true;
+                    };
+                    Event.prototype.stopPropagation = function () { this.cancelBubble = true; };
+                    Event.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
+                    Event.prototype.composedPath = function () {
+                        return this.currentTarget === null ? [] : [this.target];
+                    };
+                    Event.NONE = Event.prototype.NONE = 0;
+                    Event.CAPTURING_PHASE = Event.prototype.CAPTURING_PHASE = 1;
+                    Event.AT_TARGET = Event.prototype.AT_TARGET = 2;
+                    Event.BUBBLING_PHASE = Event.prototype.BUBBLING_PHASE = 3;
+                    global.Event = Event;
+                }
+
+                if (typeof global.ProgressEvent !== "function") {
+                    function ProgressEvent(type, init) {
+                        init = init || {};
+                        var event = new global.Event(type, init);
+                        Object.setPrototypeOf(event, ProgressEvent.prototype);
+                        event.lengthComputable = !!init.lengthComputable;
+                        event.loaded = Number(init.loaded || 0);
+                        event.total = Number(init.total || 0);
+                        return event;
+                    }
+                    ProgressEvent.prototype = Object.create(global.Event.prototype);
+                    ProgressEvent.prototype.constructor = ProgressEvent;
+                    global.ProgressEvent = ProgressEvent;
+                }
+
+                return function (type, target, progress) {
+                    var event = progress
+                        ? new global.ProgressEvent(type, {lengthComputable: false, loaded: 0, total: 0})
+                        : new global.Event(type);
+                    var currentTarget = target;
+                    var eventPhase = 2;
+                    Object.defineProperties(event, {
+                        target: {value: target, configurable: true},
+                        currentTarget: {get: function () { return currentTarget; }, configurable: true},
+                        eventPhase: {get: function () { return eventPhase; }, configurable: true}
+                    });
+                    var stopped = false;
+                    var stop = event.stopImmediatePropagation;
+                    Object.defineProperty(event, "stopImmediatePropagation", {
+                        configurable: true,
+                        value: function () {
+                            stopped = true;
+                            return stop.call(this);
+                        }
+                    });
+                    return {
+                        value: event,
+                        isStopped: function () { return stopped; },
+                        end: function () {
+                            currentTarget = null;
+                            eventPhase = 0;
+                        }
+                    };
+                };
+            })(typeof globalThis === "object" ? globalThis : this)
+        )JS";
     }
 
     const char* const XMLHttpRequest::EVENT_TYPE_NAMES[static_cast<size_t>(XMLHttpRequest::EventIndex::Count)] = {
@@ -169,6 +249,12 @@ namespace Babylon::Polyfills::Internal
                 InstanceMethod("send", &XMLHttpRequest::Send),
             });
 
+        auto eventFactory = env.RunScript(EVENT_FACTORY_SOURCE, "XMLHttpRequestEvents.js");
+        auto descriptor = Napi::Object::New(env);
+        descriptor.Set("value", eventFactory);
+        auto object = env.Global().Get("Object").As<Napi::Object>();
+        object.Get("defineProperty").As<Napi::Function>().Call(object, {func, Napi::String::New(env, EVENT_FACTORY_NAME), descriptor});
+
         if (env.Global().Get(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME).IsUndefined())
         {
             env.Global().Set(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME, func);
@@ -180,6 +266,7 @@ namespace Babylon::Polyfills::Internal
     XMLHttpRequest::XMLHttpRequest(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<XMLHttpRequest>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
+        , m_makeEvent{Napi::Persistent(info.NewTarget().As<Napi::Object>().Get(EVENT_FACTORY_NAME).As<Napi::Function>())}
     {
     }
 
@@ -347,13 +434,24 @@ namespace Babylon::Polyfills::Internal
         }
 
         m_sendActive = false;
-        ++m_sendId;
+        const auto abortedSendId = ++m_sendId;
         m_request->Abort();
 
         SetReadyState(ReadyState::Done);
+        if (m_sendId != abortedSendId)
+        {
+            return;
+        }
         RaiseEvent(EventType::Abort);
+        if (m_sendId != abortedSendId)
+        {
+            return;
+        }
         RaiseEvent(EventType::LoadEnd);
-        m_readyState = ReadyState::Unsent;
+        if (m_sendId == abortedSendId)
+        {
+            m_readyState = ReadyState::Unsent;
+        }
     }
 
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
@@ -459,7 +557,10 @@ namespace Babylon::Polyfills::Internal
                 {
                     RaiseEvent(EventType::Load);
                 }
-                RaiseEvent(EventType::LoadEnd);
+                if (sendId == m_sendId)
+                {
+                    RaiseEvent(EventType::LoadEnd);
+                }
             });
     }
 
@@ -488,16 +589,12 @@ namespace Babylon::Polyfills::Internal
         }
 
         const auto jsThis = Value();
-        auto event = Napi::Object::New(env);
-        event.Set("type", eventType);
-        event.Set("target", jsThis);
-        event.Set("currentTarget", jsThis);
-        if (std::strcmp(eventType, EventType::ReadyStateChange) != 0)
-        {
-            event.Set("lengthComputable", false);
-            event.Set("loaded", 0);
-            event.Set("total", 0);
-        }
+        auto dispatch = m_makeEvent.Value().Call({
+            Napi::String::New(env, eventType),
+            jsThis,
+            Napi::Boolean::New(env, std::string_view{eventType} != EventType::ReadyStateChange),
+        }).As<Napi::Object>();
+        auto event = dispatch.Get("value").As<Napi::Object>();
 
         std::vector<std::shared_ptr<Napi::ObjectReference>> unhandledErrors{};
         for (const auto& listener : listeners)
@@ -528,8 +625,13 @@ namespace Babylon::Polyfills::Internal
                 auto error = env.GetAndClearPendingException();
                 unhandledErrors.push_back(std::make_shared<Napi::ObjectReference>(Napi::Persistent(error.Value())));
             }
+            if (dispatch.Get("isStopped").As<Napi::Function>().Call(dispatch, {}).ToBoolean().Value())
+            {
+                break;
+            }
         }
 
+        dispatch.Get("end").As<Napi::Function>().Call(dispatch, {});
         for (const auto& error : unhandledErrors)
         {
             m_runtimeScheduler([env, error]() {

@@ -393,6 +393,128 @@ describe("XMLHTTPRequest", function () {
         });
     });
 
+    it("should preserve a replacement request started during each synchronous abort event", async function () {
+        this.timeout(30000);
+        for (const phase of ["readystatechange", "abort", "loadend"]) {
+            const xhr = new XMLHttpRequest();
+            let restarted = false;
+            let loads = 0;
+            let aborts = 0;
+            const completed = new Promise<void>((resolve, reject) => {
+                const guard = setTimeout(() => reject(new Error(`XHR replacement after ${phase} did not complete`)), 25000);
+                xhr.addEventListener(phase, () => {
+                    if (restarted || (phase === "readystatechange" && xhr.readyState !== XMLHttpRequest.DONE)) {
+                        return;
+                    }
+                    restarted = true;
+                    xhr.open("GET", "app:///Scripts/symlink_target.js");
+                    xhr.send();
+                });
+                xhr.addEventListener("abort", () => { aborts++; });
+                xhr.addEventListener("load", () => { loads++; });
+                xhr.addEventListener("loadend", () => {
+                    if (xhr.status === 200 && restarted) {
+                        clearTimeout(guard);
+                        resolve();
+                    }
+                });
+            });
+            xhr.open("GET", "https://github.com/");
+            xhr.send();
+            xhr.abort();
+            expect(restarted).to.equal(true);
+            expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+            await completed;
+            expect(xhr.readyState).to.equal(XMLHttpRequest.DONE);
+            expect(loads).to.equal(1);
+            expect(aborts).to.equal(phase === "readystatechange" ? 0 : 1);
+        }
+    });
+
+    it("should not deliver an old loadend to a request started in onload", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let loads = 0;
+        const loadEndStatuses: number[] = [];
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("XHR replacement from onload did not complete")), 25000);
+            xhr.onload = () => {
+                if (++loads === 1) {
+                    xhr.open("GET", "app:///Scripts/symlink_target.js");
+                    xhr.send();
+                }
+            };
+            xhr.onloadend = () => {
+                loadEndStatuses.push(xhr.status);
+                if (loads === 2) {
+                    clearTimeout(guard);
+                    resolve();
+                }
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(loads).to.equal(2);
+        expect(loadEndStatuses).to.deep.equal([200]);
+    });
+
+    it("should dispatch Event and ProgressEvent instances with working event methods", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let readyEvent: Event | undefined;
+        let loadEvent: ProgressEvent | undefined;
+        let skipped = false;
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("XHR events did not complete")), 25000);
+            xhr.onreadystatechange = (event: Event) => {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    readyEvent = event;
+                }
+            };
+            xhr.addEventListener("load", (event: ProgressEvent) => {
+                try {
+                    expect(event).to.be.instanceOf(Event);
+                    expect(event).to.be.instanceOf(ProgressEvent);
+                    expect(event.type).to.equal("load");
+                    expect(event.target).to.equal(xhr);
+                    expect(event.currentTarget).to.equal(xhr);
+                    expect(event.eventPhase).to.equal(Event.AT_TARGET);
+                    expect(event.lengthComputable).to.equal(false);
+                    expect(event.loaded).to.equal(0);
+                    expect(event.total).to.equal(0);
+                    expect(event.cancelable).to.equal(false);
+                    event.preventDefault();
+                    expect(event.defaultPrevented).to.equal(false);
+                    event.stopImmediatePropagation();
+                    Object.freeze(event);
+                    loadEvent = event;
+                } catch (error) {
+                    clearTimeout(guard);
+                    reject(error);
+                }
+            });
+            xhr.addEventListener("load", () => { skipped = true; });
+            xhr.onloadend = (event: ProgressEvent) => {
+                try {
+                    expect(event).to.be.instanceOf(ProgressEvent);
+                    expect(readyEvent).to.be.instanceOf(Event);
+                    expect(readyEvent).to.not.be.instanceOf(ProgressEvent);
+                    expect(readyEvent!.type).to.equal("readystatechange");
+                    clearTimeout(guard);
+                    resolve();
+                } catch (error) {
+                    clearTimeout(guard);
+                    reject(error);
+                }
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(skipped).to.equal(false);
+        expect(loadEvent!.currentTarget).to.equal(null);
+        expect(loadEvent!.eventPhase).to.equal(Event.NONE);
+    });
+
     it("should dispatch on<event> properties and addEventListener handlers in registration order", async function () {
         // on<event> handlers and addEventListener listeners share one list per event type, so
         // dispatch follows registration order across both styles rather than running all the
