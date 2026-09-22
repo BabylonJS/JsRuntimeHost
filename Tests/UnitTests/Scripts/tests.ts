@@ -295,6 +295,15 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.onload).to.equal(null);
     });
 
+    it("should reject a non-callable object assigned to an on<event> property", function () {
+        const xhr: any = new XMLHttpRequest();
+        const handler = () => { };
+        xhr.onload = handler;
+
+        expect(() => { xhr.onload = {}; }).to.throw(TypeError);
+        expect(xhr.onload).to.equal(handler);
+    });
+
     it("should fire 'abort' rather than 'error' when a request is aborted", async function () {
         this.timeout(30000);
         const result = await new Promise<{ abortFired: boolean; errorFired: boolean; loadFired: boolean; loadEndFired: boolean }>((resolve, reject) => {
