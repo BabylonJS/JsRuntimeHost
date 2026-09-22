@@ -829,8 +829,17 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
 
 #endif
 
+int RunTests(int argc, char** argv)
+{
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
+
 int RunTests()
 {
-    testing::InitGoogleTest();
-    return RUN_ALL_TESTS();
+    // gtest expects argv[0]; nothing else to parse.
+    char program[]{"UnitTests"};
+    char* argv[]{program, nullptr};
+    int argc{1};
+    return RunTests(argc, argv);
 }
