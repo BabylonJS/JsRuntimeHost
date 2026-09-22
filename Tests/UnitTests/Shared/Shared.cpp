@@ -23,6 +23,10 @@
 #include <string_view>
 #include <thread>
 
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore) && defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
+
 namespace
 {
     const char* EnumToString(Babylon::Polyfills::Console::LogLevel logLevel)
@@ -241,6 +245,7 @@ TEST(Console, CaptureCurrentJsStack)
 TEST(AppRuntime, DestroyDoesNotDeadlock)
 {
     // Regression test verifying AppRuntime destruction doesn't deadlock.
+    // Apple JSC uses a run-loop before-wait observer instead of the queue hook.
     // Uses a global arcana hook to sleep while holding the queue mutex
     // before wait(), ensuring the worker is in the vulnerable window
     // when the destructor fires. See #147 for details on the bug and fix.
@@ -274,7 +279,6 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     //            join() returns <----- thread exits
     //   5. destroy completes -> PASS
 
-    bool hookSignaled{false};
     std::promise<void> workerInHook;
     std::promise<void> testDone;
 
@@ -292,6 +296,20 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
         });
         ready.get_future().wait();
 
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore) && defined(__APPLE__)
+        runtime->Dispatch([&workerInHook](Napi::Env) {
+            CFRunLoopObserverContext context{};
+            context.info = &workerInHook;
+            auto observer = CFRunLoopObserverCreate(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, false, 0,
+                [](CFRunLoopObserverRef, CFRunLoopActivity, void* info) {
+                    static_cast<std::promise<void>*>(info)->set_value();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }, &context);
+            CFRunLoopAddObserver(CFRunLoopGetCurrent(), observer, kCFRunLoopDefaultMode);
+            CFRelease(observer);
+        });
+#else
+        bool hookSignaled{false};
         // Install the hook and dispatch a no-op to wake the worker,
         // ensuring it cycles through the hook on its way back to idle.
         arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([&]() {
@@ -312,8 +330,9 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         });
         runtime->Dispatch([](Napi::Env) {});
+#endif
 
-        // Wait for the worker to be in the hook (holding mutex, sleeping)
+        // Wait for the worker to be just about to block.
         workerInHook.get_future().wait();
 
         // Destroy — if the fix works, the destructor completes.
@@ -333,6 +352,64 @@ TEST(AppRuntime, DestroyDoesNotDeadlock)
     }
 
     testThread.join();
+}
+
+TEST(AppRuntime, WebAssemblySettlesWithoutHostDispatch)
+{
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_V8) || (defined(JSRUNTIMEHOST_NAPI_ENGINE_JavaScriptCore) && defined(__APPLE__))
+    std::promise<std::string> result;
+    Babylon::AppRuntime::Options options{};
+    options.UnhandledExceptionHandler = [&result](const Napi::Error& error) {
+        result.set_value(Napi::GetErrorString(error));
+    };
+    Babylon::AppRuntime runtime{options};
+    runtime.Dispatch([&result](Napi::Env env) {
+        env.Global().Set("reportResult", Napi::Function::New(env, [&result](const Napi::CallbackInfo& info) {
+            result.set_value(info[0].As<Napi::String>().Utf8Value());
+        }));
+    });
+
+    Babylon::ScriptLoader loader{runtime};
+    loader.Eval(R"(
+        const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
+        const invalid = new Uint8Array([0]);
+        function expectCompileError(promise) {
+            return promise.then(
+                () => { throw new Error("invalid module was accepted"); },
+                error => {
+                    if (!(error instanceof WebAssembly.CompileError)) {
+                        throw error;
+                    }
+                });
+        }
+        Promise.all([
+            WebAssembly.compile(bytes).then(module => {
+                if (!(module instanceof WebAssembly.Module)) {
+                    throw new Error("compile did not return a module");
+                }
+            }),
+            WebAssembly.instantiate(bytes).then(result => {
+                if (!(result.module instanceof WebAssembly.Module) || !(result.instance instanceof WebAssembly.Instance)) {
+                    throw new Error("instantiate(bytes) did not return a module and instance");
+                }
+            }),
+            WebAssembly.instantiate(new WebAssembly.Module(bytes)).then(instance => {
+                if (!(instance instanceof WebAssembly.Instance)) {
+                    throw new Error("instantiate(module) did not return an instance");
+                }
+            }),
+            expectCompileError(WebAssembly.compile(invalid)),
+            expectCompileError(WebAssembly.instantiate(invalid))
+        ]).then(() => reportResult(""), error => reportResult(String(error)));
+    )", "");
+
+    auto future = result.get_future();
+    ASSERT_EQ(future.wait_for(std::chrono::seconds(10)), std::future_status::ready)
+        << "WebAssembly completion must wake an idle runtime without timers or additional host dispatches";
+    EXPECT_EQ(future.get(), "");
+#else
+    GTEST_SKIP() << "This engine does not yet pump asynchronous WebAssembly tasks.";
+#endif
 }
 
 TEST(AppRuntime, UnhandledPromiseRejectionReachesHandler)

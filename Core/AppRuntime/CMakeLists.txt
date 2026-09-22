@@ -22,6 +22,10 @@ endif()
 add_library(AppRuntime ${SOURCES})
 warnings_as_errors(AppRuntime)
 
+if(APPLE AND NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
+    target_compile_definitions(AppRuntime PRIVATE JSRUNTIMEHOST_APPLE_RUN_LOOP)
+endif()
+
 target_include_directories(AppRuntime
     PRIVATE "Include/Babylon"
     INTERFACE "Include")

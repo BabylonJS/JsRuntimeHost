@@ -7,6 +7,12 @@ Node-API contract from Node.js allows consumers of this library to interact with
 JavaScript engine with a consistent interface. This library also provides some optional
 polyfills that consumers can include if required.
 
+Asynchronous engine work runs on the runtime's JavaScript thread. V8 foreground
+tasks use the host dispatcher; JavaScriptCore on macOS and iOS uses a CFRunLoop
+source for host dispatches alongside the engine's deferred tasks. This allows
+`WebAssembly.compile` and `WebAssembly.instantiate` promises to settle even when
+the host is idle, without polling or requiring a main-thread event loop.
+
 > **Hermes support is experimental.** The Hermes (`static_h`) engine integration is
 > available on Windows, Android, and Linux for evaluation purposes only. **Hermes is
 > not supported on Apple platforms (iOS or macOS)** — configuring the build with

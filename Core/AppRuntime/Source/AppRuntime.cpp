@@ -8,14 +8,45 @@
 #include <cassert>
 #include <optional>
 #include <mutex>
+#include <new>
 #include <thread>
 #include <type_traits>
+
+#if defined(JSRUNTIMEHOST_APPLE_RUN_LOOP)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
 
 namespace Babylon
 {
     class AppRuntime::Impl
     {
     public:
+#if defined(JSRUNTIMEHOST_APPLE_RUN_LOOP)
+        Impl()
+        {
+            CFRunLoopSourceContext context{};
+            context.info = this;
+            context.perform = [](void* info) {
+                auto& impl = *static_cast<Impl*>(info);
+                impl.m_dispatcher.tick(impl.m_cancelSource);
+            };
+            m_runLoopSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context);
+            if (!m_runLoopSource)
+            {
+                throw std::bad_alloc{};
+            }
+        }
+
+        ~Impl()
+        {
+            CFRelease(m_runLoopSource);
+            if (m_runLoop)
+            {
+                CFRelease(m_runLoop);
+            }
+        }
+#endif
+
         template<typename CallableT>
         void Append(CallableT callable)
         {
@@ -31,6 +62,15 @@ namespace Babylon
                     (*callablePtr)(m_env.value());
                 });
             }
+
+#if defined(JSRUNTIMEHOST_APPLE_RUN_LOOP)
+            std::lock_guard lock{m_runLoopMutex};
+            CFRunLoopSourceSignal(m_runLoopSource);
+            if (m_runLoop)
+            {
+                CFRunLoopWakeUp(m_runLoop);
+            }
+#endif
         }
 
         std::optional<Napi::Env> m_env{};
@@ -40,6 +80,11 @@ namespace Babylon
         std::unique_ptr<Internal::DelayedTaskScheduler> m_delayedTaskScheduler{std::make_unique<Internal::DelayedTaskScheduler>()};
         bool m_delayedTaskSchedulerRegistered{};
         std::thread m_thread;
+#if defined(JSRUNTIMEHOST_APPLE_RUN_LOOP)
+        std::mutex m_runLoopMutex;
+        CFRunLoopRef m_runLoop{};
+        CFRunLoopSourceRef m_runLoopSource{};
+#endif
     };
 
     AppRuntime::AppRuntime() :
@@ -71,6 +116,7 @@ namespace Babylon
         // a no-op work item to wake the worker thread from blocking_tick. The
         // no-op goes through push() which acquires the queue mutex, avoiding
         // the race where a bare notify_all() can be missed by wait().
+        // On Apple JSC, Append also signals and wakes the runtime's run loop.
         //
         // NOTE: This preserves the existing shutdown behavior where pending
         // callbacks are dropped on cancellation. A more complete solution
@@ -88,10 +134,29 @@ namespace Babylon
 
         m_impl->m_dispatcher.set_affinity(std::this_thread::get_id());
 
+#if defined(JSRUNTIMEHOST_APPLE_RUN_LOOP)
+        // JSC's asynchronous WebAssembly completions use this thread's CFRunLoop.
+        // A signaled source also drains host work, including the shutdown wakeup.
+        const auto runLoop = CFRunLoopGetCurrent();
+        {
+            std::lock_guard lock{m_impl->m_runLoopMutex};
+            m_impl->m_runLoop = runLoop;
+            CFRetain(runLoop);
+            CFRunLoopAddSource(runLoop, m_impl->m_runLoopSource, kCFRunLoopDefaultMode);
+        }
+        while (!m_impl->m_cancelSource.cancelled())
+        {
+            Execute([] {
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0e10, true);
+            });
+        }
+        CFRunLoopRemoveSource(runLoop, m_impl->m_runLoopSource, kCFRunLoopDefaultMode);
+#else
         while (!m_impl->m_cancelSource.cancelled())
         {
             m_impl->m_dispatcher.blocking_tick(m_impl->m_cancelSource);
         }
+#endif
 
         Napi::HandleScope scope{env};
         ShutdownEnvironment(env);
