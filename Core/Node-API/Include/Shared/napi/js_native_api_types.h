@@ -163,11 +163,13 @@ typedef enum {
 } napi_key_conversion;
 #endif // NAPI_VERSION >= 6
 
-#if NAPI_VERSION >= 8
+// [BABYLON-NATIVE-ADDITION]: type tags are implemented by every engine here, so
+// they are exposed unconditionally rather than at NAPI_VERSION >= 8. The tree
+// stays at NAPI_VERSION 5 because napi_get_version reports that macro and the
+// rest of v6/v7/v8 is not implemented on all engines.
 typedef struct {
   uint64_t lower;
   uint64_t upper;
 } napi_type_tag;
-#endif // NAPI_VERSION >= 8
 
 #endif  // SRC_JS_NATIVE_API_TYPES_H_

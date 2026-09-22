@@ -28,6 +28,13 @@ struct napi_env__ {
   napi_extended_error_info last_error{ nullptr, nullptr, 0, napi_ok };
   JSValue has_own_property_function = JS_UNDEFINED;
 
+  // Type-tag store, created on first use. See js_native_api_type_tag.h for why
+  // this is a WeakMap held here rather than a property on the tagged object.
+  JSValue type_tag_map = JS_UNDEFINED;
+  JSValue type_tag_get = JS_UNDEFINED;
+  JSValue type_tag_set = JS_UNDEFINED;
+  JSValue type_tag_has = JS_UNDEFINED;
+
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   // Handle scope storage

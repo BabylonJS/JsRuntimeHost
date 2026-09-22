@@ -1,8 +1,10 @@
 #include "js_native_api_chakra.h"
+#include "js_native_api_type_tag.h"
 #include <napi/js_native_api.h>
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <optional>
 #include <vector>
 #include <string>
@@ -1777,6 +1779,140 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
     *result = nullptr;
   }
 
+  return napi_ok;
+}
+
+// Type tags
+//
+// The tag lives in a WeakMap reachable only from napi_env__ (see
+// js_native_api_type_tag.h). Non-object inputs are coerced exactly as the V8
+// port's CHECK_TO_OBJECT does, so all engines agree on those edge cases.
+static napi_status EnsureTypeTagMap(napi_env env) {
+  if (env->type_tag_map != JS_INVALID_REFERENCE) {
+    return napi_ok;
+  }
+
+  JsValueRef global = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsGetGlobalObject(&global));
+
+  JsPropertyIdRef weakMapId = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("WeakMap"), &weakMapId));
+
+  JsValueRef weakMapCtor = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsGetProperty(global, weakMapId, &weakMapCtor));
+
+  JsValueType ctorType;
+  CHECK_JSRT(env, JsGetValueType(weakMapCtor, &ctorType));
+  RETURN_STATUS_IF_FALSE(env, ctorType == JsFunction, napi_generic_failure);
+
+  JsValueRef undefinedValue = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsGetUndefinedValue(&undefinedValue));
+
+  JsValueRef map = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsConstructObject(weakMapCtor, &undefinedValue, 1, &map));
+
+  JsPropertyIdRef getId = JS_INVALID_REFERENCE;
+  JsPropertyIdRef setId = JS_INVALID_REFERENCE;
+  JsPropertyIdRef hasId = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("get"), &getId));
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("set"), &setId));
+  CHECK_JSRT(env, JsCreatePropertyId(STR_AND_LENGTH("has"), &hasId));
+
+  JsValueRef get = JS_INVALID_REFERENCE;
+  JsValueRef set = JS_INVALID_REFERENCE;
+  JsValueRef has = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsGetProperty(map, getId, &get));
+  CHECK_JSRT(env, JsGetProperty(map, setId, &set));
+  CHECK_JSRT(env, JsGetProperty(map, hasId, &has));
+
+  // The map is unreachable from the JS heap, so it needs an explicit root. There
+  // is no matching JsRelease: Napi::Detach runs after JsDisposeRuntime (see
+  // AppRuntime_Chakra.cpp), so by then the runtime and every object in it are
+  // already gone and releasing would fault. Same reason the wrap symbol taken in
+  // Napi::Attach is never released.
+  CHECK_JSRT(env, JsAddRef(map, nullptr));
+  CHECK_JSRT(env, JsAddRef(get, nullptr));
+  CHECK_JSRT(env, JsAddRef(set, nullptr));
+  CHECK_JSRT(env, JsAddRef(has, nullptr));
+
+  env->type_tag_map = map;
+  env->type_tag_get = get;
+  env->type_tag_set = set;
+  env->type_tag_has = has;
+  return napi_ok;
+}
+
+napi_status napi_type_tag_object(napi_env env,
+                                 napi_value object,
+                                 const napi_type_tag* type_tag) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, object);
+  CHECK_ARG(env, type_tag);
+
+  CHECK_NAPI(EnsureTypeTagMap(env));
+
+  JsValueRef target = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsConvertValueToObject(reinterpret_cast<JsValueRef>(object), &target));
+
+  JsValueRef args[3] = {env->type_tag_map, target, JS_INVALID_REFERENCE};
+
+  JsValueRef tagged = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsCallFunction(env->type_tag_has, args, 2, &tagged));
+  bool alreadyTagged = false;
+  CHECK_JSRT(env, JsBooleanToBool(tagged, &alreadyTagged));
+  RETURN_STATUS_IF_FALSE(env, !alreadyTagged, napi_invalid_arg);
+
+  char hex[napi_type_tag_util::kHexLength + 1];
+  napi_type_tag_util::ToHex(type_tag, hex);
+
+  JsValueRef tagValue = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsCreateString(hex, napi_type_tag_util::kHexLength, &tagValue));
+
+  args[2] = tagValue;
+  JsValueRef stored = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsCallFunction(env->type_tag_set, args, 3, &stored));
+
+  return napi_ok;
+}
+
+napi_status napi_check_object_type_tag(napi_env env,
+                                       napi_value object,
+                                       const napi_type_tag* type_tag,
+                                       bool* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, object);
+  CHECK_ARG(env, type_tag);
+  CHECK_ARG(env, result);
+
+  *result = false;
+
+  JsValueRef target = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsConvertValueToObject(reinterpret_cast<JsValueRef>(object), &target));
+
+  // Nothing has been tagged yet, so nothing can match.
+  if (env->type_tag_map == JS_INVALID_REFERENCE) {
+    return napi_ok;
+  }
+
+  JsValueRef args[2] = {env->type_tag_map, target};
+  JsValueRef stored = JS_INVALID_REFERENCE;
+  CHECK_JSRT(env, JsCallFunction(env->type_tag_get, args, 2, &stored));
+
+  JsValueType storedType;
+  CHECK_JSRT(env, JsGetValueType(stored, &storedType));
+  if (storedType != JsString) {
+    return napi_ok;
+  }
+
+  char actual[napi_type_tag_util::kHexLength + 1] = {};
+  size_t written = 0;
+  CHECK_JSRT(env, JsCopyString(stored, actual, sizeof(actual), &written));
+
+  char expected[napi_type_tag_util::kHexLength + 1];
+  napi_type_tag_util::ToHex(type_tag, expected);
+
+  *result = written == napi_type_tag_util::kHexLength &&
+            memcmp(actual, expected, napi_type_tag_util::kHexLength) == 0;
   return napi_ok;
 }
 

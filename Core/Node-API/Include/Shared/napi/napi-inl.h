@@ -1343,8 +1343,8 @@ inline TypeTaggable::TypeTaggable() : Value() {}
 inline TypeTaggable::TypeTaggable(napi_env _env, napi_value _value)
     : Value(_env, _value) {}
 
-#if NAPI_VERSION >= 8
-
+// [BABYLON-NATIVE-ADDITION]: exposed unconditionally, see napi_type_tag in
+// js_native_api_types.h.
 inline void TypeTaggable::TypeTag(const napi_type_tag* type_tag) const {
   napi_status status = napi_type_tag_object(_env, _value, type_tag);
   NAPI_THROW_IF_FAILED_VOID(_env, status);
@@ -1357,8 +1357,6 @@ inline bool TypeTaggable::CheckTypeTag(const napi_type_tag* type_tag) const {
   NAPI_THROW_IF_FAILED(_env, status, false);
   return result;
 }
-
-#endif  // NAPI_VERSION >= 8
 
 ////////////////////////////////////////////////////////////////////////////////
 // Object class

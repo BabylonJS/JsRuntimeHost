@@ -21,6 +21,17 @@ struct napi_env__ {
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
 
+  // Object.prototype.hasOwnProperty, cached because JSC's C API has no
+  // own-property accessor. See NativeInfo::Query.
+  JSObjectRef has_own_property_function{};
+
+  // Type-tag store, created on first use. See js_native_api_type_tag.h for why
+  // this is a WeakMap held here rather than a property on the tagged object.
+  JSObjectRef type_tag_map{};
+  JSObjectRef type_tag_get{};
+  JSObjectRef type_tag_set{};
+  JSObjectRef type_tag_has{};
+
   // Escapable scope bookkeeping: token -> whether that scope has escaped. Values
   // are rooted by the engine rather than by a scope here, so this exists only to
   // honour the one-escape-per-scope rule and to reject tokens that are not open.
@@ -31,7 +42,9 @@ struct napi_env__ {
 
   const std::thread::id thread_id{std::this_thread::get_id()};
 
-  napi_env__(JSGlobalContextRef context) : context{context} {
+  napi_env__(JSGlobalContextRef context)
+    : context{context}
+    , has_own_property_function{resolve_has_own_property(context)} {
     napi_envs[context] = this;
     JSGlobalContextRetain(context);
     init_symbol(constructor_info_symbol, "BabylonNative_ConstructorInfo");
@@ -42,6 +55,13 @@ struct napi_env__ {
 
   ~napi_env__() {
     deinit_refs();
+    if (type_tag_map != nullptr) {
+      JSValueUnprotect(context, type_tag_get);
+      JSValueUnprotect(context, type_tag_set);
+      JSValueUnprotect(context, type_tag_has);
+      JSValueUnprotect(context, type_tag_map);
+    }
+    JSValueUnprotect(context, has_own_property_function);
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
     deinit_symbol(function_info_symbol);
@@ -65,6 +85,10 @@ struct napi_env__ {
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);
   void deinit_symbol(JSValueRef symbol);
+
+  // Resolved in the member initializer list rather than the constructor body so
+  // that a failure here cannot leave a half-registered env behind.
+  static JSObjectRef resolve_has_own_property(JSGlobalContextRef context);
 };
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \

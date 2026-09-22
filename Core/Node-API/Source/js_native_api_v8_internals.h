@@ -76,7 +76,13 @@ public:
 #endif
 
 // [BABYLON-NATIVE-ADDITION]: Increase perf by using internal field instead of private property
-//#define NAPI_PRIVATE_KEY(context)                                      \
-//  (v8::Private::New(context->GetIsolate()))
+// Only the type-tag key is left; napi_wrap uses an internal field. Private::ForApi
+// interns one symbol per isolate -- Private::New would mint a fresh one on every
+// call, so a tag written under it could never be found again.
+#define NAPI_TYPE_TAG_PRIVATE_KEY(context)                                     \
+  (v8::Private::ForApi(                                                        \
+      (context)->GetIsolate(),                                                 \
+      NAPI_FIXED_ONE_BYTE_STRING((context)->GetIsolate(),                      \
+                                 "node:napi:type_tag")))
 
 #endif  // SRC_JS_NATIVE_API_V8_INTERNALS_H_

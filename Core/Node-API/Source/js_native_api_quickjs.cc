@@ -1,4 +1,5 @@
 #include "js_native_api_quickjs.h"
+#include "js_native_api_type_tag.h"
 #include <napi/js_native_api.h>
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -2465,14 +2466,16 @@ napi_status napi_run_script(napi_env env, napi_value script, const char* source_
 
 // Wrap/Unwrap for native objects
 //
-// Instances created by a napi class constructor carry the js_wrap_class_id
-// class (see the constructor trampoline in ExternalCallback::Callback), which
-// gives them an opaque slot plus the NapiWrap finalizer. In that case (the only
-// one exercised in this codebase, since node-addon-api's ObjectWrap always
-// wraps the constructor's `this`) we store the native pointer directly on the
-// instance, so nothing is observable from JS: the prototype is untouched and no
-// own-property is added. The prototype-chain fallback below only runs for the
-// theoretical case of wrapping an object we did not construct.
+// Only an instance created by a napi class constructor can be wrapped: the
+// constructor trampoline in ExternalCallback::Callback gives it the
+// js_wrap_class_id class, which carries an opaque slot plus the NapiWrap
+// finalizer. The native pointer lives on the instance itself, so nothing is
+// observable from JS -- the prototype is untouched and no own-property is added.
+//
+// Wrapping any other object used to splice a wrapper object into its prototype
+// chain, and unwrap searched the chain for it. That made
+// `Object.create(realInstance)` unwrap to the real instance's native pointer --
+// a type confusion. Both halves are gone; napi_wrap now rejects such an object.
 napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object, napi_finalize finalize_cb, void* finalize_hint, napi_ref* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, js_object);
@@ -2482,29 +2485,13 @@ napi_status napi_wrap(napi_env env, napi_value js_object, void* native_object, n
   
   JSValue jsObject = ToJSValue(js_object);
   
+  RETURN_STATUS_IF_FALSE(env, JS_GetClassID(jsObject) == js_wrap_class_id, napi_invalid_arg);
+
+  // Reject a double wrap rather than leaking the previously stored ExternalData.
+  RETURN_STATUS_IF_FALSE(env, JS_GetOpaque(jsObject, js_wrap_class_id) == nullptr, napi_invalid_arg);
+
   ExternalData* externalData = new ExternalData(env, native_object, finalize_cb, finalize_hint);
-  
-  if (JS_GetClassID(jsObject) == js_wrap_class_id) {
-    // Fast path: the instance itself owns the opaque slot. Reject a double wrap
-    // rather than leaking the previously stored ExternalData.
-    if (JS_GetOpaque(jsObject, js_wrap_class_id) != nullptr) {
-      delete externalData;
-      return napi_set_last_error(env, napi_invalid_arg);
-    }
-    JS_SetOpaque(jsObject, externalData);
-  } else {
-    // Fallback: create a wrapper object carrying the opaque slot and splice it
-    // into the prototype chain. Not reached by ObjectWrap-based classes.
-    JSValue wrapper = JS_NewObjectClass(env->context, js_wrap_class_id);
-    JS_SetOpaque(wrapper, externalData);
-
-    JSValue prototype = JS_GetPrototype(env->context, jsObject);
-    JS_SetPrototype(env->context, wrapper, prototype);
-    JS_SetPrototype(env->context, jsObject, wrapper);
-
-    JS_FreeValue(env->context, wrapper);
-    JS_FreeValue(env->context, prototype);
-  }
+  JS_SetOpaque(jsObject, externalData);
   
   if (result != nullptr) {
     CHECK_NAPI(napi_create_reference(env, js_object, 0, result));
@@ -2521,34 +2508,14 @@ napi_status napi_unwrap(napi_env env, napi_value js_object, void** result) {
   
   JSValue jsObject = ToJSValue(js_object);
   
-  // Fast path: native pointer stored on the instance itself.
-  if (JS_GetClassID(jsObject) == js_wrap_class_id) {
-    ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(jsObject, js_wrap_class_id));
-    *result = externalData ? externalData->Data() : nullptr;
-    napi_clear_last_error(env);
-    return napi_ok;
-  }
+  RETURN_STATUS_IF_FALSE(env, JS_GetClassID(jsObject) == js_wrap_class_id, napi_invalid_arg);
 
-  // Fallback: search the prototype chain for a legacy wrapper object.
-  JSValue current = JS_GetPrototype(env->context, jsObject);
-  
-  while (!JS_IsNull(current)) {
-    if (JS_GetClassID(current) == js_wrap_class_id) {
-      ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(current, js_wrap_class_id));
-      *result = externalData ? externalData->Data() : nullptr;
-      JS_FreeValue(env->context, current);
-      napi_clear_last_error(env);
-      return napi_ok;
-    }
-    
-    JSValue proto = JS_GetPrototype(env->context, current);
-    JS_FreeValue(env->context, current);
-    current = proto;
-  }
-  
-  JS_FreeValue(env->context, current); // Free the final JS_NULL value
-  *result = nullptr;
-  return napi_set_last_error(env, napi_invalid_arg);
+  ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(jsObject, js_wrap_class_id));
+  RETURN_STATUS_IF_FALSE(env, externalData != nullptr, napi_invalid_arg);
+
+  *result = externalData->Data();
+  napi_clear_last_error(env);
+  return napi_ok;
 }
 
 napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) {
@@ -2557,60 +2524,166 @@ napi_status napi_remove_wrap(napi_env env, napi_value js_object, void** result) 
 
   JSValue jsObject = ToJSValue(js_object);
 
-  // Fast path: the instance owns the opaque slot. Detach the finalizer by
-  // clearing the opaque and deleting the adapter directly (without running the
-  // user finalize callback) so a later GC does not run it on native memory that
-  // is being handed back or has already been freed (e.g. an ObjectWrap
-  // constructor that threw during stack unwinding).
-  if (JS_GetClassID(jsObject) == js_wrap_class_id) {
-    ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(jsObject, js_wrap_class_id));
-    if (result != nullptr) {
-      *result = externalData ? externalData->Data() : nullptr;
-    }
-    JS_SetOpaque(jsObject, nullptr);
-    delete externalData;
+  RETURN_STATUS_IF_FALSE(env, JS_GetClassID(jsObject) == js_wrap_class_id, napi_invalid_arg);
+
+  // Detach the finalizer by clearing the opaque and deleting the adapter
+  // directly (without running the user finalize callback) so a later GC does not
+  // run it on native memory that is being handed back or has already been freed
+  // (e.g. an ObjectWrap constructor that threw during stack unwinding).
+  ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(jsObject, js_wrap_class_id));
+  if (result != nullptr) {
+    *result = externalData ? externalData->Data() : nullptr;
+  }
+  JS_SetOpaque(jsObject, nullptr);
+  delete externalData;
+  napi_clear_last_error(env);
+  return napi_ok;
+}
+
+// Type tags
+//
+// The tag lives in a WeakMap reachable only from napi_env__ (see
+// js_native_api_type_tag.h). Non-object inputs are coerced exactly as the V8
+// port's CHECK_TO_OBJECT does, so all engines agree on those edge cases.
+static napi_status EnsureTypeTagMap(napi_env env) {
+  if (!JS_IsUndefined(env->type_tag_map)) {
+    return napi_ok;
+  }
+
+  JSContext* ctx = env->context;
+
+  JSValue global = JS_GetGlobalObject(ctx);
+  JSValue weakMapCtor = JS_GetPropertyStr(ctx, global, "WeakMap");
+  JS_FreeValue(ctx, global);
+  if (!JS_IsFunction(ctx, weakMapCtor)) {
+    JS_FreeValue(ctx, weakMapCtor);
+    return napi_set_last_error(env, napi_generic_failure);
+  }
+
+  JSValue map = JS_CallConstructor(ctx, weakMapCtor, 0, nullptr);
+  JS_FreeValue(ctx, weakMapCtor);
+  if (JS_IsException(map)) {
+    JS_FreeValue(ctx, map);
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+
+  JSValue get = JS_GetPropertyStr(ctx, map, "get");
+  JSValue set = JS_GetPropertyStr(ctx, map, "set");
+  JSValue has = JS_GetPropertyStr(ctx, map, "has");
+  if (!JS_IsFunction(ctx, get) || !JS_IsFunction(ctx, set) || !JS_IsFunction(ctx, has)) {
+    JS_FreeValue(ctx, get);
+    JS_FreeValue(ctx, set);
+    JS_FreeValue(ctx, has);
+    JS_FreeValue(ctx, map);
+    return napi_set_last_error(env, napi_generic_failure);
+  }
+
+  env->type_tag_map = map;
+  env->type_tag_get = get;
+  env->type_tag_set = set;
+  env->type_tag_has = has;
+  return napi_ok;
+}
+
+napi_status napi_type_tag_object(napi_env env, napi_value object, const napi_type_tag* type_tag) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, object);
+  CHECK_ARG(env, type_tag);
+
+  CHECK_NAPI(EnsureTypeTagMap(env));
+
+  JSContext* ctx = env->context;
+  JSValue jsObject = JS_ToObject(ctx, ToJSValue(object));
+  if (JS_IsException(jsObject)) {
+    JS_FreeValue(ctx, jsObject);
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+
+  JSValueConst args[2];
+  args[0] = jsObject;
+
+  JSValue tagged = JS_Call(ctx, env->type_tag_has, env->type_tag_map, 1, args);
+  if (JS_IsException(tagged)) {
+    JS_FreeValue(ctx, tagged);
+    JS_FreeValue(ctx, jsObject);
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+  const bool alreadyTagged = JS_ToBool(ctx, tagged) == 1;
+  JS_FreeValue(ctx, tagged);
+  if (alreadyTagged) {
+    JS_FreeValue(ctx, jsObject);
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+
+  char hex[napi_type_tag_util::kHexLength + 1];
+  napi_type_tag_util::ToHex(type_tag, hex);
+
+  JSValue tagValue = JS_NewStringLen(ctx, hex, napi_type_tag_util::kHexLength);
+  if (JS_IsException(tagValue)) {
+    JS_FreeValue(ctx, tagValue);
+    JS_FreeValue(ctx, jsObject);
+    return napi_set_last_error(env, napi_generic_failure);
+  }
+
+  args[1] = tagValue;
+  JSValue stored = JS_Call(ctx, env->type_tag_set, env->type_tag_map, 2, args);
+  JS_FreeValue(ctx, tagValue);
+  JS_FreeValue(ctx, jsObject);
+  if (JS_IsException(stored)) {
+    JS_FreeValue(ctx, stored);
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+  JS_FreeValue(ctx, stored);
+
+  napi_clear_last_error(env);
+  return napi_ok;
+}
+
+napi_status napi_check_object_type_tag(napi_env env, napi_value object, const napi_type_tag* type_tag, bool* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, object);
+  CHECK_ARG(env, type_tag);
+  CHECK_ARG(env, result);
+
+  *result = false;
+
+  JSContext* ctx = env->context;
+  JSValue jsObject = JS_ToObject(ctx, ToJSValue(object));
+  if (JS_IsException(jsObject)) {
+    JS_FreeValue(ctx, jsObject);
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+
+  // Nothing has been tagged yet, so nothing can match.
+  if (JS_IsUndefined(env->type_tag_map)) {
+    JS_FreeValue(ctx, jsObject);
     napi_clear_last_error(env);
     return napi_ok;
   }
 
-  // Fallback: walk the prototype chain looking for a legacy wrapper object.
-  // `parent` is the object whose prototype is `current`, so once the wrapper is
-  // found it can be spliced out of the chain.
-  JSValue parent = JS_DupValue(env->context, jsObject);
-  JSValue current = JS_GetPrototype(env->context, jsObject);
+  JSValueConst args[1] = { jsObject };
+  JSValue stored = JS_Call(ctx, env->type_tag_get, env->type_tag_map, 1, args);
+  JS_FreeValue(ctx, jsObject);
+  if (JS_IsException(stored)) {
+    JS_FreeValue(ctx, stored);
+    return napi_set_last_error(env, napi_pending_exception);
+  }
 
-  while (!JS_IsNull(current)) {
-    if (JS_GetClassID(current) == js_wrap_class_id) {
-      ExternalData* externalData = reinterpret_cast<ExternalData*>(JS_GetOpaque(current, js_wrap_class_id));
-      if (result != nullptr) {
-        *result = externalData ? externalData->Data() : nullptr;
-      }
-
-      JS_SetOpaque(current, nullptr);
-
-      JSValue wrapperProto = JS_GetPrototype(env->context, current);
-      JS_SetPrototype(env->context, parent, wrapperProto);
-      JS_FreeValue(env->context, wrapperProto);
-
-      delete externalData;
-
-      JS_FreeValue(env->context, current);
-      JS_FreeValue(env->context, parent);
-      napi_clear_last_error(env);
-      return napi_ok;
+  if (JS_IsString(stored)) {
+    size_t length = 0;
+    const char* str = JS_ToCStringLen(ctx, &length, stored);
+    if (str != nullptr) {
+      char hex[napi_type_tag_util::kHexLength + 1];
+      napi_type_tag_util::ToHex(type_tag, hex);
+      *result = length == napi_type_tag_util::kHexLength &&
+                memcmp(str, hex, napi_type_tag_util::kHexLength) == 0;
+      JS_FreeCString(ctx, str);
     }
-
-    JS_FreeValue(env->context, parent);
-    parent = current; // transfer ownership
-    current = JS_GetPrototype(env->context, parent);
   }
 
-  JS_FreeValue(env->context, parent);
-  JS_FreeValue(env->context, current); // Free the final JS_NULL value
-  if (result != nullptr) {
-    *result = nullptr;
-  }
-  return napi_set_last_error(env, napi_invalid_arg);
+  JS_FreeValue(ctx, stored);
+  napi_clear_last_error(env);
+  return napi_ok;
 }
 
 // External values

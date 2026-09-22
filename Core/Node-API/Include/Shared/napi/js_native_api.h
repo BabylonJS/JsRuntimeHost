@@ -613,8 +613,9 @@ NAPI_EXTERN napi_status NAPI_CDECL
 napi_is_detached_arraybuffer(napi_env env, napi_value value, bool* result);
 #endif  // NAPI_VERSION >= 7
 
-#if NAPI_VERSION >= 8
 // Type tagging
+// [BABYLON-NATIVE-ADDITION]: exposed unconditionally, see napi_type_tag in
+// js_native_api_types.h.
 NAPI_EXTERN napi_status NAPI_CDECL napi_type_tag_object(
     napi_env env, napi_value value, const napi_type_tag* type_tag);
 
@@ -623,6 +624,8 @@ napi_check_object_type_tag(napi_env env,
                            napi_value value,
                            const napi_type_tag* type_tag,
                            bool* result);
+
+#if NAPI_VERSION >= 8
 NAPI_EXTERN napi_status NAPI_CDECL napi_object_freeze(napi_env env,
                                                       napi_value object);
 NAPI_EXTERN napi_status NAPI_CDECL napi_object_seal(napi_env env,

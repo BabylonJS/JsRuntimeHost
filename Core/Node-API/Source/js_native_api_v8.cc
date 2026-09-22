@@ -358,9 +358,15 @@ inline napi_status Unwrap(napi_env env,
   RETURN_STATUS_IF_FALSE(env, value->IsObject(), napi_invalid_arg);
   v8::Local<v8::Object> obj = value.As<v8::Object>();
   
-  // [BABYLON-NATIVE-ADDITION]: Increase perf by using internal field instead of private property
+  // [BABYLON-NATIVE-ADDITION]: only an object created from a napi class template
+  // has an internal field. Reading field 0 off any other object and
+  // dereferencing the result is an access violation, and napi_remove_wrap leaves
+  // a null behind. Upstream needs neither check: it reads a private property,
+  // which any object can carry, and validates it with IsExternal().
+  RETURN_STATUS_IF_FALSE(env, obj->InternalFieldCount() >= 1, napi_invalid_arg);
   Reference* reference =
       static_cast<v8impl::Reference*>(obj->GetAlignedPointerFromInternalField(0));
+  RETURN_STATUS_IF_FALSE(env, reference != nullptr, napi_invalid_arg);
 
   if (result) {
     *result = reference->Data();
@@ -566,6 +572,11 @@ inline napi_status Wrap(napi_env env,
   v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(js_object);
   RETURN_STATUS_IF_FALSE(env, value->IsObject(), napi_invalid_arg);
   v8::Local<v8::Object> obj = value.As<v8::Object>();
+
+  // [BABYLON-NATIVE-ADDITION]: writing field 0 of an object that has none
+  // corrupts memory, so only an object created from a napi class template can be
+  // wrapped. Upstream can wrap any object because it uses a private property.
+  RETURN_STATUS_IF_FALSE(env, obj->InternalFieldCount() >= 1, napi_invalid_arg);
 
   v8impl::Reference* reference = nullptr;
   if (result != nullptr) {
@@ -2551,8 +2562,7 @@ napi_status NAPI_CDECL napi_create_external(napi_env env,
 }
 
 // [BABYLON-NATIVE-ADDITION]
-// added preprocessor for NAPI_VERSION check. napi_type_tag only defined for NAPI_VERSION >= 8
-#if NAPI_VERSION >= 8
+// Exposed unconditionally; see napi_type_tag in js_native_api_types.h.
 napi_status NAPI_CDECL napi_type_tag_object(napi_env env,
                                             napi_value object,
                                             const napi_type_tag* type_tag) {
@@ -2562,7 +2572,7 @@ napi_status NAPI_CDECL napi_type_tag_object(napi_env env,
   CHECK_TO_OBJECT_WITH_PREAMBLE(env, context, obj, object);
   CHECK_ARG_WITH_PREAMBLE(env, type_tag);
 
-  auto key = NAPI_PRIVATE_KEY(context);
+  auto key = NAPI_TYPE_TAG_PRIVATE_KEY(context);
   auto maybe_has = obj->HasPrivate(context, key);
   CHECK_MAYBE_NOTHING_WITH_PREAMBLE(env, maybe_has, napi_generic_failure);
   RETURN_STATUS_IF_FALSE_WITH_PREAMBLE(
@@ -2592,7 +2602,7 @@ napi_status NAPI_CDECL napi_check_object_type_tag(napi_env env,
   CHECK_ARG_WITH_PREAMBLE(env, result);
 
   auto maybe_value =
-      obj->GetPrivate(context, NAPI_PRIVATE_KEY(context));
+      obj->GetPrivate(context, NAPI_TYPE_TAG_PRIVATE_KEY(context));
   CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, maybe_value, napi_generic_failure);
   v8::Local<v8::Value> val = maybe_value.ToLocalChecked();
 
@@ -2620,7 +2630,6 @@ napi_status NAPI_CDECL napi_check_object_type_tag(napi_env env,
 
   return GET_RETURN_STATUS(env);
 }
-#endif
 
 napi_status NAPI_CDECL napi_get_value_external(napi_env env,
                                                napi_value value,
