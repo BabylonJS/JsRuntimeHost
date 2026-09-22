@@ -12,7 +12,9 @@ set(SOURCES
     "Shared/StandardStreamLogger.cpp"
     "Shared/TimeoutDispatcher.cpp"
     "Shared/Shared.cpp"
-    "Shared/Shared.h")
+    "Shared/Shared.h"
+    "Shared/TestHttpServer.cpp"
+    "Shared/TestHttpServer.h")
 
 if(APPLE)
     if(IOS)
