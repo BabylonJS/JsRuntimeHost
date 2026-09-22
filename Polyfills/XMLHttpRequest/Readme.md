@@ -5,6 +5,9 @@ Minimal implementation of XMLHttpRequest required to support the Babylon.js Requ
 Events can be observed with `addEventListener` or the corresponding
 `onreadystatechange`, `onload`, `onerror`, `onloadend`, and `onabort` properties. Handlers receive
 an event whose `target` and `currentTarget` are the request, and run with the request as `this`.
+`readystatechange` dispatches an `Event`; `load`, `error`, `abort`, and `loadend` dispatch
+`ProgressEvent` instances (`lengthComputable === false`, `loaded === total === 0`).
+Missing constructors are installed without replacing host-provided ones.
 At the moment, we only support the following events:
 * `loadend`
 * `readystatechange`

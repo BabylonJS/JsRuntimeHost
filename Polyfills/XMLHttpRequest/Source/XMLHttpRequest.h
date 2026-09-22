@@ -83,6 +83,7 @@ namespace Babylon::Polyfills::Internal
         std::string m_url{};
         std::shared_ptr<UrlLib::UrlRequest> m_request{std::make_shared<UrlLib::UrlRequest>()};
         JsRuntimeScheduler m_runtimeScheduler;
+        Napi::FunctionReference m_makeEvent;
         ReadyState m_readyState{ReadyState::Unsent};
         uint64_t m_sendId{};
         bool m_sendActive{false};
