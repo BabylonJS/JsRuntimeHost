@@ -295,13 +295,41 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.onload).to.equal(null);
     });
 
-    it("should reject a non-callable object assigned to an on<event> property", function () {
+    it("should retain but not invoke a non-callable object assigned to an on<event> property", function () {
         const xhr: any = new XMLHttpRequest();
-        const handler = () => { };
+        const handler = {};
         xhr.onload = handler;
 
-        expect(() => { xhr.onload = {}; }).to.throw(TypeError);
         expect(xhr.onload).to.equal(handler);
+    });
+
+    it("should preserve handlers when the request completes and is reused", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let loadCalls = 0;
+        let loadEndCalls = 0;
+        const onload = () => { loadCalls++; };
+        xhr.onload = onload;
+
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("reused XHR did not complete twice within 25s")), 25000);
+            xhr.onloadend = () => {
+                ++loadEndCalls;
+                expect(xhr.onload).to.equal(onload);
+                if (loadEndCalls === 1) {
+                    xhr.open("GET", "app:///Scripts/symlink_target.js");
+                    xhr.send();
+                } else {
+                    clearTimeout(guard);
+                    resolve();
+                }
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+
+        expect(loadCalls).to.equal(2);
+        expect(loadEndCalls).to.equal(2);
     });
 
     it("should fire 'abort' rather than 'error' when a request is aborted", async function () {
@@ -330,6 +358,39 @@ describe("XMLHTTPRequest", function () {
         expect(result.abortFired).to.equal(true);
         expect(result.errorFired).to.equal(false);
         expect(result.loadFired).to.equal(false);
+    });
+
+    it("should make abort synchronous, inert before send, and reusable", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        const order: string[] = [];
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                order.push("readystatechange");
+            }
+        };
+        xhr.onabort = () => { order.push("abort"); };
+        xhr.onloadend = () => { order.push("loadend"); };
+
+        xhr.open("GET", "https://github.com/");
+        xhr.abort();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+        expect(order).to.deep.equal([]);
+
+        xhr.send();
+        xhr.abort();
+        expect(order).to.deep.equal(["readystatechange", "abort", "loadend"]);
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("XHR did not complete after abort reuse within 25s")), 25000);
+            xhr.onload = () => {
+                clearTimeout(guard);
+                resolve();
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
     });
 
     it("should dispatch on<event> properties and addEventListener handlers in registration order", async function () {
@@ -374,6 +435,57 @@ describe("XMLHTTPRequest", function () {
             xhr.send();
         });
         expect(result.order).to.deep.equal(["onload", "listener"]);
+    });
+
+    it("should observe listener removal and on<event> reassignment during dispatch", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const removed = () => { order.push("removed"); };
+            const replacement = () => { order.push("replacement"); };
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.addEventListener("load", () => {
+                order.push("first");
+                xhr.removeEventListener("load", removed);
+                xhr.onload = replacement;
+            });
+            xhr.addEventListener("load", removed);
+            xhr.onload = () => { order.push("original"); };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ order });
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["first", "replacement"]);
+    });
+
+    it("should invoke handlers with the XHR as this and a populated event", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("load did not fire within 25s")), 25000);
+            xhr.onload = function (event: any) {
+                try {
+                    expect(this).to.equal(xhr);
+                    expect(event.type).to.equal("load");
+                    expect(event.target).to.equal(xhr);
+                    expect(event.currentTarget).to.equal(xhr);
+                    expect(event.lengthComputable).to.equal(false);
+                    expect(event.loaded).to.equal(0);
+                    expect(event.total).to.equal(0);
+                    clearTimeout(guard);
+                    resolve();
+                } catch (error) {
+                    clearTimeout(guard);
+                    reject(error);
+                }
+            };
+            xhr.open("GET", "app:///Scripts/symlink_target.js");
+            xhr.send();
+        });
     });
 
     it("should invoke a function registered both as an on<event> property and via addEventListener twice", async function () {
