@@ -85,6 +85,9 @@ namespace Babylon::Polyfills::Internal
         JsRuntimeScheduler m_runtimeScheduler;
         Napi::FunctionReference m_makeEvent;
         ReadyState m_readyState{ReadyState::Unsent};
+        // UrlLib writes its status on a worker thread; event handlers read these JS-thread snapshots.
+        uint32_t m_statusCode{};
+        std::string m_statusText{};
         uint64_t m_sendId{};
         bool m_sendActive{false};
         std::unordered_map<std::string, std::vector<std::shared_ptr<Listener>>> m_listeners;
