@@ -64,8 +64,8 @@ namespace Babylon::Polyfills::Internal
         void Open(const Napi::CallbackInfo& info);
         void Send(const Napi::CallbackInfo& info);
 
-        void SetReadyState(ReadyState readyState);
-        void RaiseEvent(const char* eventType);
+        void SetReadyState(ReadyState readyState, const Napi::Object& jsThis);
+        void RaiseEvent(const char* eventType, const Napi::Object& jsThis);
 
         // A registered event listener. `isEventHandler` marks the single entry owned by the
         // matching `on<event>` property; every other entry came from addEventListener. Both
