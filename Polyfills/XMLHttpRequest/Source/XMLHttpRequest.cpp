@@ -318,19 +318,14 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetStatus(const Napi::CallbackInfo&)
     {
-        return Napi::Value::From(Env(), arcana::underlying_cast(m_request->StatusCode()));
+        return Napi::Value::From(Env(), m_statusCode);
     }
 
     Napi::Value XMLHttpRequest::GetStatusText(const Napi::CallbackInfo&)
     {
         // Per the XHR spec, statusText is the empty string until a response is available
         // (status 0 means UNSENT/OPENED or a network error).
-        if (arcana::underlying_cast(m_request->StatusCode()) == 0)
-        {
-            return Napi::String::New(Env(), "");
-        }
-
-        return Napi::String::New(Env(), std::string{m_request->StatusText()});
+        return Napi::String::New(Env(), m_statusText);
     }
 
     Napi::Value XMLHttpRequest::GetErrorCode(const Napi::CallbackInfo&)
@@ -435,6 +430,8 @@ namespace Babylon::Polyfills::Internal
 
         m_sendActive = false;
         const auto abortedSendId = ++m_sendId;
+        m_statusCode = 0;
+        m_statusText.clear();
         m_request->Abort();
 
         auto jsThis = info.This().As<Napi::Object>();
@@ -469,6 +466,8 @@ namespace Babylon::Polyfills::Internal
             ++m_sendId;
             m_request = std::make_shared<UrlLib::UrlRequest>();
             m_request->Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
+            m_statusCode = 0;
+            m_statusText.clear();
         }
         catch (const std::exception& e)
         {
@@ -544,6 +543,8 @@ namespace Babylon::Polyfills::Internal
                 // ones, where local file reads set Ok. That keeps the missing-local-file-on-UWP
                 // case (status left at 0) reporting `error`.
                 const bool failed = result.has_error() || statusCode == 0;
+                m_statusCode = statusCode;
+                m_statusText = statusCode == 0 ? "" : std::string{request->StatusText()};
 
                 auto jsThis = anchor->Value();
                 SetReadyState(ReadyState::Done, jsThis);

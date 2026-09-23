@@ -364,13 +364,25 @@ describe("XMLHTTPRequest", function () {
         this.timeout(30000);
         const xhr = new XMLHttpRequest();
         const order: string[] = [];
+        const statuses: number[] = [];
+        const statusTexts: string[] = [];
         xhr.onreadystatechange = () => {
             if (xhr.readyState === XMLHttpRequest.DONE) {
                 order.push("readystatechange");
+                statuses.push(xhr.status);
+                statusTexts.push(xhr.statusText);
             }
         };
-        xhr.onabort = () => { order.push("abort"); };
-        xhr.onloadend = () => { order.push("loadend"); };
+        xhr.onabort = () => {
+            order.push("abort");
+            statuses.push(xhr.status);
+            statusTexts.push(xhr.statusText);
+        };
+        xhr.onloadend = () => {
+            order.push("loadend");
+            statuses.push(xhr.status);
+            statusTexts.push(xhr.statusText);
+        };
 
         xhr.open("GET", "https://github.com/");
         xhr.abort();
@@ -380,6 +392,8 @@ describe("XMLHTTPRequest", function () {
         xhr.send();
         xhr.abort();
         expect(order).to.deep.equal(["readystatechange", "abort", "loadend"]);
+        expect(statuses).to.deep.equal([0, 0, 0]);
+        expect(statusTexts).to.deep.equal(["", "", ""]);
         expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
 
         await new Promise<void>((resolve, reject) => {
@@ -391,6 +405,8 @@ describe("XMLHTTPRequest", function () {
             xhr.open("GET", "app:///Scripts/symlink_target.js");
             xhr.send();
         });
+        expect(xhr.status).to.equal(200);
+        expect(xhr.statusText).to.equal("OK");
     });
 
     it("should preserve a replacement request started during each synchronous abort event", async function () {
