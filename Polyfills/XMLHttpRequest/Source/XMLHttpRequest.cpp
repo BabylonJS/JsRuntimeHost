@@ -249,7 +249,7 @@ namespace Babylon::Polyfills::Internal
                 InstanceMethod("send", &XMLHttpRequest::Send),
             });
 
-        auto eventFactory = env.RunScript(EVENT_FACTORY_SOURCE, "XMLHttpRequestEvents.js");
+        auto eventFactory = Napi::Eval(env, EVENT_FACTORY_SOURCE, "XMLHttpRequestEvents.js");
         auto descriptor = Napi::Object::New(env);
         descriptor.Set("value", eventFactory);
         auto object = env.Global().Get("Object").As<Napi::Object>();
@@ -420,7 +420,7 @@ namespace Babylon::Polyfills::Internal
         }
     }
 
-    void XMLHttpRequest::Abort(const Napi::CallbackInfo&)
+    void XMLHttpRequest::Abort(const Napi::CallbackInfo& info)
     {
         if (m_readyState == ReadyState::Done)
         {
@@ -437,17 +437,18 @@ namespace Babylon::Polyfills::Internal
         const auto abortedSendId = ++m_sendId;
         m_request->Abort();
 
-        SetReadyState(ReadyState::Done);
+        auto jsThis = info.This().As<Napi::Object>();
+        SetReadyState(ReadyState::Done, jsThis);
         if (m_sendId != abortedSendId)
         {
             return;
         }
-        RaiseEvent(EventType::Abort);
+        RaiseEvent(EventType::Abort, jsThis);
         if (m_sendId != abortedSendId)
         {
             return;
         }
-        RaiseEvent(EventType::LoadEnd);
+        RaiseEvent(EventType::LoadEnd, jsThis);
         if (m_sendId == abortedSendId)
         {
             m_readyState = ReadyState::Unsent;
@@ -478,7 +479,7 @@ namespace Babylon::Polyfills::Internal
             throw Napi::Error::New(info.Env(), "Unknown error opening URL");
         }
 
-        SetReadyState(ReadyState::Opened);
+        SetReadyState(ReadyState::Opened, info.This().As<Napi::Object>());
     }
 
     void XMLHttpRequest::Send(const Napi::CallbackInfo& info)
@@ -544,33 +545,34 @@ namespace Babylon::Polyfills::Internal
                 // case (status left at 0) reporting `error`.
                 const bool failed = result.has_error() || statusCode == 0;
 
-                SetReadyState(ReadyState::Done);
+                auto jsThis = anchor->Value();
+                SetReadyState(ReadyState::Done, jsThis);
                 if (sendId != m_sendId)
                 {
                     return;
                 }
                 if (failed)
                 {
-                    RaiseEvent(EventType::Error);
+                    RaiseEvent(EventType::Error, jsThis);
                 }
                 else
                 {
-                    RaiseEvent(EventType::Load);
+                    RaiseEvent(EventType::Load, jsThis);
                 }
                 if (sendId == m_sendId)
                 {
-                    RaiseEvent(EventType::LoadEnd);
+                    RaiseEvent(EventType::LoadEnd, jsThis);
                 }
             });
     }
 
-    void XMLHttpRequest::SetReadyState(ReadyState readyState)
+    void XMLHttpRequest::SetReadyState(ReadyState readyState, const Napi::Object& jsThis)
     {
         m_readyState = readyState;
-        RaiseEvent(EventType::ReadyStateChange);
+        RaiseEvent(EventType::ReadyStateChange, jsThis);
     }
 
-    void XMLHttpRequest::RaiseEvent(const char* eventType)
+    void XMLHttpRequest::RaiseEvent(const char* eventType, const Napi::Object& jsThis)
     {
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::RaiseEvent [" << eventType << "] [" << m_url << "]").str();
         arcana::trace_region raiseEventRegion{traceName.c_str()};
@@ -588,7 +590,6 @@ namespace Babylon::Polyfills::Internal
             listeners = it->second;
         }
 
-        const auto jsThis = Value();
         auto dispatch = m_makeEvent.Value().Call({
             Napi::String::New(env, eventType),
             jsThis,
@@ -596,7 +597,7 @@ namespace Babylon::Polyfills::Internal
         }).As<Napi::Object>();
         auto event = dispatch.Get("value").As<Napi::Object>();
 
-        std::vector<std::shared_ptr<Napi::ObjectReference>> unhandledErrors{};
+        std::vector<std::shared_ptr<Napi::Error>> unhandledErrors{};
         for (const auto& listener : listeners)
         {
             if (!listener->active)
@@ -616,14 +617,14 @@ namespace Babylon::Polyfills::Internal
             }
             catch (const Napi::Error& error)
             {
-                unhandledErrors.push_back(std::make_shared<Napi::ObjectReference>(Napi::Persistent(error.Value())));
+                unhandledErrors.push_back(std::make_shared<Napi::Error>(error));
                 continue;
             }
 
             if (env.IsExceptionPending())
             {
                 auto error = env.GetAndClearPendingException();
-                unhandledErrors.push_back(std::make_shared<Napi::ObjectReference>(Napi::Persistent(error.Value())));
+                unhandledErrors.push_back(std::make_shared<Napi::Error>(std::move(error)));
             }
             if (dispatch.Get("isStopped").As<Napi::Function>().Call(dispatch, {}).ToBoolean().Value())
             {
@@ -634,8 +635,8 @@ namespace Babylon::Polyfills::Internal
         dispatch.Get("end").As<Napi::Function>().Call(dispatch, {});
         for (const auto& error : unhandledErrors)
         {
-            m_runtimeScheduler([env, error]() {
-                Napi::Error{env, error->Value()}.ThrowAsJavaScriptException();
+            m_runtimeScheduler([error]() {
+                error->ThrowAsJavaScriptException();
             });
         }
     }
