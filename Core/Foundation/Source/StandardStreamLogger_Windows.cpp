@@ -133,13 +133,75 @@ namespace
 
     int OsDuplicateTo(int source, int target, const ChannelPlatformState* state = nullptr)
     {
-        // Set the private source's mode first so _dup2 installs the correct mode
-        // atomically with the target handle, on redirect as well as restoration.
         if (state != nullptr && ::_setmode(source, state->OriginalMode) < 0)
         {
             return -1;
         }
-        return ::_dup2(source, target);
+
+        const bool noinherit =
+            state != nullptr &&
+            (!state->OriginalDescriptorOpen ||
+                (state->OriginalDescriptorHandleFlags & HANDLE_INHERIT_FLAG) == 0);
+        if (!noinherit)
+        {
+            return ::_dup2(source, target);
+        }
+
+        // _dup2 always clears the CRT's FNOINHERIT bit. Reopen the target
+        // through the CRT to restore it as well as the kernel handle flag.
+        const intptr_t sourceHandle = GetOsHandle(source);
+        if (sourceHandle == -1)
+        {
+            return -1;
+        }
+        HANDLE handle{INVALID_HANDLE_VALUE};
+        if (!::DuplicateHandle(
+                ::GetCurrentProcess(), reinterpret_cast<HANDLE>(sourceHandle),
+                ::GetCurrentProcess(), &handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return -1;
+        }
+
+        const intptr_t targetHandle = GetOsHandle(target);
+        if (targetHandle == -1 && errno != EBADF)
+        {
+            (void)::CloseHandle(handle);
+            return -1;
+        }
+        // _close can report an invalid OS handle for UWP's -2 placeholder
+        // while still freeing its CRT descriptor slot.
+        if (targetHandle != -1 && ::_close(target) != 0 &&
+            targetHandle != NO_CONSOLE_FILENO)
+        {
+            const int error = errno;
+            const unsigned long dosError = _doserrno;
+            (void)::CloseHandle(handle);
+            errno = error;
+            _doserrno = dosError;
+            return -1;
+        }
+
+        const int reopened = ::_open_osfhandle(
+            reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_NOINHERIT);
+        if (reopened != target)
+        {
+            const int error = reopened < 0 ? errno : EBUSY;
+            const unsigned long dosError = reopened < 0 ? _doserrno : 0;
+            if (reopened < 0)
+            {
+                (void)::CloseHandle(handle);
+            }
+            else
+            {
+                (void)::_close(reopened);
+            }
+            errno = error;
+            _doserrno = dosError;
+            return -1;
+        }
+
+        return ::_setmode(target, state->OriginalMode) < 0 ? -1 : 0;
     }
 
     int GetDescriptorMode(int fd)
@@ -228,7 +290,8 @@ namespace
             return true;
         }
 
-        const bool targetDuplicated = OsDuplicateTo(nullFd, target) == 0;
+        ChannelPlatformState state{};
+        const bool targetDuplicated = OsDuplicateTo(nullFd, target, &state) == 0;
         const bool duplicated =
             targetDuplicated &&
             SetDescriptorInheritance(target, false);

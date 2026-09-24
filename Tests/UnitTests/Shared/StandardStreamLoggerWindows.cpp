@@ -57,6 +57,42 @@ namespace
                                    reinterpret_cast<HANDLE>(handle), InheritHandleFlag, inherit ? InheritHandleFlag : 0);
     }
 
+    bool BindNonInheritableDescriptor(int source, int target, int mode)
+    {
+        const intptr_t sourceHandle = GetOsHandle(source);
+        if (sourceHandle == -1)
+        {
+            return false;
+        }
+        HANDLE handle{INVALID_HANDLE_VALUE};
+        if (!::DuplicateHandle(
+                ::GetCurrentProcess(), reinterpret_cast<HANDLE>(sourceHandle),
+                ::GetCurrentProcess(), &handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        {
+            return false;
+        }
+        if (::_close(target) != 0)
+        {
+            (void)::CloseHandle(handle);
+            return false;
+        }
+        const int reopened =
+            ::_open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_NOINHERIT);
+        if (reopened != target)
+        {
+            if (reopened < 0)
+            {
+                (void)::CloseHandle(handle);
+            }
+            else
+            {
+                (void)::_close(reopened);
+            }
+            return false;
+        }
+        return ::_setmode(target, mode) >= 0;
+    }
+
     FILE* FileForDescriptor(int fd)
     {
         return fd == 1 ? stdout : stderr;
@@ -70,7 +106,7 @@ namespace
     class StreamCapture
     {
     public:
-        explicit StreamCapture(int target)
+        explicit StreamCapture(int target, bool noinherit = false)
             : m_target{target}
             , m_standardHandleId{StandardHandleForDescriptor(target)}
         {
@@ -92,15 +128,16 @@ namespace
             }
 
             m_fileDescriptor = ::_fileno(m_file);
-            if (m_fileDescriptor < 0 ||
-                ::_setmode(m_fileDescriptor, _O_BINARY) < 0 ||
-                ::_dup2(m_fileDescriptor, m_target) != 0)
+            if (m_fileDescriptor < 0 || ::_setmode(m_fileDescriptor, _O_BINARY) < 0 ||
+                (noinherit
+                        ? !BindNonInheritableDescriptor(m_fileDescriptor, m_target, _O_BINARY)
+                        : ::_dup2(m_fileDescriptor, m_target) != 0))
             {
                 return;
             }
 
             if ((m_originalInheritance >= 0 &&
-                    !SetDescriptorInheritance(m_target, m_originalInheritance != 0)) ||
+                    !SetDescriptorInheritance(m_target, !noinherit && m_originalInheritance != 0)) ||
                 !::SetStdHandle(
                     m_standardHandleId,
                     reinterpret_cast<HANDLE>(GetOsHandle(m_target))))
@@ -160,7 +197,20 @@ namespace
             if (m_original >= 0)
             {
                 std::fflush(FileForDescriptor(m_target));
-                const bool descriptorRestored = ::_dup2(m_original, m_target) == 0;
+                bool descriptorRestored{};
+                if (m_originalInheritance == 0)
+                {
+                    const int originalMode = ::_setmode(m_original, _O_BINARY);
+                    if (originalMode >= 0)
+                    {
+                        descriptorRestored =
+                            BindNonInheritableDescriptor(m_original, m_target, originalMode);
+                    }
+                }
+                else
+                {
+                    descriptorRestored = ::_dup2(m_original, m_target) == 0;
+                }
                 restored = descriptorRestored;
                 if (descriptorRestored && m_originalInheritance >= 0)
                 {
@@ -388,10 +438,62 @@ namespace
         bool Waited{};
         DWORD ExitCode{static_cast<DWORD>(-1)};
         bool Stopped{};
+        bool AfterStopSpawned{};
+        bool AfterStopWaited{};
+        DWORD AfterStopExitCode{static_cast<DWORD>(-1)};
         std::vector<int> PrivateDescriptors{};
     };
 
-    SpawnResult RunSpawnCase()
+    struct SpawnOutcome
+    {
+        bool Spawned{};
+        bool Waited{};
+        DWORD ExitCode{static_cast<DWORD>(-1)};
+    };
+
+    SpawnOutcome ProbeSpawn(const std::wstring& executable, const std::vector<int>& descriptors)
+    {
+        SpawnOutcome result{};
+        std::vector<std::wstring> argumentStorage{};
+        argumentStorage.reserve(descriptors.size() + 2);
+        argumentStorage.push_back(executable);
+        argumentStorage.emplace_back(L"--standard-stream-logger-spawn-probe");
+        for (const int fd : descriptors)
+        {
+            argumentStorage.push_back(std::to_wstring(fd));
+        }
+
+        std::vector<const wchar_t*> arguments{};
+        arguments.reserve(argumentStorage.size() + 1);
+        for (const auto& argument : argumentStorage)
+        {
+            arguments.push_back(argument.c_str());
+        }
+        arguments.push_back(nullptr);
+
+        const intptr_t child = ::_wspawnv(
+            _P_NOWAIT, argumentStorage.front().c_str(), arguments.data());
+        result.Spawned = child != -1;
+        if (result.Spawned)
+        {
+            const HANDLE process = reinterpret_cast<HANDLE>(child);
+            const DWORD wait = ::WaitForSingleObject(process, 10000);
+            result.Waited = wait == WAIT_OBJECT_0;
+            if (!result.Waited && wait == WAIT_TIMEOUT)
+            {
+                (void)::TerminateProcess(process, 0xFE);
+                (void)::WaitForSingleObject(process, 10000);
+            }
+            if (result.Waited)
+            {
+                (void)::GetExitCodeProcess(process, &result.ExitCode);
+            }
+            (void)::CloseHandle(process);
+        }
+        return result;
+    }
+
+    SpawnResult RunSpawnCase(bool checkStandardDescriptors = false)
     {
         SpawnResult result{};
         if (Babylon::StandardStreamLogger::IsStarted())
@@ -403,6 +505,8 @@ namespace
             AllocateDescriptorReservations(DescriptorReservationCount);
         CloseDescriptors(reservations);
 
+        std::vector<wchar_t> executableBuffer(32768);
+        DWORD executableLength{};
         result.Started = Babylon::StandardStreamLogger::Start();
         if (result.Started)
         {
@@ -412,54 +516,36 @@ namespace
                 FindOccupiedReservations(reservations, availableAfterStart);
             CloseDescriptors(availableAfterStart);
 
-            std::vector<wchar_t> executableBuffer(32768);
-            const DWORD executableLength = ::GetModuleFileNameW(
+            executableLength = ::GetModuleFileNameW(
                 nullptr, executableBuffer.data(), static_cast<DWORD>(executableBuffer.size()));
             result.ExecutableFound =
                 executableLength != 0 && executableLength < executableBuffer.size();
 
             if (result.ExecutableFound && !result.PrivateDescriptors.empty())
             {
-                std::vector<std::wstring> argumentStorage{};
-                argumentStorage.reserve(result.PrivateDescriptors.size() + 2);
-                argumentStorage.emplace_back(executableBuffer.data(), executableLength);
-                argumentStorage.emplace_back(L"--standard-stream-logger-spawn-probe");
-                for (const int fd : result.PrivateDescriptors)
+                std::vector<int> descriptors = result.PrivateDescriptors;
+                if (checkStandardDescriptors)
                 {
-                    argumentStorage.push_back(std::to_wstring(fd));
+                    descriptors.push_back(1);
+                    descriptors.push_back(2);
                 }
-
-                std::vector<const wchar_t*> arguments{};
-                arguments.reserve(argumentStorage.size() + 1);
-                for (const auto& argument : argumentStorage)
-                {
-                    arguments.push_back(argument.c_str());
-                }
-                arguments.push_back(nullptr);
-
-                const intptr_t child = ::_wspawnv(
-                    _P_NOWAIT, argumentStorage.front().c_str(), arguments.data());
-                result.Spawned = child != -1;
-                if (result.Spawned)
-                {
-                    const HANDLE process = reinterpret_cast<HANDLE>(child);
-                    const DWORD wait = ::WaitForSingleObject(process, 10000);
-                    result.Waited = wait == WAIT_OBJECT_0;
-                    if (!result.Waited && wait == WAIT_TIMEOUT)
-                    {
-                        (void)::TerminateProcess(process, 0xFE);
-                        (void)::WaitForSingleObject(process, 10000);
-                    }
-                    if (result.Waited)
-                    {
-                        (void)::GetExitCodeProcess(process, &result.ExitCode);
-                    }
-                    (void)::CloseHandle(process);
-                }
+                const SpawnOutcome outcome = ProbeSpawn(
+                    std::wstring{executableBuffer.data(), executableLength}, descriptors);
+                result.Spawned = outcome.Spawned;
+                result.Waited = outcome.Waited;
+                result.ExitCode = outcome.ExitCode;
             }
         }
 
         result.Stopped = Babylon::StandardStreamLogger::Stop();
+        if (checkStandardDescriptors && result.Stopped && result.ExecutableFound)
+        {
+            const SpawnOutcome outcome = ProbeSpawn(
+                std::wstring{executableBuffer.data(), executableLength}, {1, 2});
+            result.AfterStopSpawned = outcome.Spawned;
+            result.AfterStopWaited = outcome.Waited;
+            result.AfterStopExitCode = outcome.ExitCode;
+        }
         return result;
     }
 }
@@ -570,5 +656,31 @@ TEST(StandardStreamLoggerWindows, PrivateDescriptorsAreNotSerializedBySpawn)
     EXPECT_TRUE(result.Waited);
     EXPECT_EQ(result.ExitCode, 0u);
     EXPECT_TRUE(result.Stopped);
+}
+
+TEST(StandardStreamLoggerWindows, NonInheritableStandardDescriptorsAreNotSerializedBySpawn)
+{
+    bool capturesValid{};
+    SpawnResult result{};
+    {
+        StreamCapture output{1, true};
+        StreamCapture error{2, true};
+        capturesValid = output.Valid() && error.Valid();
+        if (capturesValid)
+        {
+            result = RunSpawnCase(true);
+        }
+    }
+    ASSERT_TRUE(capturesValid);
+    EXPECT_TRUE(result.Started);
+    EXPECT_FALSE(result.PrivateDescriptors.empty());
+    EXPECT_TRUE(result.ExecutableFound);
+    EXPECT_TRUE(result.Spawned);
+    EXPECT_TRUE(result.Waited);
+    EXPECT_EQ(result.ExitCode, 0u);
+    EXPECT_TRUE(result.Stopped);
+    EXPECT_TRUE(result.AfterStopSpawned);
+    EXPECT_TRUE(result.AfterStopWaited);
+    EXPECT_EQ(result.AfterStopExitCode, 0u);
 }
 #endif
