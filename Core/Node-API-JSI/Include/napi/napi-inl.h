@@ -2368,7 +2368,11 @@ ObjectWrap<T>::DefineClass(napi_env env,
         descriptor.setProperty(rt, "set", jsi::Function::createFromHostFunction(rt, name, 0,
           [env, setter{p.instanceSetter}, data{p.data}](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
             T* nativeObject{Unwrap(env, thisVal.getObject(rt))};
-            (nativeObject->*setter)({env, thisVal, args, count, nullptr, data}, {env, {rt, args[0]}});
+            try {
+              (nativeObject->*setter)({env, thisVal, args, count, nullptr, data}, {env, {rt, args[0]}});
+            } catch (const Error& error) {
+              throw jsi::JSError(rt, jsi::Value{rt, static_cast<const jsi::Object&>(error.Value())});
+            }
             return {};
           }));
       }
