@@ -186,7 +186,7 @@ TEST(XMLHttpRequest, ThrowingStoppedListenerSkipsRemainingListeners)
     Babylon::AppRuntime runtime{options};
     runtime.Dispatch([dispatched](Napi::Env env) {
         Babylon::Polyfills::XMLHttpRequest::Initialize(env);
-        env.Global().Set("reportAbortedListeners", Napi::Function::New(env, [dispatched](const Napi::CallbackInfo& info) {
+        env.Global().Set("reportStoppedListeners", Napi::Function::New(env, [dispatched](const Napi::CallbackInfo& info) {
             dispatched->set_value(info[0].As<Napi::String>().Utf8Value());
         }));
     });
@@ -195,24 +195,28 @@ TEST(XMLHttpRequest, ThrowingStoppedListenerSkipsRemainingListeners)
     loader.Eval(R"(
         var xhr = new XMLHttpRequest();
         var invoked = [];
-        xhr.addEventListener("abort", function (event) {
+        xhr.addEventListener("load", function (event) {
             invoked.push("first");
             event.stopImmediatePropagation();
             throw new Error("stopped listener failed");
         });
-        xhr.addEventListener("abort", function () { invoked.push("second"); });
+        xhr.addEventListener("load", function () { invoked.push("second"); });
         xhr.addEventListener("loadend", function () {
-            reportAbortedListeners(invoked.join(","));
+            reportStoppedListeners(invoked.join(","));
         });
         xhr.open("GET", "app:///Scripts/symlink_target.js");
         xhr.send();
-        xhr.abort();
     )", "");
 
     ASSERT_EQ(dispatchedFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready);
     EXPECT_EQ(dispatchedFuture.get(), "first");
     ASSERT_EQ(errorFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready);
     EXPECT_EQ(errorCount->load(), 1);
+
+    auto drained = std::make_shared<std::promise<void>>();
+    auto drainedFuture = drained->get_future();
+    runtime.Dispatch([drained](Napi::Env) { drained->set_value(); });
+    ASSERT_EQ(drainedFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 }
 
 TEST(Console, Log)
