@@ -2,6 +2,8 @@
 
 #include <napi/js_native_api.h>
 
+#include <atomic>
+#include <cstdio>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -86,6 +88,19 @@ namespace napi_shared {
 
   napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result,
                                          const PropertyNameIntrinsics& intrinsics) {
+#ifdef _WIN32
+    static std::atomic<unsigned> tracedCalls{0};
+    const bool tracing = tracedCalls.fetch_add(1) == 0;
+    const auto trace = [tracing](const char* stage) {
+      if (tracing) {
+        std::fprintf(stderr, "PROPERTY_NAMES_TRACE: %s\n", stage);
+        std::fflush(stderr);
+      }
+    };
+    trace("start");
+#else
+    const auto trace = [](const char*) {};
+#endif
     // Take one own-key snapshot per prototype level, then inspect each
     // descriptor to determine enumerability. This matches `for...in` for
     // proxies, whose `ownKeys` trap must not be invoked twice at one level.
@@ -99,9 +114,11 @@ namespace napi_shared {
     RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.own_names, &getOwnPropertyNames));
     RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.own_descriptor, &getOwnPropertyDescriptor));
     RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.prototype, &getPrototypeOf));
+    trace("references");
 
     napi_value names{};
     RETURN_IF_NOT_OK(napi_create_array(env, &names));
+    trace("array");
     uint32_t nameCount{};
 
     std::unordered_set<std::u16string> shadowed{};
@@ -115,6 +132,7 @@ namespace napi_shared {
     // between engines (QuickJS yields an empty object, JavaScriptCore throws).
     napi_valuetype type{};
     RETURN_IF_NOT_OK(napi_typeof(env, object, &type));
+    trace("type");
     if (type == napi_null || type == napi_undefined) {
       return napi_object_expected;
     }
@@ -125,6 +143,7 @@ namespace napi_shared {
     }
 
     while (true) {
+      trace("level");
       bool isObjectLike{};
       RETURN_IF_NOT_OK(IsObjectLike(env, current, isObjectLike));
       if (!isObjectLike) {
@@ -141,18 +160,22 @@ namespace napi_shared {
 
       napi_value ownNames{};
       RETURN_IF_NOT_OK(napi_call_function(env, global, getOwnPropertyNames, 1, &current, &ownNames));
+      trace("own names");
 
       uint32_t ownNameCount{};
       RETURN_IF_NOT_OK(napi_get_array_length(env, ownNames, &ownNameCount));
+      trace("name count");
       for (uint32_t index = 0; index < ownNameCount; ++index) {
         napi_value name{};
         RETURN_IF_NOT_OK(napi_get_element(env, ownNames, index, &name));
 
         size_t length{};
         RETURN_IF_NOT_OK(napi_get_value_string_utf16(env, name, nullptr, 0, &length));
+        trace("utf16 length");
         std::u16string key(length + 1, u'\0');
         size_t copied{};
         RETURN_IF_NOT_OK(napi_get_value_string_utf16(env, name, key.data(), key.size(), &copied));
+        trace("utf16 copied");
         key.resize(copied);
         if (shadowed.find(key) != shadowed.end()) {
           continue;
@@ -162,6 +185,7 @@ namespace napi_shared {
         napi_value descriptor{};
         RETURN_IF_NOT_OK(napi_call_function(
             env, global, getOwnPropertyDescriptor, 2, descriptorArgs, &descriptor));
+        trace("descriptor");
 
         napi_valuetype descriptorType{};
         RETURN_IF_NOT_OK(napi_typeof(env, descriptor, &descriptorType));
@@ -182,6 +206,7 @@ namespace napi_shared {
 
       napi_value next{};
       RETURN_IF_NOT_OK(napi_call_function(env, global, getPrototypeOf, 1, &current, &next));
+      trace("prototype");
 
       current = next;
     }
