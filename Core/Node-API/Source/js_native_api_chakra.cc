@@ -1,9 +1,11 @@
 #include "js_native_api_chakra.h"
 #include "js_native_api_shared.h"
 #include <napi/js_native_api.h>
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <optional>
 #include <vector>
 #include <string>
@@ -49,13 +51,14 @@ JsErrorCode JsCopyStringUtf16(_In_ JsValueRef value, _Out_opt_ char16_t* buffer,
   size_t stringLength;
   CHECK_JSRT_ERROR_CODE(JsStringToPointer(value, &stringValue, &stringLength));
 
+  const size_t copied = buffer == nullptr ? stringLength : std::min(bufferSize, stringLength);
   if (length != nullptr) {
-    *length = stringLength;
+    *length = copied;
   }
 
-  if (buffer != nullptr) {
+  if (buffer != nullptr && copied != 0) {
     static_assert(sizeof(char16_t) == sizeof(wchar_t));
-    memcpy_s(buffer, bufferSize, stringValue, stringLength * sizeof(wchar_t));
+    std::memcpy(buffer, stringValue, copied * sizeof(char16_t));
   }
 
   return JsErrorCode::JsNoError;

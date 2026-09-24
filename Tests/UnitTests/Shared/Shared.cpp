@@ -506,6 +506,39 @@ TEST(NodeApi, GetValueStringUtf16HandlesZeroBufsize)
     EXPECT_TRUE(normalWorks.get_future().get());
 }
 
+TEST(NodeApi, GetValueStringUtf16CopiesAndTruncates)
+{
+    Babylon::AppRuntime runtime{};
+    std::promise<bool> copiedCorrectly;
+
+    runtime.Dispatch([&copiedCorrectly](Napi::Env env) {
+        napi_env nenv{env};
+        const char16_t input[]{u'a', static_cast<char16_t>(0xD800), u'b'};
+        napi_value value{};
+        if (napi_create_string_utf16(nenv, input, 3, &value) != napi_ok)
+        {
+            copiedCorrectly.set_value(false);
+            return;
+        }
+
+        size_t length{};
+        char16_t truncated[2]{u'?', u'?'};
+        size_t truncatedLength{};
+        char16_t complete[4]{};
+        size_t completeLength{};
+        const bool correct =
+            napi_get_value_string_utf16(nenv, value, nullptr, 0, &length) == napi_ok && length == 3 &&
+            napi_get_value_string_utf16(nenv, value, truncated, 2, &truncatedLength) == napi_ok &&
+            truncatedLength == 1 && truncated[0] == u'a' && truncated[1] == u'\0' &&
+            napi_get_value_string_utf16(nenv, value, complete, 4, &completeLength) == napi_ok &&
+            completeLength == 3 && complete[0] == u'a' && complete[1] == input[1] &&
+            complete[2] == u'b' && complete[3] == u'\0';
+        copiedCorrectly.set_value(correct);
+    });
+
+    EXPECT_TRUE(copiedCorrectly.get_future().get());
+}
+
 // Closes an escapable handle scope however the test leaves it. Without this, a
 // failing assertion returns with the scope still open, the enclosing
 // Napi::HandleScope then fails to close, and Napi::Error::Fatal throws out of its
