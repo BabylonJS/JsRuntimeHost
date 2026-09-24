@@ -1704,6 +1704,8 @@ describe("napi_get_property_names (#216)", function () {
     // chain*, i.e. exactly what `for...in` visits. JavaScriptCore used to throw
     // outright, while Chakra and QuickJS only reported own properties
     // (Chakra additionally reported non-enumerable ones).
+    // Chakra does not define globalThis; a non-strict function returns the global object.
+    const globalObject = Function("return this")();
 
     function forIn(object: any): string[] {
         const keys: string[] = [];
@@ -1781,10 +1783,10 @@ describe("napi_get_property_names (#216)", function () {
             Object.getOwnPropertyNames = () => ["forged"];
             Object.getOwnPropertyDescriptor = () => ({ enumerable: false });
             Object.getPrototypeOf = () => null;
-            Reflect.set(globalThis, "Object", {});
+            Reflect.set(globalObject, "Object", {});
             names = napiGetPropertyNames(object);
         } finally {
-            Reflect.set(globalThis, "Object", objectConstructor);
+            Reflect.set(globalObject, "Object", objectConstructor);
             Object.getOwnPropertyNames = ownNames;
             Object.getOwnPropertyDescriptor = ownDescriptor;
             Object.getPrototypeOf = prototype;
@@ -1882,10 +1884,10 @@ describe("napi_get_property_names (#216)", function () {
                 const objectConstructor = Object;
                 let names: string[] | undefined;
                 try {
-                    Reflect.set(globalThis, "Object", {});
+                    Reflect.set(globalObject, "Object", {});
                     names = napiGetPropertyNamesRaw("ab");
                 } finally {
-                    Reflect.set(globalThis, "Object", objectConstructor);
+                    Reflect.set(globalObject, "Object", objectConstructor);
                 }
                 expect(names).to.deep.equal(["0", "1"]);
             });
