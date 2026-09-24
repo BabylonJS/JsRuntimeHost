@@ -12,10 +12,13 @@ namespace Babylon::StandardStreamLogger
      * Other Unix platforms already expose standard streams and leave them unchanged.
      *
      * Persistent private descriptors are non-inheritable, and the original standard-stream
-     * inheritance flags are preserved. Applications must serialize concurrent
-     * child-process creation with Start()/Stop(): redirection and flag restoration
-     * are not a single atomic operation. Windows also uses a temporary CRT mode
-     * probe, and Apple lacks atomic close-on-exec pipe creation.
+     * inheritance flags are preserved (including the Windows CRT no-inherit state
+     * when the original handle is non-inheritable). Applications must serialize
+     * concurrent child-process creation with Start()/Stop(): redirection and flag
+     * restoration are not a single atomic operation. Windows also uses a temporary
+     * CRT mode probe and reopens non-inheritable standard descriptors; serialize
+     * concurrent CRT descriptor allocation with Start()/Stop() as well. Apple
+     * lacks atomic close-on-exec pipe creation.
      *
      * Platform diagnostics split long lines to fit their sink's size limit.
      * Chunking does not affect the tee to the original stream destination.
