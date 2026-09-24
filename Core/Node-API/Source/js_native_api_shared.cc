@@ -172,7 +172,14 @@ namespace napi_shared {
         size_t length{};
         RETURN_IF_NOT_OK(napi_get_value_string_utf16(env, name, nullptr, 0, &length));
         trace("utf16 length");
+#ifdef _WIN32
+        if (tracing) {
+          std::fprintf(stderr, "PROPERTY_NAMES_TRACE: length=%zu\n", length);
+          std::fflush(stderr);
+        }
+#endif
         std::u16string key(length + 1, u'\0');
+        trace("key allocated");
         size_t copied{};
         RETURN_IF_NOT_OK(napi_get_value_string_utf16(env, name, key.data(), key.size(), &copied));
         trace("utf16 copied");
