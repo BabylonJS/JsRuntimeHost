@@ -174,13 +174,17 @@ namespace Babylon::Polyfills::Internal
     template<XMLHttpRequest::EventIndex Index>
     void XMLHttpRequest::SetEventHandler(const Napi::CallbackInfo&, const Napi::Value& value)
     {
+        if (value.IsObject() && !value.IsFunction())
+        {
+            throw Napi::TypeError::New(Env(), "XMLHttpRequest event handler must be callable");
+        }
+
         auto& listeners = m_listeners[EVENT_TYPE_NAMES[static_cast<size_t>(Index)]];
         const auto it = std::find_if(listeners.begin(), listeners.end(), [](const std::shared_ptr<Listener>& listener) {
             return listener->isEventHandler;
         });
 
-        // Event handler attributes treat primitive values as null. Object values are retained
-        // verbatim for the getter; non-callable objects are simply skipped during dispatch.
+        // [LegacyTreatNonObjectAsNull] clears the handler for primitive values.
         if (!value.IsObject())
         {
             if (it != listeners.end())
@@ -284,6 +288,11 @@ namespace Babylon::Polyfills::Internal
         }
         else
         {
+            if (m_readyState != ReadyState::Done)
+            {
+                return Env().Null();
+            }
+
             gsl::span<const std::byte> responseBuffer{m_request->ResponseBuffer()};
             auto arrayBuffer{Napi::ArrayBuffer::New(Env(), responseBuffer.size())};
             std::memcpy(arrayBuffer.Data(), responseBuffer.data(), arrayBuffer.ByteLength());
@@ -419,6 +428,12 @@ namespace Babylon::Polyfills::Internal
     {
         if (m_readyState == ReadyState::Done)
         {
+            const auto responseType = m_request->ResponseType();
+            auto request = std::make_shared<UrlLib::UrlRequest>();
+            request->ResponseType(responseType);
+            m_request = std::move(request);
+            m_statusCode = 0;
+            m_statusText.clear();
             m_readyState = ReadyState::Unsent;
             return;
         }
@@ -612,6 +627,7 @@ namespace Babylon::Polyfills::Internal
                 continue;
             }
 
+            bool caughtException = false;
             try
             {
                 callback.As<Napi::Function>().Call(jsThis, {event});
@@ -619,10 +635,10 @@ namespace Babylon::Polyfills::Internal
             catch (const Napi::Error& error)
             {
                 unhandledErrors.push_back(std::make_shared<Napi::Error>(error));
-                continue;
+                caughtException = true;
             }
 
-            if (env.IsExceptionPending())
+            if (!caughtException && env.IsExceptionPending())
             {
                 auto error = env.GetAndClearPendingException();
                 unhandledErrors.push_back(std::make_shared<Napi::Error>(std::move(error)));
