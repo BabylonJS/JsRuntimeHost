@@ -47,13 +47,19 @@ namespace Napi
         return {env_ptr};
     }
 
-    void Detach(Env env)
+    void PrepareForRuntimeDisposal(Env env)
     {
         napi_env env_ptr{env};
         if (napi_shared::ReleasePropertyNameIntrinsics(env_ptr, env_ptr->property_name_intrinsics) != napi_ok)
         {
-            throw std::runtime_error{"Napi::Detach: failed to release property-name intrinsics"};
+            throw std::runtime_error{"Napi::PrepareForRuntimeDisposal: failed to release property-name intrinsics"};
         }
+    }
+
+    void Detach(Env env)
+    {
+        napi_env env_ptr{env};
+        PrepareForRuntimeDisposal(env);
         delete env_ptr;
     }
 }
