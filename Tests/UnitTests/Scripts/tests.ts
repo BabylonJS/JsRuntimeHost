@@ -277,8 +277,7 @@ describe("XMLHTTPRequest", function () {
     });
 
     it("should coerce a non-callable on<event> assignment to null", function () {
-        // EventHandler attributes are [LegacyTreatNonObjectAsNull] in WebIDL: assigning a
-        // non-callable value clears the handler rather than throwing a TypeError.
+        // [LegacyTreatNonObjectAsNull] applies to primitives, not objects.
         const xhr: any = new XMLHttpRequest();
         xhr.onload = () => { };
         expect(xhr.onload).to.not.equal(null);
@@ -295,12 +294,19 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.onload).to.equal(null);
     });
 
-    it("should retain but not invoke a non-callable object assigned to an on<event> property", function () {
+    it("should reject a non-callable object without replacing the existing on<event> handler", function () {
         const xhr: any = new XMLHttpRequest();
-        const handler = {};
+        const handler = () => { };
         xhr.onload = handler;
 
+        expect(() => { xhr.onload = {}; }).to.throw(TypeError);
         expect(xhr.onload).to.equal(handler);
+        expect(() => { xhr.onload = new Number(1); }).to.throw(TypeError);
+        expect(xhr.onload).to.equal(handler);
+
+        const fresh: any = new XMLHttpRequest();
+        expect(() => { fresh.onload = {}; }).to.throw(TypeError);
+        expect(fresh.onload).to.equal(null);
     });
 
     it("should preserve handlers when the request completes and is reused", async function () {
@@ -407,6 +413,39 @@ describe("XMLHTTPRequest", function () {
         });
         expect(xhr.status).to.equal(200);
         expect(xhr.statusText).to.equal("OK");
+    });
+
+    it("should clear a completed response on abort without discarding responseType", async function () {
+        const xhr: any = await createRequest("GET", "app:///Scripts/symlink_target.js");
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseText).to.not.equal("");
+
+        xhr.abort();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+        expect(xhr.status).to.equal(0);
+        expect(xhr.statusText).to.equal("");
+        expect(xhr.response).to.equal("");
+        expect(xhr.responseText).to.equal("");
+        expect(xhr.responseURL).to.equal("");
+        expect(Object.keys(xhr.getAllResponseHeaders())).to.deep.equal([]);
+        expect(xhr.errorCode).to.equal("");
+        expect(xhr.errorDetail).to.equal("");
+
+        const binary: any = new XMLHttpRequest();
+        binary.open("GET", "app:///Scripts/symlink_target.js");
+        binary.responseType = "arraybuffer";
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("binary XHR did not complete")), 25000);
+            binary.onloadend = () => {
+                clearTimeout(guard);
+                resolve();
+            };
+            binary.send();
+        });
+        expect(binary.response).to.be.instanceOf(ArrayBuffer);
+        binary.abort();
+        expect(binary.responseType).to.equal("arraybuffer");
+        expect(binary.response).to.equal(null);
     });
 
     it("should preserve a replacement request started during each synchronous abort event", async function () {
