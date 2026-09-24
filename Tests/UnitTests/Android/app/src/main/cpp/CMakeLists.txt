@@ -20,6 +20,8 @@ add_library(UnitTestsJNI SHARED
     JNI.cpp
     ${UNIT_TESTS_DIR}/Shared/DelayedTaskScheduler.cpp
     ${UNIT_TESTS_DIR}/Shared/StandardStreamLogger.cpp
+    ${UNIT_TESTS_DIR}/Shared/StandardStreamLoggerLines.cpp
+    ${UNIT_TESTS_DIR}/Shared/StandardStreamLoggerPosix.cpp
     ${UNIT_TESTS_DIR}/Shared/TimeoutDispatcher.cpp
     ${UNIT_TESTS_DIR}/Shared/Shared.h
     ${UNIT_TESTS_DIR}/Shared/Shared.cpp)

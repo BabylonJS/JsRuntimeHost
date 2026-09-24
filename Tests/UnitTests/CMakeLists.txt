@@ -10,6 +10,8 @@ file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 set(SOURCES
     "Shared/DelayedTaskScheduler.cpp"
     "Shared/StandardStreamLogger.cpp"
+    "Shared/StandardStreamLoggerLines.cpp"
+    "Shared/StandardStreamLoggerPosix.cpp"
     "Shared/TimeoutDispatcher.cpp"
     "Shared/Shared.cpp"
     "Shared/Shared.h")
@@ -41,6 +43,10 @@ if(APPLE)
 elseif(WIN32)
     set(SOURCES ${SOURCES}
         Win32/App.cpp)
+    if(NOT WINDOWS_STORE)
+        set(SOURCES ${SOURCES}
+            "Shared/StandardStreamLoggerWindows.cpp")
+    endif()
 elseif(UNIX AND NOT ANDROID)
     set(SOURCES ${SOURCES}
         Linux/App.cpp)

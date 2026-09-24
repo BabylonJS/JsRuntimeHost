@@ -13,6 +13,11 @@ namespace
 // POSIX fd helpers (dup/pipe/CLOEXEC/devnull); sink is OsWritePlatform below.
 #include "StandardStreamLogger_PosixOps.inl"
 
+    size_t OsMaxPlatformLineSize(bool /*isError*/)
+    {
+        return 3800;
+    }
+
     void OsWritePlatform(bool isError, const std::string& line)
     {
         const int priority = isError ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO;
