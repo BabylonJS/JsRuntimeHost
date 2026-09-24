@@ -2,6 +2,9 @@
 
 #include <napi/js_native_api.h>
 
+#include <string>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace napi_shared {
@@ -37,7 +40,52 @@ namespace napi_shared {
     }
   }
 
-  napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result) {
+  napi_status ReleasePropertyNameIntrinsics(napi_env env, PropertyNameIntrinsics& intrinsics) {
+    napi_status firstError{napi_ok};
+    for (napi_ref* ref : {&intrinsics.object_constructor, &intrinsics.own_names,
+                          &intrinsics.own_descriptor, &intrinsics.prototype}) {
+      if (*ref != nullptr) {
+        const napi_status status{napi_delete_reference(env, *ref)};
+        if (status == napi_ok) {
+          *ref = nullptr;
+        } else if (firstError == napi_ok) {
+          firstError = status;
+        }
+      }
+    }
+    return firstError;
+  }
+
+  napi_status CapturePropertyNameIntrinsics(napi_env env, PropertyNameIntrinsics& intrinsics) {
+    napi_value global{};
+    napi_value functions[4]{};
+    RETURN_IF_NOT_OK(napi_get_global(env, &global));
+    RETURN_IF_NOT_OK(napi_get_named_property(env, global, "Object", &functions[0]));
+    RETURN_IF_NOT_OK(napi_get_named_property(env, functions[0], "getOwnPropertyNames", &functions[1]));
+    RETURN_IF_NOT_OK(napi_get_named_property(env, functions[0], "getOwnPropertyDescriptor", &functions[2]));
+    RETURN_IF_NOT_OK(napi_get_named_property(env, functions[0], "getPrototypeOf", &functions[3]));
+    for (const napi_value function : functions) {
+      napi_valuetype type{};
+      RETURN_IF_NOT_OK(napi_typeof(env, function, &type));
+      if (type != napi_function) {
+        return napi_function_expected;
+      }
+    }
+
+    napi_ref* refs[]{&intrinsics.object_constructor, &intrinsics.own_names,
+                     &intrinsics.own_descriptor, &intrinsics.prototype};
+    for (size_t index = 0; index < 4; ++index) {
+      const napi_status status{napi_create_reference(env, functions[index], 1, refs[index])};
+      if (status != napi_ok) {
+        const napi_status cleanupStatus{ReleasePropertyNameIntrinsics(env, intrinsics)};
+        return cleanupStatus == napi_ok ? status : cleanupStatus;
+      }
+    }
+    return napi_ok;
+  }
+
+  napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result,
+                                         const PropertyNameIntrinsics& intrinsics) {
     // Take one own-key snapshot per prototype level, then inspect each
     // descriptor to determine enumerability. This matches `for...in` for
     // proxies, whose `ownKeys` trap must not be invoked twice at one level.
@@ -47,16 +95,16 @@ namespace napi_shared {
     napi_value getOwnPropertyDescriptor{};
     napi_value getPrototypeOf{};
     RETURN_IF_NOT_OK(napi_get_global(env, &global));
-    RETURN_IF_NOT_OK(napi_get_named_property(env, global, "Object", &objectConstructor));
-    RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "getOwnPropertyNames", &getOwnPropertyNames));
-    RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "getOwnPropertyDescriptor", &getOwnPropertyDescriptor));
-    RETURN_IF_NOT_OK(napi_get_named_property(env, objectConstructor, "getPrototypeOf", &getPrototypeOf));
+    RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.object_constructor, &objectConstructor));
+    RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.own_names, &getOwnPropertyNames));
+    RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.own_descriptor, &getOwnPropertyDescriptor));
+    RETURN_IF_NOT_OK(napi_get_reference_value(env, intrinsics.prototype, &getPrototypeOf));
 
     napi_value names{};
     RETURN_IF_NOT_OK(napi_create_array(env, &names));
     uint32_t nameCount{};
 
-    std::vector<napi_value> shadowed{};
+    std::unordered_set<std::u16string> shadowed{};
     std::vector<napi_value> visited{};
 
     // `ToObject` is what the specification (and the V8 implementation) applies
@@ -71,8 +119,10 @@ namespace napi_shared {
       return napi_object_expected;
     }
 
-    napi_value current{};
-    RETURN_IF_NOT_OK(napi_coerce_to_object(env, object, &current));
+    napi_value current{object};
+    if (type != napi_object && type != napi_function && type != napi_external) {
+      RETURN_IF_NOT_OK(napi_call_function(env, global, objectConstructor, 1, &object, &current));
+    }
 
     while (true) {
       bool isObjectLike{};
@@ -90,7 +140,7 @@ namespace napi_shared {
       visited.push_back(current);
 
       napi_value ownNames{};
-      RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getOwnPropertyNames, 1, &current, &ownNames));
+      RETURN_IF_NOT_OK(napi_call_function(env, global, getOwnPropertyNames, 1, &current, &ownNames));
 
       uint32_t ownNameCount{};
       RETURN_IF_NOT_OK(napi_get_array_length(env, ownNames, &ownNameCount));
@@ -98,16 +148,20 @@ namespace napi_shared {
         napi_value name{};
         RETURN_IF_NOT_OK(napi_get_element(env, ownNames, index, &name));
 
-        bool alreadyShadowed{};
-        RETURN_IF_NOT_OK(Contains(env, shadowed, name, alreadyShadowed));
-        if (alreadyShadowed) {
+        size_t length{};
+        RETURN_IF_NOT_OK(napi_get_value_string_utf16(env, name, nullptr, 0, &length));
+        std::u16string key(length + 1, u'\0');
+        size_t copied{};
+        RETURN_IF_NOT_OK(napi_get_value_string_utf16(env, name, key.data(), key.size(), &copied));
+        key.resize(copied);
+        if (shadowed.find(key) != shadowed.end()) {
           continue;
         }
 
         napi_value descriptorArgs[]{current, name};
         napi_value descriptor{};
         RETURN_IF_NOT_OK(napi_call_function(
-            env, objectConstructor, getOwnPropertyDescriptor, 2, descriptorArgs, &descriptor));
+            env, global, getOwnPropertyDescriptor, 2, descriptorArgs, &descriptor));
 
         napi_valuetype descriptorType{};
         RETURN_IF_NOT_OK(napi_typeof(env, descriptor, &descriptorType));
@@ -115,7 +169,7 @@ namespace napi_shared {
           continue;
         }
 
-        shadowed.push_back(name);
+        shadowed.insert(std::move(key));
 
         napi_value enumerableValue{};
         RETURN_IF_NOT_OK(napi_get_named_property(env, descriptor, "enumerable", &enumerableValue));
@@ -127,7 +181,7 @@ namespace napi_shared {
       }
 
       napi_value next{};
-      RETURN_IF_NOT_OK(napi_call_function(env, objectConstructor, getPrototypeOf, 1, &current, &next));
+      RETURN_IF_NOT_OK(napi_call_function(env, global, getPrototypeOf, 1, &current, &next));
 
       current = next;
     }

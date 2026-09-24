@@ -56,6 +56,12 @@ namespace Napi
         }
 
         env_ptr->has_own_property_function = hasOwnProperty;
+        if (napi_shared::CapturePropertyNameIntrinsics(env_ptr, env_ptr->property_name_intrinsics) != napi_ok)
+        {
+            JS_FreeValue(context, hasOwnProperty);
+            delete env_ptr;
+            throw std::runtime_error{"Napi::Attach: failed to capture property-name intrinsics"};
+        }
 
         return {env_ptr};
     }
@@ -65,6 +71,10 @@ namespace Napi
         napi_env env_ptr{env};
         if (env_ptr)
         {
+            if (napi_shared::ReleasePropertyNameIntrinsics(env_ptr, env_ptr->property_name_intrinsics) != napi_ok)
+            {
+                throw std::runtime_error{"Napi::Detach: failed to release property-name intrinsics"};
+            }
             // Release every strong napi_ref still outstanding. This mirrors
             // the V8 impl (napi_env__::DeleteMe) and is essential on QuickJS:
             // any surviving strong ref pins a JS value from outside the GC

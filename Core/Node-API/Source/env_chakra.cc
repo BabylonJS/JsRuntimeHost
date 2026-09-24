@@ -1,6 +1,7 @@
 #include <napi/env.h>
 #include "js_native_api_chakra.h"
 #include <jsrt.h>
+#include <stdexcept>
 #include <strsafe.h>
 
 namespace
@@ -30,6 +31,11 @@ namespace Napi
         ThrowIfFailed(JsGetPrototype(object, &prototype));
         ThrowIfFailed(JsGetPropertyIdFromName(L"hasOwnProperty", &propertyId));
         ThrowIfFailed(JsGetProperty(prototype, propertyId, &env_ptr->has_own_property_function));
+        if (napi_shared::CapturePropertyNameIntrinsics(env_ptr, env_ptr->property_name_intrinsics) != napi_ok)
+        {
+            delete env_ptr;
+            throw std::runtime_error{"Napi::Attach: failed to capture property-name intrinsics"};
+        }
 
         JsValueRef wrapSymbolDescription;
         ThrowIfFailed(JsPointerToString(L"BabylonNative_External", 22, &wrapSymbolDescription));
@@ -44,6 +50,10 @@ namespace Napi
     void Detach(Env env)
     {
         napi_env env_ptr{env};
+        if (napi_shared::ReleasePropertyNameIntrinsics(env_ptr, env_ptr->property_name_intrinsics) != napi_ok)
+        {
+            throw std::runtime_error{"Napi::Detach: failed to release property-name intrinsics"};
+        }
         delete env_ptr;
     }
 }

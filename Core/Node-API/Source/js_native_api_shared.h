@@ -7,6 +7,18 @@
 // Backends whose engine offers a faithful native equivalent should keep using
 // it; these helpers exist for the ones that do not.
 namespace napi_shared {
+  // Strong references keep these built-ins independent of later changes to
+  // globalThis.Object and its static methods.
+  struct PropertyNameIntrinsics {
+    napi_ref object_constructor{};
+    napi_ref own_names{};
+    napi_ref own_descriptor{};
+    napi_ref prototype{};
+  };
+
+  napi_status CapturePropertyNameIntrinsics(napi_env env, PropertyNameIntrinsics& intrinsics);
+  napi_status ReleasePropertyNameIntrinsics(napi_env env, PropertyNameIntrinsics& intrinsics);
+
   // Implements `napi_get_property_names` semantics: the names of all
   // enumerable string-keyed properties of `object` and of its prototype chain,
   // as an array of strings, matching a `for...in` enumeration.
@@ -16,7 +28,8 @@ namespace napi_shared {
   // Chakra and QuickJS have no equivalent, so this walks the prototype
   // chain explicitly. See https://github.com/BabylonJS/JsRuntimeHost/issues/216.
   //
-  // `object` is coerced with `napi_coerce_to_object`, as V8's `CHECK_TO_OBJECT`
-  // does. Callers are expected to have already validated `env` and `result`.
-  napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result);
+  // Primitives are wrapped with the captured Object constructor, matching
+  // V8's `CHECK_TO_OBJECT`. Callers validate `env` and `result`.
+  napi_status GetEnumerablePropertyNames(napi_env env, napi_value object, napi_value* result,
+                                         const PropertyNameIntrinsics& intrinsics);
 }

@@ -1768,6 +1768,46 @@ describe("napi_get_property_names (#216)", function () {
         expect(ownKeysCalls).to.equal(1);
     });
 
+    it("does not depend on mutable Object globals", function () {
+        const objectConstructor = Object;
+        const ownNames = Object.getOwnPropertyNames;
+        const ownDescriptor = Object.getOwnPropertyDescriptor;
+        const prototype = Object.getPrototypeOf;
+        const object = Object.create({ inherited: 1 });
+        object.own = 2;
+        let names: string[] | undefined;
+
+        try {
+            Object.getOwnPropertyNames = () => ["forged"];
+            Object.getOwnPropertyDescriptor = () => ({ enumerable: false });
+            Object.getPrototypeOf = () => null;
+            Reflect.set(globalThis, "Object", {});
+            names = napiGetPropertyNames(object);
+        } finally {
+            Reflect.set(globalThis, "Object", objectConstructor);
+            Object.getOwnPropertyNames = ownNames;
+            Object.getOwnPropertyDescriptor = ownDescriptor;
+            Object.getPrototypeOf = prototype;
+        }
+
+        expect(names).to.deep.equal(["own", "inherited"]);
+    });
+
+    it("deduplicates large sets of enumerable and non-enumerable names", function () {
+        const object = Object.create({ inherited: 1 });
+        const expected: string[] = [];
+        for (let index = 0; index < 1024; ++index) {
+            const name = `key${index}`;
+            const enumerable = index % 2 === 0;
+            Object.defineProperty(object, name, { value: index, enumerable });
+            if (enumerable) {
+                expected.push(name);
+            }
+        }
+        expected.push("inherited");
+        expect(napiGetPropertyNames(object)).to.deep.equal(expected);
+    });
+
     it("omits an inherited property shadowed by a non-enumerable own property", function () {
         const object = Object.create({ shared: 1 });
         Object.defineProperty(object, "shared", { value: 2, enumerable: false });
@@ -1836,6 +1876,18 @@ describe("napi_get_property_names (#216)", function () {
         describePrimitives("of a primitive", function () {
             it("wraps a string primitive and reports its indices", function () {
                 expect(napiGetPropertyNamesRaw("ab")).to.deep.equal(["0", "1"]);
+            });
+
+            it("wraps a primitive after the global Object binding is replaced", function () {
+                const objectConstructor = Object;
+                let names: string[] | undefined;
+                try {
+                    Reflect.set(globalThis, "Object", {});
+                    names = napiGetPropertyNamesRaw("ab");
+                } finally {
+                    Reflect.set(globalThis, "Object", objectConstructor);
+                }
+                expect(names).to.deep.equal(["0", "1"]);
             });
 
             it("wraps a number primitive, which has no enumerable properties", function () {

@@ -1403,7 +1403,7 @@ napi_status napi_get_property_names(napi_env env, napi_value object, napi_value*
   // cleared the last error. The success path likewise has to clear it, so that
   // a rejection recorded by an earlier call does not survive as the last error
   // of a call that succeeded.
-  const napi_status status{napi_shared::GetEnumerablePropertyNames(env, object, result)};
+  const napi_status status{napi_shared::GetEnumerablePropertyNames(env, object, result, env->property_name_intrinsics)};
   if (status != napi_ok) {
     return napi_set_last_error(env, status);
   }

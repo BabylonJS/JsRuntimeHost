@@ -2,6 +2,7 @@
 
 #include <napi/js_native_api.h>
 #include <napi/js_native_api_types.h>
+#include "js_native_api_shared.h"
 #include <JavaScriptCore/JavaScript.h>
 #include <unordered_map>
 #include <list>
@@ -13,6 +14,7 @@ struct napi_env__ {
   JSGlobalContextRef context{};
   JSValueRef last_exception{};
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
+  napi_shared::PropertyNameIntrinsics property_name_intrinsics{};
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
 
