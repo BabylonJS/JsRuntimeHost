@@ -37,6 +37,3 @@ describe("TextEncoder", function () {
         expect(Array.from(bytes)).to.eql([72, 0, 105]);
     });
 });
-
-declare const File: any;
-declare const FileReader: any;
