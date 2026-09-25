@@ -72,6 +72,11 @@ android {
     buildFeatures {
         viewBinding true
     }
+    sourceSets {
+        main {
+            assets.srcDirs = []
+        }
+    }
 }
 
 dependencies {
@@ -84,32 +89,36 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-task copyAssets {
-    doLast {
-        // run copy at execution phase because npm command is not done at configuration phase
-        delete 'src/main/assets/Scripts'
-        copy
-        {
-            from '../../../dist'
-            include "*.js"
-            into 'src/main/assets/Assets'
-        }
-        copy
-        {
-            from '../../../Assets'
-            include "*.*"
-            into 'src/main/assets/Assets'
+['Debug', 'Release'].each { variant ->
+    def variantName = variant.toLowerCase()
+    def bundleDir = file("$buildDir/generated/test-bundle/$variantName")
+    def assetsDir = file("$buildDir/generated/test-assets/$variantName")
+    def buildBundle = tasks.register("build${variant}TestBundle", Exec) {
+        dependsOn "merge${variant}NativeLibs"
+        workingDir file('../../../..')
+        commandLine System.getProperty('os.name').toLowerCase().contains('windows') ? 'npm.cmd' : 'npm',
+            'run', 'build', '--', '--output-path', bundleDir.absolutePath
+        inputs.files(fileTree('../../../JavaScript/src') { include '**/*.ts' })
+        inputs.files files('../../../../webpack.config.js', '../../../../babel-plugin-replace-bigint.js',
+            '../../../../package.json', '../../../../package-lock.json')
+        outputs.file file("$bundleDir/tests.js")
+    }
+    def copyAssets = tasks.register(variant == 'Debug' ? 'copyAssets' : "copy${variant}Assets", Sync) {
+        dependsOn buildBundle
+        from(bundleDir) { into 'Assets' }
+        from('../../../Assets') { into 'Assets' }
+        into assetsDir
+        doFirst {
+            delete 'src/main/assets/Scripts', 'src/main/assets/Assets/tests.js'
         }
     }
-}
-
-// Run copyAssets task after CMake external build
-// And make sure merging assets into output is performed after the assets copy
-tasks.configureEach { task ->
-    if (task.name == 'mergeDebugNativeLibs') {
-        task.finalizedBy(copyAssets)
-    }
-    if (task.name == 'mergeDebugAssets') {
-        task.dependsOn(copyAssets)
+    android.sourceSets.getByName(variantName).assets.srcDir(copyAssets)
+    // Lint reads the asset source directory independently of mergeAssets.
+    tasks.configureEach { task ->
+        if (task.name == "merge${variant}Assets" ||
+            task.name == "lintVitalAnalyze${variant}" ||
+            task.name == "generate${variant}LintVitalReportModel") {
+            task.dependsOn(copyAssets)
+        }
     }
 }

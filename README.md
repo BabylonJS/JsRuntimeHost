@@ -25,7 +25,7 @@ Use a git-enabled terminal to run the following command.
 git clone https://github.com/BabylonJS/JsRuntimeHost.git
 ```
 
-The unit tests require some NPM packages. From the root of the repository on the command line, run the following commands:
+The unit tests require some NPM packages. From the root of the repository on the command line, run the following commands. The CMake or Android Gradle build generates `tests.js` in its build directory and packages it as `Assets/tests.js`; installing packages alone does not build the bundle.
 
 ```
 cd Tests

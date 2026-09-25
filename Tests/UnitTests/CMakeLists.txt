@@ -1,5 +1,19 @@
-set(SCRIPTS
-    "dist/tests.js")
+set(TEST_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/Assets/tests.js")
+set(SCRIPTS "${TEST_BUNDLE}")
+
+file(GLOB_RECURSE TEST_JAVASCRIPT CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/JavaScript/src/*.ts")
+find_program(NPM_EXECUTABLE NAMES npm npm.cmd REQUIRED)
+add_custom_command(
+    OUTPUT "${TEST_BUNDLE}"
+    COMMAND "${NPM_EXECUTABLE}" run build -- --output-path "${CMAKE_CURRENT_BINARY_DIR}/Assets"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    DEPENDS ${TEST_JAVASCRIPT}
+        "${CMAKE_CURRENT_SOURCE_DIR}/../webpack.config.js"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../babel-plugin-replace-bigint.js"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../package.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../package-lock.json"
+    VERBATIM)
 
 set(TYPE_SCRIPTS
     "JavaScript/src/tests.javaScript.all.ts")
@@ -105,15 +119,11 @@ else()
     add_custom_command(TARGET UnitTests POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E rm -rf "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Scripts")
 
-    foreach(SCRIPT ${SCRIPTS})
-        get_filename_component(SCRIPT_NAME "${SCRIPT}" NAME)
-        add_custom_command(
-            OUTPUT "${CMAKE_CFG_INTDIR}/Assets/${SCRIPT_NAME}"
-            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Assets"
-            COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT}" "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Assets/${SCRIPT_NAME}"
-            COMMENT "Copying ${SCRIPT_NAME}"
-            MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT}")
-    endforeach()
+    if(CMAKE_CONFIGURATION_TYPES)
+        add_custom_command(TARGET UnitTests POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:UnitTests>/Assets"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${TEST_BUNDLE}" "$<TARGET_FILE_DIR:UnitTests>/Assets/tests.js")
+    endif()
 
     add_custom_command(TARGET UnitTests POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Assets/symlink_target.js" "${CMAKE_CFG_INTDIR}/Assets/symlink_1.js")
@@ -130,6 +140,6 @@ endif()
 
 set_property(TARGET UnitTests PROPERTY FOLDER Tests)
 
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SCRIPTS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/JavaScript PREFIX scripts FILES ${TYPE_SCRIPTS})
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Assets PREFIX assets FILES ${ASSETS})
+source_group("assets" FILES ${SCRIPTS} ${ASSETS})
