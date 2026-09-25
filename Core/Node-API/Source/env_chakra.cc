@@ -1,6 +1,9 @@
 #include <napi/env.h>
 #include "js_native_api_chakra.h"
 #include <jsrt.h>
+#include <exception>
+#include <memory>
+#include <stdexcept>
 #include <strsafe.h>
 
 namespace
@@ -12,38 +15,90 @@ namespace
             throw std::exception();
         }
     }
+
+    napi_status ReleaseCachedReferences(napi_env env)
+    {
+        napi_status firstError{napi_shared::ReleasePropertyNameIntrinsics(env, env->property_name_intrinsics)};
+        for (napi_ref* ref : {&env->has_own_property_reference, &env->wrap_symbol_reference})
+        {
+            if (*ref != nullptr)
+            {
+                const napi_status status{napi_delete_reference(env, *ref)};
+                if (status == napi_ok)
+                {
+                    *ref = nullptr;
+                }
+                else if (firstError == napi_ok)
+                {
+                    firstError = status;
+                }
+            }
+        }
+        return firstError;
+    }
 }
 
 namespace Napi
 {
     Env Attach()
     {
-        napi_env env_ptr{new napi_env__};
+        auto env_ptr{std::make_unique<napi_env__>()};
+        try
+        {
+            JsValueRef global;
+            ThrowIfFailed(JsGetGlobalObject(&global));
+            JsPropertyIdRef propertyId;
+            ThrowIfFailed(JsGetPropertyIdFromName(L"Object", &propertyId));
+            JsValueRef object;
+            ThrowIfFailed(JsGetProperty(global, propertyId, &object));
+            JsValueRef prototype;
+            ThrowIfFailed(JsGetPrototype(object, &prototype));
+            ThrowIfFailed(JsGetPropertyIdFromName(L"hasOwnProperty", &propertyId));
+            ThrowIfFailed(JsGetProperty(prototype, propertyId, &env_ptr->has_own_property_function));
+            if (napi_create_reference(env_ptr.get(), reinterpret_cast<napi_value>(env_ptr->has_own_property_function), 1, &env_ptr->has_own_property_reference) != napi_ok)
+            {
+                throw std::runtime_error{"Napi::Attach: failed to retain hasOwnProperty"};
+            }
+            if (napi_shared::CapturePropertyNameIntrinsics(env_ptr.get(), env_ptr->property_name_intrinsics) != napi_ok)
+            {
+                throw std::runtime_error{"Napi::Attach: failed to capture property-name intrinsics"};
+            }
 
-        JsValueRef global;
-        ThrowIfFailed(JsGetGlobalObject(&global));
-        JsPropertyIdRef propertyId;
-        ThrowIfFailed(JsGetPropertyIdFromName(L"Object", &propertyId));
-        JsValueRef object;
-        ThrowIfFailed(JsGetProperty(global, propertyId, &object));
-        JsValueRef prototype;
-        ThrowIfFailed(JsGetPrototype(object, &prototype));
-        ThrowIfFailed(JsGetPropertyIdFromName(L"hasOwnProperty", &propertyId));
-        ThrowIfFailed(JsGetProperty(prototype, propertyId, &env_ptr->has_own_property_function));
+            JsValueRef wrapSymbolDescription;
+            ThrowIfFailed(JsPointerToString(L"BabylonNative_External", 22, &wrapSymbolDescription));
+            JsValueRef wrapSymbol;
+            ThrowIfFailed(JsCreateSymbol(wrapSymbolDescription, &wrapSymbol));
+            if (napi_create_reference(env_ptr.get(), reinterpret_cast<napi_value>(wrapSymbol), 1, &env_ptr->wrap_symbol_reference) != napi_ok)
+            {
+                throw std::runtime_error{"Napi::Attach: failed to retain wrap symbol"};
+            }
+            ThrowIfFailed(JsGetPropertyIdFromSymbol(wrapSymbol, &env_ptr->wrap_property_id));
 
-        JsValueRef wrapSymbolDescription;
-        ThrowIfFailed(JsPointerToString(L"BabylonNative_External", 22, &wrapSymbolDescription));
-        JsValueRef wrapSymbol;
-        ThrowIfFailed(JsCreateSymbol(wrapSymbolDescription, &wrapSymbol));
-        ThrowIfFailed(JsAddRef(wrapSymbol, nullptr));
-        ThrowIfFailed(JsGetPropertyIdFromSymbol(wrapSymbol, &env_ptr->wrap_property_id));
+            return {env_ptr.release()};
+        }
+        catch (...)
+        {
+            if (ReleaseCachedReferences(env_ptr.get()) != napi_ok)
+            {
+                std::throw_with_nested(std::runtime_error{"Napi::Attach: failed to release cached references"});
+            }
+            throw;
+        }
+    }
 
-        return {env_ptr};
+    void PrepareForRuntimeDisposal(Env env)
+    {
+        napi_env env_ptr{env};
+        if (ReleaseCachedReferences(env_ptr) != napi_ok)
+        {
+            throw std::runtime_error{"Napi::PrepareForRuntimeDisposal: failed to release cached references"};
+        }
     }
 
     void Detach(Env env)
     {
         napi_env env_ptr{env};
+        PrepareForRuntimeDisposal(env);
         delete env_ptr;
     }
 }
