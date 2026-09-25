@@ -12,9 +12,13 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2022
+    # Explicit image label rather than `windows-latest` or `windows-2025`: those
+    # resolve to Windows Server 2025 but their Visual Studio version is not fixed
+    # (actions/runner-images#14004, #14140), and a run whose jobs land on
+    # different images is exactly the kind of failure CI should not have.
+    runs-on: windows-2025-vs2026
     # Hermes pulls in a large LLVH/Boost.Context/BCGen chain through
-    # `hermesvm_a`; on `windows-2022` the full configure+build comfortably
+    # `hermesvm_a`; the full configure+build comfortably
     # exceeds the standard 15-minute window.  Keep other engines snappy.
     timeout-minutes: ${{ inputs.js-engine == 'Hermes' && 60 || 15 }}
     steps:
