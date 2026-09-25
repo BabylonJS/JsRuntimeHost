@@ -132,8 +132,7 @@ else()
     foreach(ASSET ${ASSETS})
         get_filename_component(ASSET_NAME "${ASSET}" NAME)
         add_custom_command(TARGET UnitTests POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E copy "${ASSET}" "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Assets/${ASSET_NAME}"
-            COMMENT "Copying ${ASSET_NAME}")
+            COMMAND "${CMAKE_COMMAND}" -E copy "${ASSET}" "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Assets/${ASSET_NAME}")
     endforeach()
 endif()
 
