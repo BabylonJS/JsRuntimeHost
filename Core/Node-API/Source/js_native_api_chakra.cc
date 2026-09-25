@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <vector>
 #include <string>
@@ -1840,17 +1841,13 @@ napi_status napi_create_reference(napi_env env,
   CHECK_ARG(env, result);
 
   auto jsValue = reinterpret_cast<JsValueRef>(value);
-  auto info = new RefInfo{ reinterpret_cast<JsValueRef>(value), initial_refcount };
-  if (info == nullptr) {
-    return napi_set_last_error(env, napi_generic_failure);
-  }
-
+  std::unique_ptr<RefInfo> info{new RefInfo{jsValue, initial_refcount}};
   if (info->count != 0)
   {
     CHECK_JSRT(env, JsAddRef(jsValue, nullptr));
   }
 
-  *result = reinterpret_cast<napi_ref>(info);
+  *result = reinterpret_cast<napi_ref>(info.release());
   return napi_ok;
 }
 
