@@ -6,7 +6,7 @@ file(GLOB_RECURSE TEST_JAVASCRIPT CONFIGURE_DEPENDS
 find_program(NPM_EXECUTABLE NAMES npm npm.cmd REQUIRED)
 add_custom_command(
     OUTPUT "${TEST_BUNDLE}"
-    COMMAND "${NPM_EXECUTABLE}" run build -- --output-path "${CMAKE_CURRENT_BINARY_DIR}/Assets"
+    COMMAND "${NPM_EXECUTABLE}" run build -- --output-path "${CMAKE_CURRENT_BINARY_DIR}/Assets" --no-output-compare-before-emit
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/Source/Scripts/tests.javaScript.all.ts"
     DEPENDS ${TEST_JAVASCRIPT}
