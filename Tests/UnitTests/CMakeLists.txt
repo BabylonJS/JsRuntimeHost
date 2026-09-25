@@ -40,14 +40,14 @@ if(APPLE)
             PROPERTIES MACOSX_PACKAGE_LOCATION "Assets")
     else()
         set(SOURCES ${SOURCES}
-            Source/App.macOS.mm)
+            Source/macOS/App.mm)
     endif()
 elseif(WIN32)
     set(SOURCES ${SOURCES}
-        Source/App.Win32.cpp)
+        Source/Win32/App.cpp)
 elseif(UNIX AND NOT ANDROID)
     set(SOURCES ${SOURCES}
-        Source/App.Linux.cpp)
+        Source/Linux/App.cpp)
 endif()
 
 add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
