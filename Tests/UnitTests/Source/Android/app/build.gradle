@@ -65,7 +65,7 @@ android {
     externalNativeBuild {
         cmake {
             path file('src/main/cpp/CMakeLists.txt')
-            buildStagingDirectory '../../../../Build/Android'
+            buildStagingDirectory '../../../../../Build/Android'
             version '3.22.1+'
         }
     }
@@ -84,37 +84,32 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-task copyScripts {
+task copyAssets {
     doLast {
         // run copy at execution phase because npm command is not done at configuration phase
+        delete 'src/main/assets/Scripts'
         copy
         {
-            from '../../dist'
+            from '../../../dist'
             include "*.js"
-            into 'src/main/assets/Scripts'
+            into 'src/main/assets/Assets'
         }
         copy
         {
-            from '../../Scripts'
-            include "*.js"
-            into 'src/main/assets/Scripts'
-        }
-        copy
-        {
-            from '../../Assets'
+            from '../../../Assets'
             include "*.*"
             into 'src/main/assets/Assets'
         }
     }
 }
 
-// Run copyScripts task after CMake external build
-// And make sure merging assets into output is performed after the scripts copy
+// Run copyAssets task after CMake external build
+// And make sure merging assets into output is performed after the assets copy
 tasks.configureEach { task ->
     if (task.name == 'mergeDebugNativeLibs') {
-        task.finalizedBy(copyScripts)
+        task.finalizedBy(copyAssets)
     }
     if (task.name == 'mergeDebugAssets') {
-        task.dependsOn(copyScripts)
+        task.dependsOn(copyAssets)
     }
 }
