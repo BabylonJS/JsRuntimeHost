@@ -40,12 +40,7 @@ describe("napi class prototype isolation (#172)", function () {
     });
 });
 
-describe("napi_get_property_names (#216)", function () {
-    // Regression coverage for #216: napi_get_property_names must report the
-    // enumerable string-keyed properties of an object *and its prototype
-    // chain*, i.e. exactly what `for...in` visits. JavaScriptCore used to throw
-    // outright, while Chakra and QuickJS only reported own properties
-    // (Chakra additionally reported non-enumerable ones).
+describe("napi_get_property_names", function () {
     // Chakra does not define globalThis; a non-strict function returns the global object.
     const globalObject = Function("return this")();
 
