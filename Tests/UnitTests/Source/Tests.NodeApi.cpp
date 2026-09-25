@@ -1,387 +1,9 @@
-#include "Shared.h"
 #include <Babylon/AppRuntime.h>
-#include <Babylon/ScriptLoader.h>
-#include <Babylon/Polyfills/AbortController.h>
-#include <Babylon/Polyfills/Console.h>
-#include <Babylon/Polyfills/Performance.h>
-#include <Babylon/Polyfills/Scheduling.h>
-#include <Babylon/Polyfills/URL.h>
-#include <Babylon/Polyfills/WebSocket.h>
-#include <Babylon/Polyfills/XMLHttpRequest.h>
-#include <Babylon/Polyfills/Fetch.h>
-#include <Babylon/Polyfills/Blob.h>
-#include <Babylon/Polyfills/File.h>
-#include <Babylon/Polyfills/TextDecoder.h>
-#include <Babylon/Polyfills/TextEncoder.h>
 #include <gtest/gtest.h>
-#include <arcana/threading/blocking_concurrent_queue.h>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <future>
-#include <iostream>
 #include <string>
 #include <string_view>
-#include <thread>
-
-namespace
-{
-    const char* EnumToString(Babylon::Polyfills::Console::LogLevel logLevel)
-    {
-        switch (logLevel)
-        {
-            case Babylon::Polyfills::Console::LogLevel::Log:
-                return "log";
-            case Babylon::Polyfills::Console::LogLevel::Warn:
-                return "warn";
-            case Babylon::Polyfills::Console::LogLevel::Error:
-                return "error";
-        }
-
-        return "unknown";
-    }
-}
-
-TEST(JavaScript, All)
-{
-    // Change this to true to wait for the JavaScript debugger to attach (only applies to V8)
-    constexpr const bool waitForDebugger = false;
-
-    std::promise<int32_t> exitCodePromise;
-
-    Babylon::AppRuntime::Options options{};
-
-    options.UnhandledExceptionHandler = [&exitCodePromise](const Napi::Error& error) {
-        std::cerr << "[Uncaught Error] " << Napi::GetErrorString(error) << std::endl;
-        std::cerr.flush();
-
-        exitCodePromise.set_value(-1);
-    };
-
-    if (waitForDebugger)
-    {
-        std::cout << "Waiting for debugger..." << std::endl;
-        options.WaitForDebugger = true;
-    }
-
-    Babylon::AppRuntime runtime{options};
-
-    runtime.Dispatch([&exitCodePromise](Napi::Env env) mutable {
-        Babylon::Polyfills::Console::Initialize(env, [env](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
-            std::cout << "[" << EnumToString(logLevel) << "] " << message;
-            if (logLevel == Babylon::Polyfills::Console::LogLevel::Error)
-            {
-                std::string stack = Babylon::Polyfills::Console::CaptureCurrentJsStack(env);
-                if (!stack.empty())
-                {
-                    std::cout << std::endl << stack;
-                }
-            }
-            std::cout << std::endl;
-            std::cout.flush();
-        });
-
-        Babylon::Polyfills::AbortController::Initialize(env);
-        Babylon::Polyfills::Performance::Initialize(env);
-        Babylon::Polyfills::Scheduling::Initialize(env);
-        Babylon::Polyfills::URL::Initialize(env);
-        Babylon::Polyfills::WebSocket::Initialize(env);
-        Babylon::Polyfills::XMLHttpRequest::Initialize(env);
-        Babylon::Polyfills::Fetch::Initialize(env);
-        Babylon::Polyfills::Blob::Initialize(env);
-        Babylon::Polyfills::File::Initialize(env);
-        Babylon::Polyfills::TextDecoder::Initialize(env);
-        Babylon::Polyfills::TextEncoder::Initialize(env);
-
-        auto setExitCodeCallback = Napi::Function::New(
-            env, [&exitCodePromise](const Napi::CallbackInfo& info) {
-                Napi::Env env = info.Env();
-                exitCodePromise.set_value(info[0].As<Napi::Number>().Int32Value());
-            },
-            "setExitCode");
-        env.Global().Set("setExitCode", setExitCodeCallback);
-
-        env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
-        env.Global().Set("hostEngine", Napi::Value::From(env, NAPI_JAVASCRIPT_ENGINE));
-
-        // Exposes napi_get_property_names, via its C++ wrapper, so that the
-        // script tests can compare it against `for...in`. See
-        // https://github.com/BabylonJS/JsRuntimeHost/issues/216.
-        auto getPropertyNamesCallback = Napi::Function::New(
-            env, [](const Napi::CallbackInfo& info) -> Napi::Value {
-                return info[0].As<Napi::Object>().GetPropertyNames();
-            },
-            "napiGetPropertyNames");
-        env.Global().Set("napiGetPropertyNames", getPropertyNamesCallback);
-
-#ifndef JSRUNTIMEHOST_NAPI_ENGINE_JSI
-        // `Napi::Object::GetPropertyNames` can only be reached through an
-        // already-constructed `Napi::Object`, so it cannot exercise the
-        // `ToObject` coercion that `napi_get_property_names` performs on its
-        // argument. Expose the C entry point directly for those cases. The JSI
-        // backend implements the `Napi::` C++ surface straight on top of JSI and
-        // has no C Node-API at all, so this global is left undefined there and
-        // the coercion tests skip themselves.
-        auto getPropertyNamesRawCallback = Napi::Function::New(
-            env, [](const Napi::CallbackInfo& info) -> Napi::Value {
-                napi_env rawEnv{info.Env()};
-                napi_value result{};
-                const napi_status status{napi_get_property_names(rawEnv, info[0], &result)};
-                if (status != napi_ok)
-                {
-                    // A failed call may or may not have left a JavaScript
-                    // exception pending; surface either as a thrown error so
-                    // that the script tests can assert on it uniformly.
-                    bool isExceptionPending{};
-                    if (napi_is_exception_pending(rawEnv, &isExceptionPending) == napi_ok && isExceptionPending)
-                    {
-                        napi_value error{};
-                        if (napi_get_and_clear_last_exception(rawEnv, &error) == napi_ok)
-                        {
-                            throw Napi::Error{info.Env(), error};
-                        }
-                    }
-
-                    throw Napi::Error::New(info.Env(), "napi_get_property_names failed with status " + std::to_string(status));
-                }
-
-                return Napi::Value{rawEnv, result};
-            },
-            "napiGetPropertyNamesRaw");
-        env.Global().Set("napiGetPropertyNamesRaw", getPropertyNamesRawCallback);
-#endif
-    });
-
-    Babylon::ScriptLoader loader{runtime};
-    loader.Eval("location = { href: '' };", ""); // Required for Mocha.js as we do not have a location
-    loader.LoadScript("app:///Scripts/tests.js");
-
-    auto exitCode{exitCodePromise.get_future().get()};
-
-    EXPECT_EQ(exitCode, 0);
-}
-
-// The unit test host's UnhandledExceptionHandler fails the whole JavaScript
-// suite, so a throwing timer callback cannot be exercised from tests.ts. This
-// covers it natively instead.
-TEST(Scheduling, IntervalSurvivesThrowingCallback)
-{
-    // Regression: repeating timeouts are re-armed after their callback returns
-    // rather than before it runs, so an exception escaping a tick must not
-    // silently stop the interval. Browsers keep the interval running and report
-    // the error, and that is also what this dispatcher did previously.
-    std::promise<int32_t> tickCountPromise;
-    std::atomic<int32_t> unhandledErrorCount{0};
-
-    Babylon::AppRuntime::Options options{};
-    options.UnhandledExceptionHandler = [&unhandledErrorCount](const Napi::Error&) {
-        ++unhandledErrorCount;
-    };
-
-    Babylon::AppRuntime runtime{options};
-
-    runtime.Dispatch([&tickCountPromise](Napi::Env env) {
-        Babylon::Polyfills::Scheduling::Initialize(env);
-
-        auto reportTicks = Napi::Function::New(
-            env, [&tickCountPromise](const Napi::CallbackInfo& info) {
-                tickCountPromise.set_value(info[0].As<Napi::Number>().Int32Value());
-            },
-            "reportTicks");
-        env.Global().Set("reportTicks", reportTicks);
-    });
-
-    Babylon::ScriptLoader loader{runtime};
-    loader.Eval(R"(
-        var ticks = 0;
-        var id = setInterval(function () {
-            ticks++;
-            if (ticks === 3) {
-                clearInterval(id);
-                reportTicks(ticks);
-                return;
-            }
-            throw new Error('tick failed');
-        }, 1);
-    )",
-        "");
-
-    auto tickCountFuture{tickCountPromise.get_future()};
-    ASSERT_EQ(tickCountFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready)
-        << "the interval stopped after a tick threw";
-    EXPECT_EQ(tickCountFuture.get(), 3);
-
-    // The first two ticks threw, and those errors must still be surfaced.
-    EXPECT_EQ(unhandledErrorCount.load(), 2);
-}
-
-TEST(Console, Log)
-{
-    Babylon::AppRuntime runtime{};
-
-    runtime.Dispatch([](Napi::Env env) mutable {
-        Babylon::Polyfills::Console::Initialize(env, [](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
-            const char* test = "foo bar";
-            if (strcmp(message, test) != 0)
-            {
-                std::cout << "Expected: " << test << std::endl;
-                std::cout << "Received: " << message << std::endl;
-                std::cout.flush();
-                ADD_FAILURE();
-            }
-        });
-    });
-
-    std::promise<void> done;
-
-    Babylon::ScriptLoader loader{runtime};
-    loader.Eval("console.log('foo', 'bar')", "");
-    loader.Dispatch([&done](auto) {
-        done.set_value();
-    });
-
-    done.get_future().get();
-}
-
-TEST(Console, CaptureCurrentJsStack)
-{
-    // Regression: Console::CaptureCurrentJsStack must return a non-empty stack when called from
-    // within a callback fired by `console.error`, and when called from `console.log` (any frame
-    // produced by JS execution).
-    Babylon::AppRuntime runtime{};
-
-    std::promise<std::string> errorStackPromise;
-    std::promise<std::string> logStackPromise;
-
-    runtime.Dispatch([&errorStackPromise, &logStackPromise](Napi::Env env) mutable {
-        Babylon::Polyfills::Console::Initialize(env, [env, &errorStackPromise, &logStackPromise](const char* /*message*/, Babylon::Polyfills::Console::LogLevel logLevel) {
-            std::string stack = Babylon::Polyfills::Console::CaptureCurrentJsStack(env);
-            if (logLevel == Babylon::Polyfills::Console::LogLevel::Error)
-            {
-                errorStackPromise.set_value(std::move(stack));
-            }
-            else if (logLevel == Babylon::Polyfills::Console::LogLevel::Log)
-            {
-                logStackPromise.set_value(std::move(stack));
-            }
-        });
-    });
-
-    Babylon::ScriptLoader loader{runtime};
-    loader.Eval("console.log('log message');", "");
-    loader.Eval("function inner() { console.error('error message'); } inner();", "");
-
-    auto errorFuture = errorStackPromise.get_future();
-    auto logFuture = logStackPromise.get_future();
-    constexpr auto timeout = std::chrono::seconds(30);
-    ASSERT_EQ(errorFuture.wait_for(timeout), std::future_status::ready)
-        << "console.error callback did not fire within timeout";
-    ASSERT_EQ(logFuture.wait_for(timeout), std::future_status::ready)
-        << "console.log callback did not fire within timeout";
-
-    std::string errorStack = errorFuture.get();
-    std::string logStack = logFuture.get();
-
-    EXPECT_FALSE(errorStack.empty()) << "console.error path must capture a non-empty JS stack";
-    EXPECT_FALSE(logStack.empty()) << "console.log path must capture a non-empty JS stack";
-}
-
-TEST(AppRuntime, DestroyDoesNotDeadlock)
-{
-    // Regression test verifying AppRuntime destruction doesn't deadlock.
-    // Uses a global arcana hook to sleep while holding the queue mutex
-    // before wait(), ensuring the worker is in the vulnerable window
-    // when the destructor fires. See #147 for details on the bug and fix.
-    //
-    // The entire test runs on a separate thread so the gtest thread can
-    // detect a deadlock via timeout without hanging the process.
-    //
-    // Test flow:
-    //
-    //   Test Thread                    Worker Thread
-    //   -----------                    -------------
-    //   1. Create AppRuntime           Worker starts, enters blocking_tick
-    //      Wait for init to complete
-    //   2. Install hook
-    //      Dispatch(no-op)             Worker wakes, runs no-op,
-    //                                  returns to blocking_tick
-    //                                  Hook fires:
-    //                                    signal workerInHook
-    //                                    sleep 200ms (holding mutex!)
-    //   3. workerInHook.wait()
-    //      Worker is sleeping in hook
-    //   4. ~AppRuntime():
-    //          cancel()
-    //          Append(no-op):
-    //            push() blocks ------> (worker holds mutex)
-    //                                  200ms sleep ends
-    //                                  wait(lock) releases mutex
-    //            push() acquires mutex
-    //            pushes, notifies ---> wakes up!
-    //            join() waits          drains no-op, cancelled -> exit
-    //            join() returns <----- thread exits
-    //   5. destroy completes -> PASS
-
-    bool hookSignaled{false};
-    std::promise<void> workerInHook;
-    std::promise<void> testDone;
-
-    // Run the full lifecycle on a separate thread so the gtest thread
-    // can detect a deadlock via timeout.
-    std::thread testThread([&]() {
-        auto runtime = std::make_unique<Babylon::AppRuntime>();
-
-        // Wait for the runtime to fully initialize. The constructor dispatches
-        // CreateForJavaScript which must complete before we install the hook
-        // so the worker is idle and ready to enter the hook on the next wait.
-        std::promise<void> ready;
-        runtime->Dispatch([&ready](Napi::Env) {
-            ready.set_value();
-        });
-        ready.get_future().wait();
-
-        // Install the hook and dispatch a no-op to wake the worker,
-        // ensuring it cycles through the hook on its way back to idle.
-        arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([&]() {
-            if (hookSignaled)
-            {
-                return;
-            }
-            hookSignaled = true;
-            workerInHook.set_value();
-            // This sleep is not truly deterministic. Its purpose is to hold the
-            // mutex long enough for runtime.reset() (called by the test thread
-            // after workerInHook signals) to reach push() while the mutex is
-            // still held. When the sleep ends, the worker enters wait() which
-            // releases the mutex, allowing push() to acquire it and deliver the
-            // wake-up notification. If runtime.reset() hasn't reached push()
-            // by the time the sleep ends, the test still passes but doesn't
-            // exercise the intended contention window.
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        });
-        runtime->Dispatch([](Napi::Env) {});
-
-        // Wait for the worker to be in the hook (holding mutex, sleeping)
-        workerInHook.get_future().wait();
-
-        // Destroy — if the fix works, the destructor completes.
-        // If broken, it deadlocks and the timeout detects it.
-        runtime.reset();
-        testDone.set_value();
-    });
-
-    auto status = testDone.get_future().wait_for(std::chrono::seconds(5));
-
-    arcana::test_hooks::blocking_concurrent_queue::set_before_wait_callback([]() {});
-
-    if (status == std::future_status::timeout)
-    {
-        testThread.detach();
-        FAIL() << "Deadlock detected: AppRuntime destructor did not complete within 5 seconds";
-    }
-
-    testThread.join();
-}
 
 // The V8JSI Node-API shim does not implement napi_create_dataview /
 // napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
@@ -911,58 +533,35 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
 
 #endif
 
-// The V8JSI shim has no C Node-API at all, so this only builds elsewhere.
 #if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
 TEST(NodeApi, GetPropertyNamesReportsLastErrorConsistently)
 {
-    // This asserts the contract for the three backends this change touches --
-    // the ones that share the prototype walk. V8's napi_get_property_names is
-    // vendored upstream Node code with different behaviour on both counts: a
-    // rejected call leaves a pending exception, so a following call reports
-    // napi_pending_exception rather than napi_object_expected, and its success
-    // path returns bare napi_ok through GET_RETURN_STATUS without clearing.
-    // Both are upstream's to define, not ours to redefine here. Hermes and the
-    // JSI adapter likewise supply their own.
     const std::string_view engine{NAPI_JAVASCRIPT_ENGINE};
     if (engine != "Chakra" && engine != "QuickJS" && engine != "JavaScriptCore")
     {
         GTEST_SKIP() << engine << " supplies its own napi_get_property_names.";
     }
 
-    // Regression: napi_get_property_names rejects null/undefined with
-    // napi_object_expected, but the shared walk is written against the public
-    // napi_* surface and cannot reach napi_set_last_error. CHECK_NAPI only
-    // propagates the status, and the napi_typeof performed just before the
-    // rejection clears the last error on success, so the returned status and
-    // napi_get_last_error_info() disagreed: the caller saw
-    // napi_object_expected while the recorded error code was still napi_ok.
-    // Node-API's contract is that the two agree.
     Babylon::AppRuntime runtime{};
-
     std::promise<bool> nullConsistent;
     std::promise<bool> undefinedConsistent;
     std::promise<bool> successClears;
 
     runtime.Dispatch([&nullConsistent, &undefinedConsistent, &successClears](Napi::Env env) {
         napi_env nenv{env};
-
         const auto check = [nenv](napi_value value) {
             napi_value names{nullptr};
             const napi_status status{napi_get_property_names(nenv, value, &names)};
-
             const napi_extended_error_info* info{nullptr};
             napi_get_last_error_info(nenv, &info);
-
             return status == napi_object_expected && info != nullptr && info->error_code == status;
         };
 
         nullConsistent.set_value(check(napi_value{env.Null()}));
         undefinedConsistent.set_value(check(napi_value{env.Undefined()}));
 
-        // The success path must leave no stale error behind.
         napi_value names{nullptr};
         const napi_status status{napi_get_property_names(nenv, napi_value{Napi::Object::New(env)}, &names)};
-
         const napi_extended_error_info* info{nullptr};
         napi_get_last_error_info(nenv, &info);
         successClears.set_value(status == napi_ok && info != nullptr && info->error_code == napi_ok);
@@ -973,9 +572,3 @@ TEST(NodeApi, GetPropertyNamesReportsLastErrorConsistently)
     EXPECT_TRUE(successClears.get_future().get());
 }
 #endif
-
-int RunTests()
-{
-    testing::InitGoogleTest();
-    return RUN_ALL_TESTS();
-}
