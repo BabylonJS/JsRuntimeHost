@@ -15,8 +15,7 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/../package-lock.json"
     VERBATIM)
 
-set(TYPE_SCRIPTS
-    "Source/Scripts/tests.javaScript.all.ts")
+set_source_files_properties(${TEST_JAVASCRIPT} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 
@@ -46,7 +45,6 @@ if(APPLE)
 
         set_source_files_properties(
             ${SCRIPTS}
-            ${TYPE_SCRIPTS}
             PROPERTIES MACOSX_PACKAGE_LOCATION "Assets")
 
         set_source_files_properties(
@@ -64,7 +62,7 @@ elseif(UNIX AND NOT ANDROID)
         Source/Linux/App.cpp)
 endif()
 
-add_executable(UnitTests ${SOURCES} ${SCRIPTS} ${TYPE_SCRIPTS} ${ASSETS})
+add_executable(UnitTests ${SOURCES} ${TEST_JAVASCRIPT} ${SCRIPTS} ${ASSETS})
 if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
     target_sources(UnitTests PRIVATE "Source/Tests.V8ForegroundTaskRunner.cpp")
     target_link_libraries(UnitTests PRIVATE AppRuntimeInternal)
@@ -140,6 +138,5 @@ endif()
 
 set_property(TARGET UnitTests PROPERTY FOLDER Tests)
 
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source/Scripts PREFIX scripts FILES ${TYPE_SCRIPTS})
-source_group("assets" FILES ${SCRIPTS} ${ASSETS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${TEST_JAVASCRIPT})
+source_group("Assets" FILES ${SCRIPTS} ${ASSETS})
