@@ -5,6 +5,7 @@
 #include <JavaScriptCore/JavaScript.h>
 #include <unordered_map>
 #include <list>
+#include <mutex>
 #include <thread>
 #include <cassert>
 #include <map>
@@ -32,7 +33,10 @@ struct napi_env__ {
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
-    napi_envs[context] = this;
+    {
+      std::lock_guard lock{napi_envs_mutex};
+      napi_envs[context] = this;
+    }
     JSGlobalContextRetain(context);
     init_symbol(constructor_info_symbol, "BabylonNative_ConstructorInfo");
     init_symbol(function_info_symbol, "BabylonNative_FunctionInfo");
@@ -47,10 +51,18 @@ struct napi_env__ {
     deinit_symbol(function_info_symbol);
     deinit_symbol(constructor_info_symbol);
     JSGlobalContextRelease(context);
-    napi_envs.erase(context);
+    // Erase only this environment's own registration. JavaScriptCore can hand a new environment the
+    // address of a context that was released just before this destructor runs (Detach must follow
+    // JSGlobalContextRelease so finalizers can still resolve their env), and an unconditional erase
+    // would then drop that newer environment's entry, leaving its callbacks with ToNapi() == nullptr.
+    std::lock_guard lock{napi_envs_mutex};
+    if (const auto it = napi_envs.find(context); it != napi_envs.end() && it->second == this) {
+      napi_envs.erase(it);
+    }
   }
 
   static napi_env get(JSGlobalContextRef context) {
+    std::lock_guard lock{napi_envs_mutex};
     auto it = napi_envs.find(context);
     if (it != napi_envs.end()) {
       return it->second;
@@ -60,6 +72,8 @@ struct napi_env__ {
   }
 
  private:
+  // Environments live on their own runtime threads, so the registry is shared between them.
+  static inline std::mutex napi_envs_mutex{};
   static inline std::unordered_map<JSGlobalContextRef, napi_env> napi_envs{};
 
   void deinit_refs();
