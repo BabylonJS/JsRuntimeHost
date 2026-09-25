@@ -8,6 +8,7 @@ add_custom_command(
     OUTPUT "${TEST_BUNDLE}"
     COMMAND "${NPM_EXECUTABLE}" run build -- --output-path "${CMAKE_CURRENT_BINARY_DIR}/Assets"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/Source/Scripts/tests.javaScript.all.ts"
     DEPENDS ${TEST_JAVASCRIPT}
         "${CMAKE_CURRENT_SOURCE_DIR}/../webpack.config.js"
         "${CMAKE_CURRENT_SOURCE_DIR}/../babel-plugin-replace-bigint.js"
