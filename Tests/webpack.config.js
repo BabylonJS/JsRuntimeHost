@@ -10,7 +10,7 @@ module.exports = {
   },
   output: {
     filename: '[name].js',
-    path: path.resolve(__dirname, '../Build/Tests/UnitTests/Assets'),
+    path: path.resolve(__dirname, 'UnitTests/dist'),
   },
   plugins: [
     new webpack.ProvidePlugin({
