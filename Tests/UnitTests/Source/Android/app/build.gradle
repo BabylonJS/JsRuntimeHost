@@ -98,7 +98,7 @@ dependencies {
         workingDir file('../../../..')
         commandLine System.getProperty('os.name').toLowerCase().contains('windows') ? 'npm.cmd' : 'npm',
             'run', 'build', '--', '--output-path', bundleDir.absolutePath
-        inputs.files(fileTree('../../../JavaScript/src') { include '**/*.ts' })
+        inputs.files(fileTree('../../../Source/Scripts') { include '**/*.ts' })
         inputs.files files('../../../../webpack.config.js', '../../../../babel-plugin-replace-bigint.js',
             '../../../../package.json', '../../../../package-lock.json')
         outputs.file file("$bundleDir/tests.js")

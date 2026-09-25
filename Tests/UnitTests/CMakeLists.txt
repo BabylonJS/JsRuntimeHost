@@ -2,7 +2,7 @@ set(TEST_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/Assets/tests.js")
 set(SCRIPTS "${TEST_BUNDLE}")
 
 file(GLOB_RECURSE TEST_JAVASCRIPT CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/JavaScript/src/*.ts")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/Scripts/*.ts")
 find_program(NPM_EXECUTABLE NAMES npm npm.cmd REQUIRED)
 add_custom_command(
     OUTPUT "${TEST_BUNDLE}"
@@ -16,7 +16,7 @@ add_custom_command(
     VERBATIM)
 
 set(TYPE_SCRIPTS
-    "JavaScript/src/tests.javaScript.all.ts")
+    "Source/Scripts/tests.javaScript.all.ts")
 
 file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 
@@ -141,5 +141,5 @@ endif()
 set_property(TARGET UnitTests PROPERTY FOLDER Tests)
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/JavaScript PREFIX scripts FILES ${TYPE_SCRIPTS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source/Scripts PREFIX scripts FILES ${TYPE_SCRIPTS})
 source_group("assets" FILES ${SCRIPTS} ${ASSETS})

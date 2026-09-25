@@ -6,7 +6,7 @@ module.exports = {
   mode: 'development', // or 'production'
   devtool: false,
   entry: {
-    tests: './UnitTests/JavaScript/src/tests.javaScript.all.ts',
+    tests: './UnitTests/Source/Scripts/tests.javaScript.all.ts',
   },
   output: {
     filename: '[name].js',
