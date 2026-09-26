@@ -81,6 +81,7 @@ target_link_libraries(UnitTestsJNI
     PRIVATE TextEncoder
     PRIVATE Performance
     PRIVATE Streams
+    PRIVATE Compression
     PRIVATE napi)
 
 if(ANDROID)

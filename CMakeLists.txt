@@ -55,7 +55,7 @@ FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
     GIT_TAG 93d3f7df465027f487ed37e175a0bc3012fee79e
     EXCLUDE_FROM_ALL)
-    
+
 # --------------------------------------------------
 
 FetchContent_MakeAvailable(CMakeExtensions)
@@ -103,6 +103,7 @@ option(JSRUNTIMEHOST_POLYFILL_PERFORMANCE "Include JsRuntimeHost Polyfill Perfor
 option(JSRUNTIMEHOST_POLYFILL_TEXTDECODER "Include JsRuntimeHost Polyfill TextDecoder." ON)
 option(JSRUNTIMEHOST_POLYFILL_TEXTENCODER "Include JsRuntimeHost Polyfill TextEncoder." ON)
 option(JSRUNTIMEHOST_POLYFILL_STREAMS "Include JsRuntimeHost Polyfill Web Streams." ON)
+option(JSRUNTIMEHOST_POLYFILL_COMPRESSION "Include JsRuntimeHost Polyfills CompressionStream and DecompressionStream." ON)
 
 # Sanitizers
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
@@ -145,8 +146,6 @@ if(ENABLE_THREAD_SANITIZER)
         message(WARNING "ThreadSanitizer not supported on this compiler.")
     endif()
 endif()
-
-# --------------------------------------------------
 
 if(JSRUNTIMEHOST_TESTS)
     add_compile_definitions(ARCANA_TEST_HOOKS)
