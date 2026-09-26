@@ -1,8 +1,11 @@
 #include "URL.h"
 #include <Babylon/Polyfills/URL.h>
 #include <Babylon/Polyfills/BlobInternal.h>
+#include <Babylon/Polyfills/DataUrl.h>
 #include <UrlLib/UrlLib.h>
+#include <algorithm>
 #include <sstream>
+#include <stdexcept>
 #include <regex>
 #include <optional>
 #include <cstdint>
@@ -65,6 +68,41 @@ namespace
     // minted by URL.createObjectURL uniformly through the transport layer, instead of each polyfill
     // re-implementing the store lookup. A revoked (or never-registered) URL reports handled=false,
     // which UrlLib surfaces as a status-0 network error -- matching browser behavior.
+    // data: URLs are standard (RFC 2397; WHATWG Fetch "data: URL processor"), so resolve them for
+    // every UrlLib consumer -- XMLHttpRequest, image/texture/asset loaders, fetch -- rather than
+    // only inside the fetch polyfill (#67). A malformed data: URL is a network error per spec, which
+    // UrlLib expresses as `handled == false`.
+    void EnsureDataSchemeResolverRegistered()
+    {
+        static std::once_flag onceFlag;
+        std::call_once(onceFlag, [] {
+            UrlLib::UrlRequest::RegisterSchemeResolver("data", [](const std::string& url) {
+                UrlLib::UrlSchemeResolverResult result;
+                std::optional<Babylon::Polyfills::DataUrl::Response> parsed;
+                try
+                {
+                    parsed = Babylon::Polyfills::DataUrl::Parse(url);
+                }
+                catch (const std::runtime_error&)
+                {
+                    return result;
+                }
+                if (!parsed)
+                {
+                    return result;
+                }
+                result.handled = true;
+                result.statusCode = UrlLib::UrlStatusCode::Ok;
+                result.statusText = "OK";
+                result.contentType = std::move(parsed->contentType);
+                auto bytes = std::make_shared<std::vector<std::byte>>(parsed->body.size());
+                std::transform(parsed->body.begin(), parsed->body.end(), bytes->begin(), [](uint8_t value) { return static_cast<std::byte>(value); });
+                result.body = std::move(bytes);
+                return result;
+            });
+        });
+    }
+
     void EnsureBlobSchemeResolverRegistered()
     {
         static std::once_flag onceFlag;
@@ -461,6 +499,7 @@ namespace Babylon::Polyfills::Internal
     void URL::Initialize(Napi::Env env)
     {
         EnsureBlobSchemeResolverRegistered();
+        EnsureDataSchemeResolverRegistered();
 
         if (env.Global().Get(JS_URL_CONSTRUCTOR_NAME).IsUndefined())
         {

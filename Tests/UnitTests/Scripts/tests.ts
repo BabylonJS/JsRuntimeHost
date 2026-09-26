@@ -642,6 +642,131 @@ describe("fetch", function () {
         expect(await response.text()).to.equal("var symlink_target_js = true;");
     });
 
+    it("should resolve percent-encoded data URLs locally", async function () {
+        const url = "data:text/plain;charset=utf-8,hello%20native%20fetch%21";
+        const response = await fetch(url);
+        expect(response.ok).to.equal(true);
+        expect(response.status).to.equal(200);
+        expect(response.url).to.equal(url);
+        expect(response.headers.get("content-type")).to.equal("text/plain;charset=utf-8");
+        expect(await response.text()).to.equal("hello native fetch!");
+    });
+
+    it("should decode base64 data URLs without using the network transport", async function () {
+        const response = await fetch("data:application/octet-stream;base64,AAEC/w==");
+        const clone = response.clone();
+        expect(new Uint8Array(await response.arrayBuffer())).to.eql(new Uint8Array([0, 1, 2, 255]));
+        const blob = await clone.blob();
+        expect(blob.type).to.equal("application/octet-stream");
+        expect(new Uint8Array(await blob.arrayBuffer())).to.eql(new Uint8Array([0, 1, 2, 255]));
+    });
+
+    // The data: scheme is resolved by UrlLib for every consumer, not only fetch (#67): XMLHttpRequest
+    // is the path Babylon.js' asset and texture loaders take.
+    it("resolves data: URLs through XMLHttpRequest for asset-style loads", async function () {
+        const xhr = await new Promise<XMLHttpRequest>((resolve) => {
+            const req = new XMLHttpRequest();
+            req.open("GET", "data:text/plain;charset=utf-8,hello%20world");
+            req.addEventListener("loadend", () => resolve(req));
+            req.send();
+        });
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseText).to.equal("hello world");
+        expect((xhr.getResponseHeader("content-type") || "").toLowerCase()).to.contain("text/plain");
+    });
+
+    it("decodes base64 data: URLs into an ArrayBuffer through XMLHttpRequest", async function () {
+        const xhr = await new Promise<XMLHttpRequest>((resolve) => {
+            const req = new XMLHttpRequest();
+            req.responseType = "arraybuffer";
+            req.open("GET", "data:application/octet-stream;base64,AQID");
+            req.addEventListener("loadend", () => resolve(req));
+            req.send();
+        });
+        expect(xhr.status).to.equal(200);
+        expect(Array.from(new Uint8Array(xhr.response))).to.deep.equal([1, 2, 3]);
+    });
+
+    it("surfaces a malformed data: URL as a network error", async function () {
+        const xhr = await new Promise<XMLHttpRequest>((resolve) => {
+            const req = new XMLHttpRequest();
+            req.open("GET", "data:text/plain;base64,@@@");
+            req.addEventListener("loadend", () => resolve(req));
+            req.send();
+        });
+        expect(xhr.status).to.equal(0);
+    });
+
+    it("round-trips a data: URL through Blob and an object URL", async function () {
+        const response = await fetch("data:application/octet-stream;base64,AQID");
+        const blob = await response.blob();
+        expect(blob.size).to.equal(3);
+        expect(blob.type).to.equal("application/octet-stream");
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+            const again = await fetch(objectUrl);
+            expect(Array.from(new Uint8Array(await again.arrayBuffer()))).to.deep.equal([1, 2, 3]);
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
+    });
+
+    it("streams a base64 gzip data: URL through DecompressionStream", async function () {
+        if (typeof DecompressionStream !== "function") {
+            this.skip(); // the compression polyfill is optional
+        }
+        // gzip.compress(b"hello gzip", mtime=0)
+        const response = await fetch("data:application/gzip;base64,H4sIAAAAAAAC/8tIzcnJV0ivyiwAABlq0t8KAAAA");
+        const decompressed = response.body.pipeThrough(new DecompressionStream("gzip"));
+        expect(await new Response(decompressed).text()).to.equal("hello gzip");
+    });
+
+    // Adapted from WPT fetch/data-urls/processing.any.js and resources/data-urls.json.
+    const dataUrlCases: Array<[string, string, number[]]> = [
+        ["data:,", "text/plain;charset=US-ASCII", []],
+        ["data:,%FF", "text/plain;charset=US-ASCII", [255]],
+        ["data:text/plain,X", "text/plain", [88]],
+        ["data:,X#fragment", "text/plain;charset=US-ASCII", [88]],
+        ["data:;BASe64,WA", "text/plain;charset=US-ASCII", [88]],
+        ["data:  ;charset=x   ;  base64,W%20A", "text/plain;charset=x", [88]]
+    ];
+
+    for (const [url, expectedType, expectedBody] of dataUrlCases) {
+        it(`should process WPT data URL case ${JSON.stringify(url)}`, async function () {
+            const response = await fetch(url);
+            expect(response.headers.get("content-type")).to.equal(expectedType);
+            expect(Array.from(new Uint8Array(await response.arrayBuffer()))).to.eql(expectedBody);
+        });
+    }
+
+    // Adapted from WPT's forgiving-base64 vectors and Chromium's DataURL tests.
+    const base64Cases: Array<[string, number[]]> = [
+        ["abcd", [105, 183, 29]],
+        ["ab%09%0A%0C%0D%20cd", [105, 183, 29]],
+        ["ab==", [105]],
+        ["/A", [252]],
+        ["YR", [97]]
+    ];
+
+    for (const [encoded, expectedBody] of base64Cases) {
+        it(`should forgiving-base64 decode ${JSON.stringify(encoded)}`, async function () {
+            const response = await fetch(`data:application/octet-stream;base64,${encoded}`);
+            expect(Array.from(new Uint8Array(await response.arrayBuffer()))).to.eql(expectedBody);
+        });
+    }
+
+    for (const encoded of ["a", "ab===", "ab%0Bcd", "=a", "a=b"]) {
+        it(`should reject invalid WPT base64 case ${JSON.stringify(encoded)}`, async function () {
+            let error: unknown;
+            try {
+                await fetch(`data:application/octet-stream;base64,${encoded}`);
+            } catch (caught) {
+                error = caught;
+            }
+            expect(error).to.be.instanceOf(TypeError);
+        });
+    }
+
     it("arrayBuffer() should return the body as bytes", async function () {
         const response = await fetch("app:///Scripts/symlink_target.js");
         const expected = new Uint8Array("var symlink_target_js = true;".split("").map(x => x.charCodeAt(0)));
