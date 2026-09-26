@@ -1,5 +1,6 @@
 #include "Shared.h"
 #include <Babylon/AppRuntime.h>
+#include <napi/env.h>
 #include <Babylon/ScriptLoader.h>
 #include <Babylon/Polyfills/AbortController.h>
 #include <Babylon/Polyfills/Console.h>
@@ -1305,6 +1306,148 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
     EXPECT_TRUE(bothEscapesAccepted.get_future().get());
 }
 
+#endif
+
+// The V8JSI shim surfaces a script `throw` of a primitive as a jsi::JSError rather than a
+// Napi::Error, which AppRuntime's dispatch treats as fatal, so this case cannot run there.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, PrimitiveExceptionSurvivesNativeCatch)
+{
+    // Regression: a JavaScript `throw` of a non-object reaches node-addon-api's
+    // Napi::Error, which wraps the pending exception with napi_create_reference.
+    // The JavaScriptCore backend handed the primitive to a JSObject* entry point
+    // (a reinterpret_cast whose assert is compiled out) and tripped a
+    // RELEASE_ASSERT inside the engine. Its execution-time-limit termination
+    // exception is such a string, so terminating a busy worker killed the
+    // process.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> caught;
+    std::promise<bool> runtimeStillWorks;
+
+    runtime.Dispatch([&caught, &runtimeStillWorks](Napi::Env env) {
+        bool sawError{false};
+        try
+        {
+            // Napi::Eval rather than Env::RunScript: the JSI shim has no RunScript and
+            // Hermes only implements the 3-argument napi_run_script.
+            Napi::Eval(env, "throw 'plain text';", "primitive-exception.js");
+        }
+        catch (const Napi::Error& error)
+        {
+            // Must be callable whether the backend held the string itself or
+            // wrapped it in an object.
+            (void)error.Message();
+            sawError = true;
+        }
+        caught.set_value(sawError);
+
+        const auto sum = Napi::Eval(env, "1 + 1", "primitive-exception.js");
+        runtimeStillWorks.set_value(sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 2);
+    });
+
+    EXPECT_TRUE(caught.get_future().get());
+    EXPECT_TRUE(runtimeStillWorks.get_future().get());
+}
+#endif
+
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_JAVASCRIPTCORE)
+TEST(NodeApi, PropertyAccessCoercesPrimitiveReceiver)
+{
+    // Node coerces the receiver of the property entry points with ToObject: the
+    // "length" of a string reads through its wrapper, while null and undefined
+    // report napi_object_expected and leave the TypeError pending. The
+    // JavaScriptCore backend used to reinterpret the primitive as an object.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> coerced;
+    std::promise<bool> rejected;
+    std::promise<bool> calledOnPrimitive;
+
+    runtime.Dispatch([&coerced, &rejected, &calledOnPrimitive](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value text{Napi::String::New(env, "hello")};
+        napi_value length{};
+        int32_t value{};
+        coerced.set_value(
+            napi_get_named_property(nenv, text, "length", &length) == napi_ok &&
+            napi_get_value_int32(nenv, length, &value) == napi_ok &&
+            value == 5);
+
+        napi_value undefined{env.Undefined()};
+        napi_value ignored{};
+        const napi_status status{napi_get_named_property(nenv, undefined, "length", &ignored)};
+        bool pending{false};
+        napi_is_exception_pending(nenv, &pending);
+        napi_value exception{};
+        napi_get_and_clear_last_exception(nenv, &exception);
+        rejected.set_value(status == napi_object_expected && pending);
+
+        // A primitive receiver is boxed for napi_call_function as well.
+        napi_value toUpperCase{env.Global().Get("String").As<Napi::Object>().Get("prototype").As<Napi::Object>().Get("toUpperCase")};
+        napi_value upper{};
+        calledOnPrimitive.set_value(
+            napi_call_function(nenv, text, toUpperCase, 0, nullptr, &upper) == napi_ok &&
+            Napi::Value(env, upper).As<Napi::String>().Utf8Value() == "HELLO");
+    });
+
+    EXPECT_TRUE(coerced.get_future().get());
+    EXPECT_TRUE(rejected.get_future().get());
+    EXPECT_TRUE(calledOnPrimitive.get_future().get());
+}
+
+TEST(NodeApi, ReferencesToPrimitivesFollowNode)
+{
+    // Symbols have always been referenceable, and a weak reference keeps
+    // resolving while the symbol is alive. Other primitives are refused before
+    // Node-API 10; from 10 on they are held while the count is positive and
+    // released at zero, when the value reads back as NULL.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> primitivesHandled;
+    std::promise<bool> symbolResolves;
+
+    runtime.Dispatch([&primitivesHandled, &symbolResolves](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value text{Napi::String::New(env, "held")};
+        napi_ref ref{};
+        const napi_status status{napi_create_reference(nenv, text, 1, &ref)};
+#if NAPI_VERSION >= 10
+        napi_value value{};
+        uint32_t count{1};
+        bool ok{status == napi_ok &&
+            napi_get_reference_value(nenv, ref, &value) == napi_ok &&
+            value != nullptr &&
+            Napi::Value(env, value).As<Napi::String>().Utf8Value() == "held" &&
+            napi_reference_unref(nenv, ref, &count) == napi_ok &&
+            count == 0};
+        value = text;
+        ok = ok &&
+            napi_get_reference_value(nenv, ref, &value) == napi_ok &&
+            value == nullptr &&
+            napi_reference_unref(nenv, ref, &count) == napi_generic_failure &&
+            napi_delete_reference(nenv, ref) == napi_ok;
+        primitivesHandled.set_value(ok);
+#else
+        primitivesHandled.set_value(status == napi_invalid_arg);
+#endif
+
+        napi_value symbol{Napi::Symbol::New(env, "tag")};
+        napi_ref symbolRef{};
+        napi_value resolved{};
+        symbolResolves.set_value(
+            napi_create_reference(nenv, symbol, 0, &symbolRef) == napi_ok &&
+            napi_get_reference_value(nenv, symbolRef, &resolved) == napi_ok &&
+            resolved != nullptr &&
+            Napi::Value(env, resolved).StrictEquals(Napi::Value(env, symbol)) &&
+            napi_delete_reference(nenv, symbolRef) == napi_ok);
+    });
+
+    EXPECT_TRUE(primitivesHandled.get_future().get());
+    EXPECT_TRUE(symbolResolves.get_future().get());
+}
 #endif
 
 int RunTests()

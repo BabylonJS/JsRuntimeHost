@@ -60,6 +60,13 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI")
     target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_JSI)
 endif()
 
+# The JavaScriptCore backend follows Node's ToObject coercion of property receivers and its
+# reference rules for primitives; other engines diverge (Chakra references any value, some reject
+# a primitive receiver outright), so the tests that pin those semantics build for it only.
+if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JavaScriptCore")
+    target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_NAPI_ENGINE_JAVASCRIPTCORE)
+endif()
+
 target_link_libraries(UnitTests
     PRIVATE AppRuntime
     PRIVATE Console
