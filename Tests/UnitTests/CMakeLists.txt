@@ -26,10 +26,12 @@ set(SOURCES
     "Source/Tests.AppRuntime.cpp"
     "Source/Tests.Console.cpp"
     "Source/Tests.DelayedTaskScheduler.cpp"
+    "Source/Tests.Fetch.cpp"
     "Source/Tests.JavaScript.cpp"
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Scheduling.cpp"
     "Source/Tests.StandardStreamLogger.cpp"
+    "Source/Tests.Streams.cpp"
     "Source/Tests.TimeoutDispatcher.cpp")
 
 if(APPLE)
@@ -95,6 +97,7 @@ target_link_libraries(UnitTests
     PRIVATE Performance
     PRIVATE TextDecoder
     PRIVATE TextEncoder
+    PRIVATE Streams
     ${ADDITIONAL_LIBRARIES})
 
 # See https://gitlab.kitware.com/cmake/cmake/-/issues/23543

@@ -45,3 +45,7 @@ endif()
 if(JSRUNTIMEHOST_POLYFILL_TEXTENCODER)
     add_subdirectory(TextEncoder)
 endif()
+
+if(JSRUNTIMEHOST_POLYFILL_STREAMS)
+    add_subdirectory(Streams)
+endif()
