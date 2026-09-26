@@ -1,8 +1,142 @@
 #include <Babylon/AppRuntime.h>
+#include <napi/env.h>
+#include <Babylon/ScriptLoader.h>
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <future>
 #include <string>
+
+// N-API results must not depend on anything reachable from script. The JavaScriptCore backend has no
+// BigInt C API below macOS 15 / iOS 18 / visionOS 2, and none at all on Android, so it reaches BigInt
+// through JS intrinsics; those are captured at env init (like Function.prototype.call) precisely so a
+// page that replaces `BigInt`, `BigInt.asIntN/asUintN` or `BigInt.prototype.toString` cannot steer an
+// addon's napi_*_bigint_* calls through its own code. Before that, every one of these entry points
+// re-resolved the name on the live global object, and the create path evaluated a `BigInt("...")`
+// source string -- so the patches below each returned an attacker-chosen value.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, BigIntIgnoresMonkeyPatchedIntrinsics)
+{
+    Babylon::AppRuntime runtime{};
+    Babylon::ScriptLoader loader{runtime};
+
+    // Replace every intrinsic the BigInt paths touch, the way user script could.
+    loader.Eval(R"(
+        globalThis.__pristine = { BigInt, asIntN: BigInt.asIntN, toString: BigInt.prototype.toString };
+        globalThis.BigInt = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asIntN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asUintN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.__pristine.BigInt.prototype.toString = function () { return '1234'; };
+    )",
+        "");
+
+    std::promise<void> done;
+    struct { bool supported; int64_t roundTripped; bool lossless; napi_valuetype type; } observed{};
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value big{nullptr};
+        if (napi_create_bigint_int64(nenv, 9007199254740993LL, &big) != napi_ok)
+        {
+            // Engine without BigInt (jsc-android r250231, Win10 Chakra): it throws ENOTSUP instead.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            observed.supported = false;
+            done.set_value();
+            return;
+        }
+        observed.supported = true;
+        napi_typeof(nenv, big, &observed.type);
+        napi_get_value_bigint_int64(nenv, big, &observed.roundTripped, &observed.lossless);
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    if (!observed.supported)
+    {
+        GTEST_SKIP() << "Engine does not support BigInt";
+    }
+    EXPECT_EQ(napi_bigint, observed.type);
+    // 1234 here would mean a patched intrinsic was consulted.
+    EXPECT_EQ(9007199254740993LL, observed.roundTripped);
+    EXPECT_TRUE(observed.lossless);
+}
+#endif
+
+// napi_detach_arraybuffer is the API that defines N-API v7, and its behaviour is not uniform across
+// the engines here: ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path -- the
+// JavaScriptCore C API has no detach entry point at all -- so an engine without it can only report
+// the capability as missing. This asserts both halves of that contract, whichever applies:
+//
+//   detach works        V8; JavaScriptCore on macOS 14.4+ / iOS 17.4+ / visionOS 1.1+
+//   ENOTSUP thrown      JavaScriptCore on older Apple OSes, and every jsc-android build
+//                       (verified on device: r250231 and r294992 both lack transfer)
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<void> done;
+    struct
+    {
+        napi_status queryBefore{napi_ok};
+        napi_status queryAfter{napi_ok};
+        bool detachedBefore{true};
+        bool detachedAfter{false};
+        bool supported{false};
+        std::string code;
+    } observed;
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        Napi::ArrayBuffer buffer{Napi::ArrayBuffer::New(env, 8)};
+        napi_value value{buffer};
+
+        observed.queryBefore = napi_is_detached_arraybuffer(nenv, value, &observed.detachedBefore);
+
+        if (napi_detach_arraybuffer(nenv, value) == napi_ok)
+        {
+            observed.supported = true;
+            observed.queryAfter = napi_is_detached_arraybuffer(nenv, value, &observed.detachedAfter);
+        }
+        else
+        {
+            // Feature-detected failure must be a catchable JS error carrying code ENOTSUP, not a
+            // bare napi_status an addon cannot distinguish from a real error.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            if (pending != nullptr)
+            {
+                napi_value code{nullptr};
+                if (napi_get_named_property(nenv, pending, "code", &code) == napi_ok)
+                {
+                    char buffer[32]{};
+                    size_t written{0};
+                    napi_get_value_string_utf8(nenv, code, buffer, sizeof(buffer), &written);
+                    observed.code.assign(buffer, written);
+                }
+            }
+        }
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    ASSERT_EQ(napi_ok, observed.queryBefore) << "napi_is_detached_arraybuffer failed on a live buffer";
+    EXPECT_FALSE(observed.detachedBefore) << "a live ArrayBuffer must not report as detached";
+    if (observed.supported)
+    {
+        ASSERT_EQ(napi_ok, observed.queryAfter) << "napi_is_detached_arraybuffer failed after detach";
+        EXPECT_TRUE(observed.detachedAfter) << "napi_detach_arraybuffer returned ok but did not detach";
+    }
+    else
+    {
+        EXPECT_EQ("ENOTSUP", observed.code);
+    }
+}
+#endif
 
 // The V8JSI Node-API shim does not implement napi_create_dataview /
 // napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
@@ -497,4 +631,144 @@ TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
     EXPECT_TRUE(bothEscapesAccepted.get_future().get());
 }
 
+#endif
+
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, PrimitiveExceptionSurvivesNativeCatch)
+{
+    // Regression: a JavaScript `throw` of a non-object reaches node-addon-api's
+    // Napi::Error, which wraps the pending exception with napi_create_reference.
+    // The JavaScriptCore backend handed the primitive to a JSObject* entry point
+    // (a reinterpret_cast whose assert is compiled out) and tripped a
+    // RELEASE_ASSERT inside the engine. Its execution-time-limit termination
+    // exception is such a string, so terminating a busy worker killed the
+    // process.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> caught;
+    std::promise<bool> runtimeStillWorks;
+
+    runtime.Dispatch([&caught, &runtimeStillWorks](Napi::Env env) {
+        bool sawError{false};
+        try
+        {
+            // Napi::Eval rather than Env::RunScript: the JSI shim has no RunScript and
+            // Hermes only implements the 3-argument napi_run_script.
+            Napi::Eval(env, "throw 'plain text';", "primitive-exception.js");
+        }
+        catch (const Napi::Error& error)
+        {
+            // Must be callable whether the backend held the string itself or
+            // wrapped it in an object.
+            (void)error.Message();
+            sawError = true;
+        }
+        caught.set_value(sawError);
+
+        const auto sum = Napi::Eval(env, "1 + 1", "primitive-exception.js");
+        runtimeStillWorks.set_value(sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 2);
+    });
+
+    EXPECT_TRUE(caught.get_future().get());
+    EXPECT_TRUE(runtimeStillWorks.get_future().get());
+}
+#endif
+
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_JAVASCRIPTCORE)
+TEST(NodeApi, PropertyAccessCoercesPrimitiveReceiver)
+{
+    // Node coerces the receiver of the property entry points with ToObject: the
+    // "length" of a string reads through its wrapper, while null and undefined
+    // report napi_object_expected and leave the TypeError pending. The
+    // JavaScriptCore backend used to reinterpret the primitive as an object.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> coerced;
+    std::promise<bool> rejected;
+    std::promise<bool> calledOnPrimitive;
+
+    runtime.Dispatch([&coerced, &rejected, &calledOnPrimitive](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value text{Napi::String::New(env, "hello")};
+        napi_value length{};
+        int32_t value{};
+        coerced.set_value(
+            napi_get_named_property(nenv, text, "length", &length) == napi_ok &&
+            napi_get_value_int32(nenv, length, &value) == napi_ok &&
+            value == 5);
+
+        napi_value undefined{env.Undefined()};
+        napi_value ignored{};
+        const napi_status status{napi_get_named_property(nenv, undefined, "length", &ignored)};
+        bool pending{false};
+        napi_is_exception_pending(nenv, &pending);
+        napi_value exception{};
+        napi_get_and_clear_last_exception(nenv, &exception);
+        rejected.set_value(status == napi_object_expected && pending);
+
+        // A primitive receiver is boxed for napi_call_function as well.
+        napi_value toUpperCase{env.Global().Get("String").As<Napi::Object>().Get("prototype").As<Napi::Object>().Get("toUpperCase")};
+        napi_value upper{};
+        calledOnPrimitive.set_value(
+            napi_call_function(nenv, text, toUpperCase, 0, nullptr, &upper) == napi_ok &&
+            Napi::Value(env, upper).As<Napi::String>().Utf8Value() == "HELLO");
+    });
+
+    EXPECT_TRUE(coerced.get_future().get());
+    EXPECT_TRUE(rejected.get_future().get());
+    EXPECT_TRUE(calledOnPrimitive.get_future().get());
+}
+
+TEST(NodeApi, ReferencesToPrimitivesFollowNode)
+{
+    // Symbols have always been referenceable, and a weak reference keeps
+    // resolving while the symbol is alive. Other primitives are refused before
+    // Node-API 10; from 10 on they are held while the count is positive and
+    // released at zero, when the value reads back as NULL.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> primitivesHandled;
+    std::promise<bool> symbolResolves;
+
+    runtime.Dispatch([&primitivesHandled, &symbolResolves](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value text{Napi::String::New(env, "held")};
+        napi_ref ref{};
+        const napi_status status{napi_create_reference(nenv, text, 1, &ref)};
+#if NAPI_VERSION >= 10
+        napi_value value{};
+        uint32_t count{1};
+        bool ok{status == napi_ok &&
+            napi_get_reference_value(nenv, ref, &value) == napi_ok &&
+            value != nullptr &&
+            Napi::Value(env, value).As<Napi::String>().Utf8Value() == "held" &&
+            napi_reference_unref(nenv, ref, &count) == napi_ok &&
+            count == 0};
+        value = text;
+        ok = ok &&
+            napi_get_reference_value(nenv, ref, &value) == napi_ok &&
+            value == nullptr &&
+            napi_reference_unref(nenv, ref, &count) == napi_generic_failure &&
+            napi_delete_reference(nenv, ref) == napi_ok;
+        primitivesHandled.set_value(ok);
+#else
+        primitivesHandled.set_value(status == napi_invalid_arg);
+#endif
+
+        napi_value symbol{Napi::Symbol::New(env, "tag")};
+        napi_ref symbolRef{};
+        napi_value resolved{};
+        symbolResolves.set_value(
+            napi_create_reference(nenv, symbol, 0, &symbolRef) == napi_ok &&
+            napi_get_reference_value(nenv, symbolRef, &resolved) == napi_ok &&
+            resolved != nullptr &&
+            Napi::Value(env, resolved).StrictEquals(Napi::Value(env, symbol)) &&
+            napi_delete_reference(nenv, symbolRef) == napi_ok);
+    });
+
+    EXPECT_TRUE(primitivesHandled.get_future().get());
+    EXPECT_TRUE(symbolResolves.get_future().get());
+}
 #endif

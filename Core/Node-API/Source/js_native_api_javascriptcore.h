@@ -5,6 +5,7 @@
 #include <JavaScriptCore/JavaScript.h>
 #include <unordered_map>
 #include <list>
+#include <mutex>
 #include <thread>
 #include <cassert>
 #include <map>
@@ -15,11 +16,40 @@ struct napi_env__ {
   napi_extended_error_info last_error{nullptr, nullptr, 0, napi_ok};
   std::unordered_map<napi_value, std::uintptr_t> active_ref_values{};
   std::list<napi_ref> strong_refs{};
+  bool shutting_down{false};
+
+  // napi_set_instance_data / napi_get_instance_data (N-API v6).
+  void* instance_data{};
+  napi_finalize instance_data_finalize_cb{};
+  void* instance_data_finalize_hint{};
 
   JSValueRef constructor_info_symbol{};
   JSValueRef function_info_symbol{};
   JSValueRef reference_info_symbol{};
   JSValueRef wrapper_info_symbol{};
+  JSValueRef function_prototype_call{};
+
+  // BigInt intrinsics, captured once at env init -- before any user script can run -- so the BigInt
+  // entry points never resolve `BigInt`, `BigInt.asIntN/asUintN` or `BigInt.prototype.toString`
+  // through the (monkey-patchable) global object on a live context. Same invariant as
+  // function_prototype_call above.
+  JSValueRef is_bigint_function{};        // (v) => typeof v === 'bigint'
+  JSValueRef bigint_constructor{};        // BigInt
+  JSValueRef bigint_as_int_n{};           // BigInt.asIntN
+  JSValueRef bigint_as_uint_n{};          // BigInt.asUintN
+  JSValueRef bigint_prototype_to_string{};// BigInt.prototype.toString
+  JSValueRef bigint_negate{};             // (v) => -v
+  bool bigint_supported{false};
+  // Whether JSValueGetType actually reports kJSTypeBigInt on this engine+OS. Probed at init rather
+  // than assumed from the SDK: the enumerator can be compiled in while the deployed JSC never
+  // produces it. False means napi_typeof has to fall back to the `typeof` predicate.
+  bool value_type_reports_bigint{false};
+
+  // ArrayBuffer detach intrinsics, captured at env init for the same reason. Both stay null on an
+  // engine without ES2024 ArrayBuffer.prototype.transfer / .detached (every jsc-android build, and
+  // Apple platforms below macOS 14.4 / iOS 17.4).
+  JSValueRef arraybuffer_transfer{};       // ArrayBuffer.prototype.transfer
+  JSValueRef arraybuffer_detached_getter{};// get ArrayBuffer.prototype.detached
 
   // Escapable scope bookkeeping: token -> whether that scope has escaped. Values
   // are rooted by the engine rather than by a scope here, so this exists only to
@@ -32,25 +62,53 @@ struct napi_env__ {
   const std::thread::id thread_id{std::this_thread::get_id()};
 
   napi_env__(JSGlobalContextRef context) : context{context} {
-    napi_envs[context] = this;
+    {
+      std::lock_guard lock{napi_envs_mutex};
+      napi_envs[context] = this;
+    }
     JSGlobalContextRetain(context);
     init_symbol(constructor_info_symbol, "BabylonNative_ConstructorInfo");
     init_symbol(function_info_symbol, "BabylonNative_FunctionInfo");
     init_symbol(reference_info_symbol, "BabylonNative_ReferenceInfo");
     init_symbol(wrapper_info_symbol, "BabylonNative_WrapperInfo");
+    init_function_prototype_call();
+    init_is_bigint_function();
+    init_bigint_intrinsics();
+    init_arraybuffer_intrinsics();
   }
 
   ~napi_env__() {
+    shutting_down = true;
+    if (instance_data_finalize_cb != nullptr) {
+      instance_data_finalize_cb(this, instance_data, instance_data_finalize_hint);
+    }
     deinit_refs();
+    deinit_symbol(arraybuffer_detached_getter);
+    deinit_symbol(arraybuffer_transfer);
+    deinit_symbol(bigint_negate);
+    deinit_symbol(bigint_prototype_to_string);
+    deinit_symbol(bigint_as_uint_n);
+    deinit_symbol(bigint_as_int_n);
+    deinit_symbol(bigint_constructor);
+    deinit_symbol(is_bigint_function);
+    deinit_symbol(function_prototype_call);
     deinit_symbol(wrapper_info_symbol);
     deinit_symbol(reference_info_symbol);
     deinit_symbol(function_info_symbol);
     deinit_symbol(constructor_info_symbol);
     JSGlobalContextRelease(context);
-    napi_envs.erase(context);
+    // Erase only this environment's own registration. JavaScriptCore can hand a new environment the
+    // address of a context that was released just before this destructor runs (Detach must follow
+    // JSGlobalContextRelease so finalizers can still resolve their env), and an unconditional erase
+    // would then drop that newer environment's entry, leaving its callbacks with ToNapi() == nullptr.
+    std::lock_guard lock{napi_envs_mutex};
+    if (const auto it = napi_envs.find(context); it != napi_envs.end() && it->second == this) {
+      napi_envs.erase(it);
+    }
   }
 
   static napi_env get(JSGlobalContextRef context) {
+    std::lock_guard lock{napi_envs_mutex};
     auto it = napi_envs.find(context);
     if (it != napi_envs.end()) {
       return it->second;
@@ -60,10 +118,16 @@ struct napi_env__ {
   }
 
  private:
+  // Environments live on their own runtime threads, so the registry is shared between them.
+  static inline std::mutex napi_envs_mutex{};
   static inline std::unordered_map<JSGlobalContextRef, napi_env> napi_envs{};
 
   void deinit_refs();
   void init_symbol(JSValueRef& symbol, const char* description);
+  void init_function_prototype_call();
+  void init_is_bigint_function();
+  void init_bigint_intrinsics();
+  void init_arraybuffer_intrinsics();
   void deinit_symbol(JSValueRef symbol);
 };
 

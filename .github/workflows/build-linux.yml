@@ -54,6 +54,7 @@ jobs:
         run: ./UnitTests
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
+          LSAN_OPTIONS: ${{ inputs.enable-sanitizers && format('suppressions={0}/.github/lsan_suppressions.txt', github.workspace) || '' }}
           # JSC's concurrent GC on Linux uses SIGUSR1 + sem_wait to suspend mutator
           # threads at safepoints. TSan's signal interception delays SIGUSR1 delivery
           # indefinitely, deadlocking the Collector Thread's sem_wait. Disabling the
@@ -62,3 +63,8 @@ jobs:
           # thread_suspend() and is unaffected.
           JSC_useConcurrentGC: ${{ inputs.enable-thread-sanitizer && '0' || '' }}
 
+          # VM traps (how the execution-time-limit watchdog stops a running script) are delivered
+          # by signal on Linux, which TSan likewise never lets through: a terminated run-forever
+          # worker then spins until the test's runtime teardown joins it, and the job hangs after
+          # the Worker WPT suite has otherwise finished. Polling traps need no signal.
+          JSC_usePollingTraps: ${{ inputs.enable-thread-sanitizer && '1' || '' }}

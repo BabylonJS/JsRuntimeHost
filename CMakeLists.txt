@@ -51,6 +51,9 @@ FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
     GIT_TAG 0c991337a1160ba7a2d062bf8e342d0a66f48dc9
     EXCLUDE_FROM_ALL)
+FetchContent_Declare(zlib
+    URL "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"
+    EXCLUDE_FROM_ALL)
 FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
     GIT_TAG 93d3f7df465027f487ed37e175a0bc3012fee79e
@@ -64,7 +67,9 @@ if(IOS)
     FetchContent_MakeAvailable_With_Message(ios-cmake)
     set(CMAKE_TOOLCHAIN_FILE "${ios-cmake_SOURCE_DIR}/ios.toolchain.cmake" CACHE PATH "")
     set(PLATFORM "OS64COMBINED" CACHE STRING "")
-    set(DEPLOYMENT_TARGET "12" CACHE STRING "")
+    # std::filesystem (used by the Worker polyfill) is unavailable below iOS 13 / macOS 10.15,
+    # and the project floor is well above iOS 12 regardless; keep 13 as the minimum.
+    set(DEPLOYMENT_TARGET "13" CACHE STRING "")
     set(CMAKE_XCODE_GENERATE_SCHEME TRUE)
 endif()
 
@@ -102,6 +107,10 @@ option(JSRUNTIMEHOST_POLYFILL_FILE "Include JsRuntimeHost Polyfill File and File
 option(JSRUNTIMEHOST_POLYFILL_PERFORMANCE "Include JsRuntimeHost Polyfill Performance." ON)
 option(JSRUNTIMEHOST_POLYFILL_TEXTDECODER "Include JsRuntimeHost Polyfill TextDecoder." ON)
 option(JSRUNTIMEHOST_POLYFILL_TEXTENCODER "Include JsRuntimeHost Polyfill TextEncoder." ON)
+option(JSRUNTIMEHOST_POLYFILL_STREAMS "Include JsRuntimeHost Polyfill Web Streams." ON)
+option(JSRUNTIMEHOST_POLYFILL_COMPRESSION "Include JsRuntimeHost Polyfills CompressionStream and DecompressionStream." ON)
+option(JSRUNTIMEHOST_POLYFILL_WORKER "Include JsRuntimeHost Polyfill Worker." ON)
+option(JSRUNTIMEHOST_POLYFILL_INDEXEDDB "Include JsRuntimeHost Polyfill IndexedDB." ON)
 
 # Sanitizers
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
@@ -153,6 +162,17 @@ endif()
 
 FetchContent_MakeAvailable_With_Message(arcana.cpp)
 set_property(TARGET arcana PROPERTY FOLDER Dependencies)
+
+if(ANDROID)
+    FetchContent_GetProperties(AndroidExtensions)
+    if(NOT AndroidExtensions_POPULATED)
+        FetchContent_Populate(AndroidExtensions)
+        FetchContent_GetProperties(AndroidExtensions)
+        add_subdirectory(${androidextensions_SOURCE_DIR} ${androidextensions_BINARY_DIR})
+    else()
+        add_subdirectory(${androidextensions_SOURCE_DIR} ${androidextensions_BINARY_DIR})
+    endif()
+endif()
 
 if(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST OR JSRUNTIMEHOST_POLYFILL_FETCH)
     FetchContent_MakeAvailable_With_Message(UrlLib)

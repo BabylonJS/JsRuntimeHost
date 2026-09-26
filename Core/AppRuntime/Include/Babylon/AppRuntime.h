@@ -26,6 +26,11 @@ namespace Babylon
             // Optional handler for unhandled exceptions.
             std::function<void(const Napi::Error&)> UnhandledExceptionHandler{DefaultUnhandledExceptionHandler};
 
+            // Optional final runtime-thread notification after engine and
+            // environment teardown. The callback is the thread's last action
+            // and must not access that runtime's Napi objects.
+            std::function<void()> ThreadExitHandler{};
+
             // Defines whether to enable the debugger. Only implemented for V8 and Chakra.
             bool EnableDebugger{false};
 
@@ -47,6 +52,17 @@ namespace Babylon
 
         void Suspend();
         void Resume();
+
+        // Permanently stop accepting work and exit after the currently
+        // executing dispatch returns. Unlike Terminate(), this does not
+        // interrupt JavaScript in the middle of its current task.
+        void Close();
+
+        // Permanently stop accepting work and request interruption of any
+        // JavaScript currently executing. The interruption is immediate on
+        // engines with an interrupt hook (including system JavaScriptCore) and
+        // cooperative between dispatches on the remaining engines.
+        void Terminate();
 
         void Dispatch(Dispatchable<void(Napi::Env)> callback);
 
@@ -86,6 +102,14 @@ namespace Babylon
         void DrainMicrotasks(Napi::Env env);
 
         Internal::DelayedTaskScheduler& GetDelayedTaskScheduler();
+
+        // Engine tiers may query the shared termination flag without exposing
+        // engine types in the public API.
+        bool IsTerminationRequested() const noexcept;
+
+        // Execution watchdogs use a separate flag so Close() can finish the
+        // current task while Terminate() can still interrupt a tight loop.
+        bool IsExecutionTerminationRequested() const noexcept;
 
         Options m_options;
 
