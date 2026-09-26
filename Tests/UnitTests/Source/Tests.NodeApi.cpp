@@ -1,0 +1,774 @@
+#include <Babylon/AppRuntime.h>
+#include <napi/env.h>
+#include <Babylon/ScriptLoader.h>
+#include <gtest/gtest.h>
+#include <cstdint>
+#include <future>
+#include <string>
+
+// N-API results must not depend on anything reachable from script. The JavaScriptCore backend has no
+// BigInt C API below macOS 15 / iOS 18 / visionOS 2, and none at all on Android, so it reaches BigInt
+// through JS intrinsics; those are captured at env init (like Function.prototype.call) precisely so a
+// page that replaces `BigInt`, `BigInt.asIntN/asUintN` or `BigInt.prototype.toString` cannot steer an
+// addon's napi_*_bigint_* calls through its own code. Before that, every one of these entry points
+// re-resolved the name on the live global object, and the create path evaluated a `BigInt("...")`
+// source string -- so the patches below each returned an attacker-chosen value.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, BigIntIgnoresMonkeyPatchedIntrinsics)
+{
+    Babylon::AppRuntime runtime{};
+    Babylon::ScriptLoader loader{runtime};
+
+    // Replace every intrinsic the BigInt paths touch, the way user script could.
+    loader.Eval(R"(
+        globalThis.__pristine = { BigInt, asIntN: BigInt.asIntN, toString: BigInt.prototype.toString };
+        globalThis.BigInt = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asIntN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.BigInt.asUintN = function () { return globalThis.__pristine.BigInt(1234); };
+        globalThis.__pristine.BigInt.prototype.toString = function () { return '1234'; };
+    )",
+        "");
+
+    std::promise<void> done;
+    struct { bool supported; int64_t roundTripped; bool lossless; napi_valuetype type; } observed{};
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value big{nullptr};
+        if (napi_create_bigint_int64(nenv, 9007199254740993LL, &big) != napi_ok)
+        {
+            // Engine without BigInt (jsc-android r250231, Win10 Chakra): it throws ENOTSUP instead.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            observed.supported = false;
+            done.set_value();
+            return;
+        }
+        observed.supported = true;
+        napi_typeof(nenv, big, &observed.type);
+        napi_get_value_bigint_int64(nenv, big, &observed.roundTripped, &observed.lossless);
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    if (!observed.supported)
+    {
+        GTEST_SKIP() << "Engine does not support BigInt";
+    }
+    EXPECT_EQ(napi_bigint, observed.type);
+    // 1234 here would mean a patched intrinsic was consulted.
+    EXPECT_EQ(9007199254740993LL, observed.roundTripped);
+    EXPECT_TRUE(observed.lossless);
+}
+#endif
+
+// napi_detach_arraybuffer is the API that defines N-API v7, and its behaviour is not uniform across
+// the engines here: ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path -- the
+// JavaScriptCore C API has no detach entry point at all -- so an engine without it can only report
+// the capability as missing. This asserts both halves of that contract, whichever applies:
+//
+//   detach works        V8; JavaScriptCore on macOS 14.4+ / iOS 17.4+ / visionOS 1.1+
+//   ENOTSUP thrown      JavaScriptCore on older Apple OSes, and every jsc-android build
+//                       (verified on device: r250231 and r294992 both lack transfer)
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, DetachArrayBufferOrReportsUnsupported)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<void> done;
+    struct
+    {
+        napi_status queryBefore{napi_ok};
+        napi_status queryAfter{napi_ok};
+        bool detachedBefore{true};
+        bool detachedAfter{false};
+        bool supported{false};
+        std::string code;
+    } observed;
+
+    runtime.Dispatch([&done, &observed](Napi::Env env) {
+        napi_env nenv{env};
+
+        Napi::ArrayBuffer buffer{Napi::ArrayBuffer::New(env, 8)};
+        napi_value value{buffer};
+
+        observed.queryBefore = napi_is_detached_arraybuffer(nenv, value, &observed.detachedBefore);
+
+        if (napi_detach_arraybuffer(nenv, value) == napi_ok)
+        {
+            observed.supported = true;
+            observed.queryAfter = napi_is_detached_arraybuffer(nenv, value, &observed.detachedAfter);
+        }
+        else
+        {
+            // Feature-detected failure must be a catchable JS error carrying code ENOTSUP, not a
+            // bare napi_status an addon cannot distinguish from a real error.
+            napi_value pending{nullptr};
+            napi_get_and_clear_last_exception(nenv, &pending);
+            if (pending != nullptr)
+            {
+                napi_value code{nullptr};
+                if (napi_get_named_property(nenv, pending, "code", &code) == napi_ok)
+                {
+                    char buffer[32]{};
+                    size_t written{0};
+                    napi_get_value_string_utf8(nenv, code, buffer, sizeof(buffer), &written);
+                    observed.code.assign(buffer, written);
+                }
+            }
+        }
+        done.set_value();
+    });
+
+    done.get_future().get();
+
+    ASSERT_EQ(napi_ok, observed.queryBefore) << "napi_is_detached_arraybuffer failed on a live buffer";
+    EXPECT_FALSE(observed.detachedBefore) << "a live ArrayBuffer must not report as detached";
+    if (observed.supported)
+    {
+        ASSERT_EQ(napi_ok, observed.queryAfter) << "napi_is_detached_arraybuffer failed after detach";
+        EXPECT_TRUE(observed.detachedAfter) << "napi_detach_arraybuffer returned ok but did not detach";
+    }
+    else
+    {
+        EXPECT_EQ("ENOTSUP", observed.code);
+    }
+}
+#endif
+
+// The V8JSI Node-API shim does not implement napi_create_dataview /
+// napi_get_dataview_info (its DataView::New throws "TODO"), so this native test
+// only builds on the Chakra, V8, and JavaScriptCore backends. The size_t-width
+// guard is required because the overflow scenario below needs a 64-bit size_t.
+#if (SIZE_MAX > 0xFFFFFFFFu) && !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, CreateDataViewRejectsOverflowingRange)
+{
+    // Regression: napi_create_dataview must reject a (byte_offset, byte_length)
+    // pair whose sum overflows size_t. The pre-fix code performed an unchecked
+    // `byte_offset + byte_length > bufferLength` comparison; with the inputs
+    // below the 64-bit sum wraps to 8 and slips past it. It then truncated the
+    // values to 32-bit (offset -> 0, length -> 8) and created a valid 8-byte
+    // DataView, but stored the ORIGINAL 64-bit offset/length in DataViewInfo,
+    // which napi_get_dataview_info hands back alongside the small real buffer --
+    // an out-of-bounds access primitive. This path is not reachable from JS
+    // `new DataView`, so it is covered natively here. The scenario requires a
+    // 64-bit size_t (where the 32-bit truncation diverged from the stored value),
+    // hence the size_t-width guard.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> overflowSafe;
+    std::promise<bool> validAccepted;
+
+    runtime.Dispatch([&overflowSafe, &validAccepted](Napi::Env env) {
+        napi_env nenv{env};
+
+        Napi::ArrayBuffer arrayBuffer{Napi::ArrayBuffer::New(env, 16)};
+        napi_value arrayBufferValue{arrayBuffer};
+
+        // Low 32 bits are individually valid for the 16-byte buffer (offset 0,
+        // length 8), but the full 64-bit values are enormous and their sum wraps
+        // around size_t to 8.
+        const size_t hugeOffset{0xFFFFFFFF00000000ull};
+        const size_t hugeLength{0x0000000100000008ull};
+
+        napi_value result{nullptr};
+        napi_status status{napi_create_dataview(nenv, hugeLength, arrayBufferValue, hugeOffset, &result)};
+
+        bool safe;
+        if (status != napi_ok || result == nullptr)
+        {
+            // Fixed path: the out-of-range request is rejected outright.
+            safe = true;
+        }
+        else
+        {
+            // If creation unexpectedly succeeds, the reported extents must still
+            // lie within the 16-byte backing buffer (i.e. not the raw 64-bit
+            // inputs). The pre-fix code reported the huge stored values here.
+            size_t reportedLength{0};
+            size_t reportedOffset{0};
+            void* data{nullptr};
+            napi_get_dataview_info(nenv, result, &reportedLength, &data, nullptr, &reportedOffset);
+            safe = reportedOffset <= 16 && reportedLength <= 16 && reportedOffset + reportedLength <= 16;
+        }
+
+        // Clear any pending range error so it doesn't surface as an unhandled error.
+        napi_value pendingException{nullptr};
+        napi_get_and_clear_last_exception(nenv, &pendingException);
+        overflowSafe.set_value(safe);
+
+        // A legitimate offset/length pair must still succeed.
+        napi_value validResult{nullptr};
+        napi_status validStatus{napi_create_dataview(nenv, 8, arrayBufferValue, 4, &validResult)};
+        validAccepted.set_value(validStatus == napi_ok && validResult != nullptr);
+    });
+
+    EXPECT_TRUE(overflowSafe.get_future().get());
+    EXPECT_TRUE(validAccepted.get_future().get());
+}
+#endif
+
+// The V8JSI Node-API shim does not expose napi_get_value_string_utf16, so this
+// native test only builds on the Chakra, V8, and JavaScriptCore backends.
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, GetValueStringUtf16HandlesZeroBufsize)
+{
+    // Regression: napi_get_value_string_utf16 with a non-null buffer and
+    // bufsize == 0 must not evaluate bufsize - 1. On the Chakra backend the
+    // pre-fix code forwarded bufsize - 1 (== SIZE_MAX) to JsCopyStringUtf16 as
+    // the destination capacity, copying the entire JS string into the
+    // zero-length buffer, and then stored the terminator at buf[bufsize - 1]
+    // (== buf[SIZE_MAX]). The call must instead write nothing and report zero.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> zeroSafe;
+    std::promise<bool> normalWorks;
+
+    runtime.Dispatch([&zeroSafe, &normalWorks](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value strValue{Napi::String::New(env, "hello world")};
+
+        // Sentinel-filled buffer. With bufsize == 0 nothing may be written, so
+        // every element must survive unchanged (a SIZE_MAX-capacity copy would
+        // clobber it / overflow).
+        char16_t guard[8];
+        for (auto& c : guard)
+        {
+            c = static_cast<char16_t>(0x7FFF);
+        }
+
+        size_t copied{0xDEAD};
+        napi_status status{napi_get_value_string_utf16(nenv, strValue, guard, 0, &copied)};
+
+        bool safe{status == napi_ok && copied == 0};
+        for (auto c : guard)
+        {
+            safe = safe && (c == static_cast<char16_t>(0x7FFF));
+        }
+        zeroSafe.set_value(safe);
+
+        // A sufficiently-sized buffer must still copy and null-terminate.
+        char16_t buf[32];
+        size_t copied2{0};
+        napi_status status2{napi_get_value_string_utf16(nenv, strValue, buf, 32, &copied2)};
+        normalWorks.set_value(status2 == napi_ok && copied2 == 11 && buf[copied2] == 0);
+    });
+
+    EXPECT_TRUE(zeroSafe.get_future().get());
+    EXPECT_TRUE(normalWorks.get_future().get());
+}
+
+// Closes an escapable handle scope however the test leaves it. Without this, a
+// failing assertion returns with the scope still open, the enclosing
+// Napi::HandleScope then fails to close, and Napi::Error::Fatal throws out of its
+// implicitly-noexcept destructor -- so the process terminates with no FAILED line
+// instead of reporting the assertion.
+class ScopedEscapableHandleScope
+{
+public:
+    ScopedEscapableHandleScope(napi_env env, napi_escapable_handle_scope scope)
+        : m_env{env}
+        , m_scope{scope}
+    {
+    }
+
+    ~ScopedEscapableHandleScope()
+    {
+        Close();
+    }
+
+    ScopedEscapableHandleScope(const ScopedEscapableHandleScope&) = delete;
+    ScopedEscapableHandleScope& operator=(const ScopedEscapableHandleScope&) = delete;
+
+    napi_status Close()
+    {
+        if (m_scope == nullptr)
+        {
+            return napi_ok;
+        }
+
+        const napi_escapable_handle_scope scope{m_scope};
+        m_scope = nullptr;
+        return napi_close_escapable_handle_scope(m_env, scope);
+    }
+
+private:
+    napi_env m_env;
+    napi_escapable_handle_scope m_scope;
+};
+
+// Regression: a handle returned by napi_escape_handle must stay alive after its
+// escapable scope is closed. The escaped handle is stored in the parent scope, so
+// closing the scope must not free it along with the scope's own handles. This is the
+// contract Napi::ObjectReference::Get relies on, which in turn is what
+// Napi::Error::Message and Napi::Error::what use, so getting it wrong turns any
+// report of a native error message into a use-after-free.
+TEST(NodeApi, EscapedHandleOutlivesItsScope)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> escapedValueIsIntact;
+
+    runtime.Dispatch([&escapedValueIsIntact](Napi::Env env) mutable {
+        napi_env nenv{env};
+
+        // Assertions stay on the test thread: the dispatched lambda reports through the
+        // promise and returns early on failure so the waiter can never deadlock.
+        napi_escapable_handle_scope scope{};
+        if (napi_open_escapable_handle_scope(nenv, &scope) != napi_ok)
+        {
+            escapedValueIsIntact.set_value(false);
+            return;
+        }
+        ScopedEscapableHandleScope scopeGuard{nenv, scope};
+
+        napi_value inner{};
+        if (napi_create_string_utf8(nenv, "escape me", NAPI_AUTO_LENGTH, &inner) != napi_ok)
+        {
+            escapedValueIsIntact.set_value(false);
+            return;
+        }
+
+        napi_value escaped{};
+        if (napi_escape_handle(nenv, scope, inner, &escaped) != napi_ok)
+        {
+            escapedValueIsIntact.set_value(false);
+            return;
+        }
+
+        if (scopeGuard.Close() != napi_ok)
+        {
+            escapedValueIsIntact.set_value(false);
+            return;
+        }
+
+        // Allocate through the parent scope so a dangling escaped handle is likely to
+        // have been reused by the time it is read back.
+        for (int i = 0; i < 32; ++i)
+        {
+            napi_value filler{};
+            napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+        }
+
+        char buffer[32]{};
+        size_t copied{0};
+        const napi_status status{napi_get_value_string_utf8(nenv, escaped, buffer, sizeof(buffer), &copied)};
+        escapedValueIsIntact.set_value(status == napi_ok && copied == 9 && std::string{buffer} == "escape me");
+    });
+
+    EXPECT_TRUE(escapedValueIsIntact.get_future().get());
+}
+
+// Regression: two escapable scopes open at once, both escaping before either closes,
+// then closed innermost first. An implementation that stores an escaped handle by
+// inserting it into the middle of the handle stack shifts every entry above it,
+// silently invalidating the start index the still-open inner scope was handed. Closing
+// the inner scope then keeps the wrong slot and frees the inner escaped handle,
+// reintroducing the dangling napi_value this fix is about.
+//
+// Engines differ on whether the outer scope may escape while an inner one is open, so
+// the test only requires that of the engines that allow it.
+TEST(NodeApi, NestedEscapableScopesBothEscape)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> bothValuesIntact;
+
+    runtime.Dispatch([&bothValuesIntact](Napi::Env env) mutable {
+        napi_env nenv{env};
+
+        const auto fail = [&bothValuesIntact]() { bothValuesIntact.set_value(false); };
+
+        napi_escapable_handle_scope outerScope{};
+        if (napi_open_escapable_handle_scope(nenv, &outerScope) != napi_ok)
+        {
+            return fail();
+        }
+        ScopedEscapableHandleScope outerGuard{nenv, outerScope};
+
+        // Give the outer scope handles of its own, so the inner scope starts at a
+        // different index and the shifting bug is observable.
+        for (int i = 0; i < 4; ++i)
+        {
+            napi_value outerFiller{};
+            if (napi_create_string_utf8(nenv, "outer filler", NAPI_AUTO_LENGTH, &outerFiller) != napi_ok)
+            {
+                return fail();
+            }
+        }
+
+        napi_value outerSource{};
+        if (napi_create_string_utf8(nenv, "outer value", NAPI_AUTO_LENGTH, &outerSource) != napi_ok)
+        {
+            return fail();
+        }
+
+        napi_escapable_handle_scope innerScope{};
+        if (napi_open_escapable_handle_scope(nenv, &innerScope) != napi_ok)
+        {
+            return fail();
+        }
+        ScopedEscapableHandleScope innerGuard{nenv, innerScope};
+
+        napi_value innerSource{};
+        if (napi_create_string_utf8(nenv, "inner value", NAPI_AUTO_LENGTH, &innerSource) != napi_ok)
+        {
+            return fail();
+        }
+
+        // Inner escapes first, then the still-open outer scope escapes.
+        napi_value innerEscaped{};
+        if (napi_escape_handle(nenv, innerScope, innerSource, &innerEscaped) != napi_ok)
+        {
+            return fail();
+        }
+
+        // Hermes only permits escaping from the innermost open scope and reports
+        // napi_handle_scope_mismatch here. That is a legitimate refusal rather than a
+        // failure, so record whether the engine allows this and keep checking the part
+        // that applies either way.
+        napi_value outerEscaped{};
+        const napi_status outerEscapeStatus{napi_escape_handle(nenv, outerScope, outerSource, &outerEscaped)};
+        const bool outerEscapeSupported{outerEscapeStatus == napi_ok};
+        if (!outerEscapeSupported && outerEscapeStatus != napi_handle_scope_mismatch)
+        {
+            return fail();
+        }
+
+        // Close innermost first, as the scopes must be.
+        if (innerGuard.Close() != napi_ok)
+        {
+            return fail();
+        }
+
+        // The inner escaped handle now belongs to the outer scope and must still read
+        // back while that scope is open. Churn allocations first: a wrongly freed handle
+        // only reads back wrong once its block has been reused, so allocate enough to
+        // make that near certain rather than a matter of luck.
+        for (int i = 0; i < 512; ++i)
+        {
+            napi_value filler{};
+            napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+        }
+
+        char innerBuffer[32]{};
+        size_t innerCopied{0};
+        if (napi_get_value_string_utf8(nenv, innerEscaped, innerBuffer, sizeof(innerBuffer), &innerCopied) != napi_ok ||
+            std::string{innerBuffer} != "inner value")
+        {
+            return fail();
+        }
+
+        if (outerGuard.Close() != napi_ok)
+        {
+            return fail();
+        }
+
+        for (int i = 0; i < 512; ++i)
+        {
+            napi_value filler{};
+            napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+        }
+
+        if (!outerEscapeSupported)
+        {
+            // Nothing escaped from the outer scope, so the inner check above is the whole
+            // result on this engine.
+            bothValuesIntact.set_value(true);
+            return;
+        }
+
+        char outerBuffer[32]{};
+        size_t outerCopied{0};
+        const napi_status status{napi_get_value_string_utf8(nenv, outerEscaped, outerBuffer, sizeof(outerBuffer), &outerCopied)};
+        bothValuesIntact.set_value(status == napi_ok && std::string{outerBuffer} == "outer value");
+    });
+
+    EXPECT_TRUE(bothValuesIntact.get_future().get());
+}
+
+// Node-API permits at most one escape per escapable scope. The second call must be
+// rejected with napi_escape_called_twice, and must leave the first escaped handle
+// untouched rather than replacing or freeing it.
+TEST(NodeApi, SecondEscapeIsRejected)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> secondEscapeRejected;
+    std::promise<bool> firstValueIntact;
+
+    runtime.Dispatch([&secondEscapeRejected, &firstValueIntact](Napi::Env env) mutable {
+        napi_env nenv{env};
+
+        const auto fail = [&secondEscapeRejected, &firstValueIntact]() {
+            secondEscapeRejected.set_value(false);
+            firstValueIntact.set_value(false);
+        };
+
+        napi_escapable_handle_scope scope{};
+        if (napi_open_escapable_handle_scope(nenv, &scope) != napi_ok)
+        {
+            return fail();
+        }
+        ScopedEscapableHandleScope scopeGuard{nenv, scope};
+
+        napi_value first{};
+        napi_value second{};
+        if (napi_create_string_utf8(nenv, "first", NAPI_AUTO_LENGTH, &first) != napi_ok ||
+            napi_create_string_utf8(nenv, "second", NAPI_AUTO_LENGTH, &second) != napi_ok)
+        {
+            return fail();
+        }
+
+        napi_value firstEscaped{};
+        if (napi_escape_handle(nenv, scope, first, &firstEscaped) != napi_ok)
+        {
+            return fail();
+        }
+
+        napi_value secondEscaped{};
+        secondEscapeRejected.set_value(
+            napi_escape_handle(nenv, scope, second, &secondEscaped) == napi_escape_called_twice);
+
+        if (scopeGuard.Close() != napi_ok)
+        {
+            firstValueIntact.set_value(false);
+            return;
+        }
+
+        for (int i = 0; i < 32; ++i)
+        {
+            napi_value filler{};
+            napi_create_string_utf8(nenv, "filler filler filler", NAPI_AUTO_LENGTH, &filler);
+        }
+
+        char buffer[32]{};
+        size_t copied{0};
+        const napi_status status{napi_get_value_string_utf8(nenv, firstEscaped, buffer, sizeof(buffer), &copied)};
+        firstValueIntact.set_value(status == napi_ok && std::string{buffer} == "first");
+    });
+
+    EXPECT_TRUE(secondEscapeRejected.get_future().get());
+    EXPECT_TRUE(firstValueIntact.get_future().get());
+}
+
+// Regression: two escapable scopes opened with no handle allocated between them.
+// An implementation whose opaque token is derived from a position in the handle
+// stack hands both scopes the same token, so the second scope to escape is refused
+// with napi_escape_called_twice despite never having escaped. Deriving the token
+// from a counter instead keeps the two apart.
+TEST(NodeApi, AdjacentEscapableScopesEscapeIndependently)
+{
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> bothEscapesAccepted;
+
+    runtime.Dispatch([&bothEscapesAccepted](Napi::Env env) mutable {
+        napi_env nenv{env};
+
+        const auto fail = [&bothEscapesAccepted]() { bothEscapesAccepted.set_value(false); };
+
+        napi_escapable_handle_scope outerScope{};
+        if (napi_open_escapable_handle_scope(nenv, &outerScope) != napi_ok)
+        {
+            return fail();
+        }
+        ScopedEscapableHandleScope outerGuard{nenv, outerScope};
+
+        // Deliberately allocate nothing here: this is what makes the two scopes share a
+        // position in the handle stack.
+        napi_escapable_handle_scope innerScope{};
+        if (napi_open_escapable_handle_scope(nenv, &innerScope) != napi_ok)
+        {
+            return fail();
+        }
+        ScopedEscapableHandleScope innerGuard{nenv, innerScope};
+
+        napi_value innerSource{};
+        if (napi_create_string_utf8(nenv, "inner value", NAPI_AUTO_LENGTH, &innerSource) != napi_ok)
+        {
+            return fail();
+        }
+
+        napi_value innerEscaped{};
+        if (napi_escape_handle(nenv, innerScope, innerSource, &innerEscaped) != napi_ok)
+        {
+            return fail();
+        }
+
+        napi_value outerSource{};
+        if (napi_create_string_utf8(nenv, "outer value", NAPI_AUTO_LENGTH, &outerSource) != napi_ok)
+        {
+            return fail();
+        }
+
+        // The outer scope has not escaped yet, so this must not be refused.
+        napi_value outerEscaped{};
+        const napi_status outerEscapeStatus{napi_escape_handle(nenv, outerScope, outerSource, &outerEscaped)};
+        if (outerEscapeStatus == napi_handle_scope_mismatch)
+        {
+            // Engines that only allow escaping from the innermost open scope cannot
+            // exercise this case at all; the inner escape above is the whole result.
+            bothEscapesAccepted.set_value(true);
+            return;
+        }
+        if (outerEscapeStatus != napi_ok)
+        {
+            return fail();
+        }
+
+        if (innerGuard.Close() != napi_ok || outerGuard.Close() != napi_ok)
+        {
+            return fail();
+        }
+
+        bothEscapesAccepted.set_value(true);
+    });
+
+    EXPECT_TRUE(bothEscapesAccepted.get_future().get());
+}
+
+#endif
+
+#if !defined(JSRUNTIMEHOST_NAPI_ENGINE_JSI)
+TEST(NodeApi, PrimitiveExceptionSurvivesNativeCatch)
+{
+    // Regression: a JavaScript `throw` of a non-object reaches node-addon-api's
+    // Napi::Error, which wraps the pending exception with napi_create_reference.
+    // The JavaScriptCore backend handed the primitive to a JSObject* entry point
+    // (a reinterpret_cast whose assert is compiled out) and tripped a
+    // RELEASE_ASSERT inside the engine. Its execution-time-limit termination
+    // exception is such a string, so terminating a busy worker killed the
+    // process.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> caught;
+    std::promise<bool> runtimeStillWorks;
+
+    runtime.Dispatch([&caught, &runtimeStillWorks](Napi::Env env) {
+        bool sawError{false};
+        try
+        {
+            // Napi::Eval rather than Env::RunScript: the JSI shim has no RunScript and
+            // Hermes only implements the 3-argument napi_run_script.
+            Napi::Eval(env, "throw 'plain text';", "primitive-exception.js");
+        }
+        catch (const Napi::Error& error)
+        {
+            // Must be callable whether the backend held the string itself or
+            // wrapped it in an object.
+            (void)error.Message();
+            sawError = true;
+        }
+        caught.set_value(sawError);
+
+        const auto sum = Napi::Eval(env, "1 + 1", "primitive-exception.js");
+        runtimeStillWorks.set_value(sum.IsNumber() && sum.As<Napi::Number>().Int32Value() == 2);
+    });
+
+    EXPECT_TRUE(caught.get_future().get());
+    EXPECT_TRUE(runtimeStillWorks.get_future().get());
+}
+#endif
+
+#if defined(JSRUNTIMEHOST_NAPI_ENGINE_JAVASCRIPTCORE)
+TEST(NodeApi, PropertyAccessCoercesPrimitiveReceiver)
+{
+    // Node coerces the receiver of the property entry points with ToObject: the
+    // "length" of a string reads through its wrapper, while null and undefined
+    // report napi_object_expected and leave the TypeError pending. The
+    // JavaScriptCore backend used to reinterpret the primitive as an object.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> coerced;
+    std::promise<bool> rejected;
+    std::promise<bool> calledOnPrimitive;
+
+    runtime.Dispatch([&coerced, &rejected, &calledOnPrimitive](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value text{Napi::String::New(env, "hello")};
+        napi_value length{};
+        int32_t value{};
+        coerced.set_value(
+            napi_get_named_property(nenv, text, "length", &length) == napi_ok &&
+            napi_get_value_int32(nenv, length, &value) == napi_ok &&
+            value == 5);
+
+        napi_value undefined{env.Undefined()};
+        napi_value ignored{};
+        const napi_status status{napi_get_named_property(nenv, undefined, "length", &ignored)};
+        bool pending{false};
+        napi_is_exception_pending(nenv, &pending);
+        napi_value exception{};
+        napi_get_and_clear_last_exception(nenv, &exception);
+        rejected.set_value(status == napi_object_expected && pending);
+
+        // A primitive receiver is boxed for napi_call_function as well.
+        napi_value toUpperCase{env.Global().Get("String").As<Napi::Object>().Get("prototype").As<Napi::Object>().Get("toUpperCase")};
+        napi_value upper{};
+        calledOnPrimitive.set_value(
+            napi_call_function(nenv, text, toUpperCase, 0, nullptr, &upper) == napi_ok &&
+            Napi::Value(env, upper).As<Napi::String>().Utf8Value() == "HELLO");
+    });
+
+    EXPECT_TRUE(coerced.get_future().get());
+    EXPECT_TRUE(rejected.get_future().get());
+    EXPECT_TRUE(calledOnPrimitive.get_future().get());
+}
+
+TEST(NodeApi, ReferencesToPrimitivesFollowNode)
+{
+    // Symbols have always been referenceable, and a weak reference keeps
+    // resolving while the symbol is alive. Other primitives are refused before
+    // Node-API 10; from 10 on they are held while the count is positive and
+    // released at zero, when the value reads back as NULL.
+    Babylon::AppRuntime runtime{};
+
+    std::promise<bool> primitivesHandled;
+    std::promise<bool> symbolResolves;
+
+    runtime.Dispatch([&primitivesHandled, &symbolResolves](Napi::Env env) {
+        napi_env nenv{env};
+
+        napi_value text{Napi::String::New(env, "held")};
+        napi_ref ref{};
+        const napi_status status{napi_create_reference(nenv, text, 1, &ref)};
+#if NAPI_VERSION >= 10
+        napi_value value{};
+        uint32_t count{1};
+        bool ok{status == napi_ok &&
+            napi_get_reference_value(nenv, ref, &value) == napi_ok &&
+            value != nullptr &&
+            Napi::Value(env, value).As<Napi::String>().Utf8Value() == "held" &&
+            napi_reference_unref(nenv, ref, &count) == napi_ok &&
+            count == 0};
+        value = text;
+        ok = ok &&
+            napi_get_reference_value(nenv, ref, &value) == napi_ok &&
+            value == nullptr &&
+            napi_reference_unref(nenv, ref, &count) == napi_generic_failure &&
+            napi_delete_reference(nenv, ref) == napi_ok;
+        primitivesHandled.set_value(ok);
+#else
+        primitivesHandled.set_value(status == napi_invalid_arg);
+#endif
+
+        napi_value symbol{Napi::Symbol::New(env, "tag")};
+        napi_ref symbolRef{};
+        napi_value resolved{};
+        symbolResolves.set_value(
+            napi_create_reference(nenv, symbol, 0, &symbolRef) == napi_ok &&
+            napi_get_reference_value(nenv, symbolRef, &resolved) == napi_ok &&
+            resolved != nullptr &&
+            Napi::Value(env, resolved).StrictEquals(Napi::Value(env, symbol)) &&
+            napi_delete_reference(nenv, symbolRef) == napi_ok);
+    });
+
+    EXPECT_TRUE(primitivesHandled.get_future().get());
+    EXPECT_TRUE(symbolResolves.get_future().get());
+}
+#endif
