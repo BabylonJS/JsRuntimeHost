@@ -55,12 +55,6 @@ if(JSRUNTIMEHOST_POLYFILL_COMPRESSION)
         message(FATAL_ERROR "The Compression polyfill requires the Streams polyfill.")
     endif()
     add_subdirectory(Compression)
-if(JSRUNTIMEHOST_POLYFILL_COMPRESSION
-    if(NOT JSRUNTIMEHOST_POLYFILL_STREAMS
-        message(FATAL_ERROR "The Compression polyfill requires the Streams polyfill."
-    add_subdirectory(Compression
-if(JSRUNTIMEHOST_POLYFILL_WORKER
-    if(NAPI_JAVASCRIPT_ENGINE STREQUAL "JSI"
 endif()
 
 if(JSRUNTIMEHOST_POLYFILL_INDEXEDDB)
