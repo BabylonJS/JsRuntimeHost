@@ -744,4 +744,4 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.responseText.length).to.equal(16);
         expect(xhr.response).to.equal(xhr.responseText);
     });
-}
+});
