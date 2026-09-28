@@ -12,6 +12,58 @@ polyfills that consumers can include if required.
 > not supported on Apple platforms (iOS or macOS)** — configuring the build with
 > `NAPI_JAVASCRIPT_ENGINE=Hermes` on those targets will fail with a CMake error.
 
+## Dynamic JavaScript loading
+
+The optional `DynamicScriptLoader` polyfill installs `loadScript(name)`, which
+returns a promise that settles after evaluating source in the current JavaScript
+context. The host supplies a resolver that returns either a JavaScript string or
+a promise of a string, so resources may be available immediately or retrieved
+asynchronously. Missing resources (null or undefined), rejected lookups, and
+evaluation errors reject the returned promise. The resolver runs on the
+JavaScript thread; if an asynchronous host operation finishes on another thread,
+dispatch back to the JavaScript thread before resolving its promise. No file or
+network loader is installed by JsRuntimeHost.
+
+```cpp
+#include <Babylon/Polyfills/DynamicScriptLoader.h>
+
+Babylon::Polyfills::DynamicScriptLoader::Initialize(env,
+    [](Napi::Env env, const std::string& name) -> Napi::Value {
+        auto source = FindPackagedScript(name);
+        return source ? Napi::String::New(env, *source) : env.Null();
+    });
+```
+
+For hosts with synchronous packaged resources, the optional `ImportScripts`
+polyfill provides a worker-style `importScripts(...names)` loader. Install it before
+evaluating the entry script, and return source only for exact packaged names:
+
+```cpp
+#include <Babylon/Polyfills/ImportScripts.h>
+
+Babylon::Polyfills::ImportScripts::Initialize(env,
+    [](const std::string& name) -> std::optional<std::string> {
+        return FindEmbeddedChunk(name); // nullopt for names not packaged by the host
+    });
+```
+
+This loader also exposes `self` if absent. It accepts string resource names
+and evaluates them synchronously in order; missing chunks and evaluation
+failures throw JavaScript errors. Both resolvers
+control which names are accepted; neither polyfill adds a file or network
+fallback. The `JSRUNTIMEHOST_POLYFILL_DYNAMIC_SCRIPT_LOADER` and
+`JSRUNTIMEHOST_POLYFILL_IMPORT_SCRIPTS` options control the respective libraries.
+
+For source-level `import("./chunk")`, configure the native Webpack build with
+`output.chunkLoading: "import-scripts"` and `output.chunkFormat: "array-push"`,
+then package its emitted chunks for the resolver. Webpack still returns a promise
+from `import()`; its native loader calls `importScripts` to install a chunk before
+resolving that promise. Hosts with only asynchronous resource access instead need
+a bundler chunk loader that awaits `loadScript(name)`; Webpack's built-in
+`import-scripts` loader cannot await it. A browser build can use its normal
+asynchronous URL-based chunk loader. Neither polyfill adds native ES module parsing
+to engines such as Chakra.
+
 
 ## **Building - All Development Platforms**
 

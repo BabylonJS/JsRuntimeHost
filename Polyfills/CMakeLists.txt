@@ -45,3 +45,11 @@ endif()
 if(JSRUNTIMEHOST_POLYFILL_TEXTENCODER)
     add_subdirectory(TextEncoder)
 endif()
+
+if(JSRUNTIMEHOST_POLYFILL_IMPORT_SCRIPTS)
+    add_subdirectory(ImportScripts)
+endif()
+
+if(JSRUNTIMEHOST_POLYFILL_DYNAMIC_SCRIPT_LOADER)
+    add_subdirectory(DynamicScriptLoader)
+endif()

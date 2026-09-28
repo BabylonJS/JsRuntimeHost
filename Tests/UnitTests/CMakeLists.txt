@@ -26,7 +26,9 @@ set(SOURCES
     "Source/Tests.AppRuntime.cpp"
     "Source/Tests.Console.cpp"
     "Source/Tests.DelayedTaskScheduler.cpp"
+    "Source/Tests.DynamicScriptLoader.cpp"
     "Source/Tests.JavaScript.cpp"
+    "Source/Tests.ImportScripts.cpp"
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Scheduling.cpp"
     "Source/Tests.StandardStreamLogger.cpp"
@@ -79,6 +81,8 @@ endif()
 
 target_link_libraries(UnitTests
     PRIVATE AppRuntime
+    PRIVATE DynamicScriptLoader
+    PRIVATE ImportScripts
     PRIVATE Console
     PRIVATE AbortController
     PRIVATE SchedulingInternal
