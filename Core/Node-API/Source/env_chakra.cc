@@ -1,6 +1,7 @@
 #include <napi/env.h>
 #include "js_native_api_chakra.h"
 #include <jsrt.h>
+#include <array>
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -8,6 +9,14 @@
 
 namespace
 {
+    std::array<napi_ref*, 6> CachedReferences(napi_env env)
+    {
+        auto& intrinsics{env->property_name_intrinsics};
+        return {&intrinsics.object_constructor, &intrinsics.own_names,
+                &intrinsics.own_descriptor, &intrinsics.prototype,
+                &env->has_own_property_reference, &env->wrap_symbol_reference};
+    }
+
     void ThrowIfFailed(JsErrorCode errorCode)
     {
         if (errorCode != JsErrorCode::JsNoError)
@@ -18,8 +27,8 @@ namespace
 
     napi_status ReleaseCachedReferences(napi_env env)
     {
-        napi_status firstError{napi_shared::ReleasePropertyNameIntrinsics(env, env->property_name_intrinsics)};
-        for (napi_ref* ref : {&env->has_own_property_reference, &env->wrap_symbol_reference})
+        napi_status firstError{napi_ok};
+        for (napi_ref* ref : CachedReferences(env))
         {
             if (*ref != nullptr)
             {
@@ -86,19 +95,17 @@ namespace Napi
         }
     }
 
-    void PrepareForRuntimeDisposal(Env env)
-    {
-        napi_env env_ptr{env};
-        if (ReleaseCachedReferences(env_ptr) != napi_ok)
-        {
-            throw std::runtime_error{"Napi::PrepareForRuntimeDisposal: failed to release cached references"};
-        }
-    }
-
     void Detach(Env env)
     {
         napi_env env_ptr{env};
-        PrepareForRuntimeDisposal(env);
+        for (napi_ref* ref : CachedReferences(env_ptr))
+        {
+            if (*ref != nullptr)
+            {
+                napi_chakra_internal::DiscardReferenceAfterRuntimeDisposal(*ref);
+                *ref = nullptr;
+            }
+        }
         delete env_ptr;
     }
 }

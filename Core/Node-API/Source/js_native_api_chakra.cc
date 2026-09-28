@@ -514,6 +514,12 @@ napi_status DefineProperty(napi_env env,
 
 } // end anonymous namespace
 
+void napi_chakra_internal::DiscardReferenceAfterRuntimeDisposal(napi_ref ref)
+{
+  // The runtime has freed its JS values; JsRelease would access invalid handles.
+  delete reinterpret_cast<RefInfo*>(ref);
+}
+
 // Warning: Keep in-sync with napi_status enum
 static const char* error_messages[] = {
   nullptr,

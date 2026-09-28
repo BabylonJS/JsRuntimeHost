@@ -65,12 +65,10 @@ namespace Babylon
 
         Run(env);
 
-        // Strong intrinsic references must be released while the Chakra runtime is alive.
-        Napi::PrepareForRuntimeDisposal(env);
         ThrowIfFailed(JsSetCurrentContext(JS_INVALID_REFERENCE));
         ThrowIfFailed(JsDisposeRuntime(jsRuntime));
 
-        // Detach must come after JsDisposeRuntime since it triggers finalizers which require env.
+        // JsDisposeRuntime runs finalizers which require env, so detach afterward.
         Napi::Detach(env);
     }
 

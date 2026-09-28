@@ -10,6 +10,10 @@
 #include <cassert>
 #include <map>
 
+namespace napi_chakra_internal {
+  void DiscardReferenceAfterRuntimeDisposal(napi_ref ref);
+}
+
 struct napi_env__ {
   JsSourceContext source_context = JS_SOURCE_CONTEXT_NONE;
   napi_extended_error_info last_error{ nullptr, nullptr, 0, napi_ok };
