@@ -30,7 +30,8 @@ set(SOURCES
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Scheduling.cpp"
     "Source/Tests.StandardStreamLogger.cpp"
-    "Source/Tests.TimeoutDispatcher.cpp")
+    "Source/Tests.TimeoutDispatcher.cpp"
+    "Source/Tests.XMLHttpRequest.cpp")
 
 if(APPLE)
     if(IOS)

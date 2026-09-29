@@ -5,6 +5,8 @@
 #include <napi/napi.h>
 #include <UrlLib/UrlLib.h>
 
+#include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -39,19 +41,55 @@ namespace Babylon::Polyfills::Internal
         Napi::Value GetErrorCode(const Napi::CallbackInfo& info);
         Napi::Value GetErrorDetail(const Napi::CallbackInfo& info);
 
+        // Indices into XMLHttpRequest::EVENT_TYPE_NAMES; used to instantiate the `on<event>`
+        // property accessors below without needing a distinct method per event type.
+        enum class EventIndex : size_t
+        {
+            ReadyStateChange = 0,
+            Load = 1,
+            Error = 2,
+            LoadEnd = 3,
+            Abort = 4,
+            Count = 5,
+        };
+
+        static const char* const EVENT_TYPE_NAMES[static_cast<size_t>(EventIndex::Count)];
+
+        template<EventIndex Index> Napi::Value GetEventHandler(const Napi::CallbackInfo& info);
+        template<EventIndex Index> void SetEventHandler(const Napi::CallbackInfo& info, const Napi::Value& value);
+
         void AddEventListener(const Napi::CallbackInfo& info);
         void RemoveEventListener(const Napi::CallbackInfo& info);
         void Abort(const Napi::CallbackInfo& info);
         void Open(const Napi::CallbackInfo& info);
         void Send(const Napi::CallbackInfo& info);
 
-        void SetReadyState(ReadyState readyState);
-        void RaiseEvent(const char* eventType);
+        void SetReadyState(ReadyState readyState, const Napi::Object& jsThis);
+        void RaiseEvent(const char* eventType, const Napi::Object& jsThis);
+
+        // A registered event listener. `isEventHandler` marks the single entry owned by the
+        // matching `on<event>` property; every other entry came from addEventListener. Both
+        // kinds share one list per event type because that is what the DOM specifies: dispatch
+        // follows registration order, so `addEventListener("load", a)` then `xhr.onload = b`
+        // calls `a` then `b`, and reassigning `onload` keeps its original position rather than
+        // moving to the end ("If eventHandler's listener is not null, then return").
+        struct Listener
+        {
+            Napi::ObjectReference callback;
+            bool isEventHandler;
+            bool active{true};
+        };
 
         std::string m_url{};
-        UrlLib::UrlRequest m_request{};
+        std::shared_ptr<UrlLib::UrlRequest> m_request{std::make_shared<UrlLib::UrlRequest>()};
         JsRuntimeScheduler m_runtimeScheduler;
+        Napi::FunctionReference m_makeEvent;
         ReadyState m_readyState{ReadyState::Unsent};
-        std::unordered_map<std::string, std::vector<Napi::FunctionReference>> m_eventHandlerRefs;
+        // UrlLib writes its status on a worker thread; event handlers read these JS-thread snapshots.
+        uint32_t m_statusCode{};
+        std::string m_statusText{};
+        uint64_t m_sendId{};
+        bool m_sendActive{false};
+        std::unordered_map<std::string, std::vector<std::shared_ptr<Listener>>> m_listeners;
     };
 }

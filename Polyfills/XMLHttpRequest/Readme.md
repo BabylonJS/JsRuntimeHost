@@ -2,10 +2,18 @@
 Minimal implementation of XMLHttpRequest required to support the Babylon.js RequestFile method. Under the hood, XMLHttpRequest is implemented using various platform-specific APIs in the UrlLib dependency.
 
 ## Event listening
-We do not support `onload`-style event listeners. Instead, you should listen to events using `addEventListener`. At the moment, we only support the following events:
+Events can be observed with `addEventListener` or the corresponding
+`onreadystatechange`, `onload`, `onerror`, `onloadend`, and `onabort` properties. Handlers receive
+an event whose `target` and `currentTarget` are the request, and run with the request as `this`.
+`readystatechange` dispatches an `Event`; `load`, `error`, `abort`, and `loadend` dispatch
+`ProgressEvent` instances (`lengthComputable === false`, `loaded === total === 0`).
+Missing constructors are installed without replacing host-provided ones.
+At the moment, we only support the following events:
 * `loadend`
 * `readystatechange`
-* `error` (fired on a transport failure or a non-`2xx` HTTP response, before `loadend`)
+* `load` (fired after any completed HTTP response, including non-`2xx` responses)
+* `error` (fired on a transport failure, before `loadend`)
+* `abort` (fired when an active request is aborted, before `loadend`)
 
 ## Local files
 Unlike the web, XMLHttpRequest supports loading local files using two schemes:
