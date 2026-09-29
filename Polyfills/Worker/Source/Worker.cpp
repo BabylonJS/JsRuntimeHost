@@ -3,6 +3,7 @@
 
 #include <Babylon/AppRuntime.h>
 #include <Babylon/JsRuntime.h>
+#include <Babylon/JsRuntimeScheduler.h>
 #include <Babylon/Polyfills/AbortController.h>
 #include <Babylon/Polyfills/Blob.h>
 #include <Babylon/Polyfills/Compression.h>
@@ -31,6 +32,7 @@
 #include <fstream>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -235,7 +237,11 @@ namespace Babylon::Polyfills::Internal
     struct Worker::State
     {
         Options Config{};
-        JsRuntime* ParentRuntime{};
+        // A scheduler copy, not the JsRuntime itself: the worker thread dispatches to the parent
+        // realm after terminate() and after close(), and either can outlive the parent runtime
+        // (a worker terminated as it is created, a host tearing down while workers close). The
+        // scheduler keeps the parent's dispatch state alive and discards work once it has shut down.
+        std::optional<JsRuntimeScheduler> ParentScheduler{};
         Napi::ObjectReference ParentObject{};
         std::unique_ptr<AppRuntime> Runtime{};
         std::atomic_bool Terminated{false};
@@ -284,7 +290,7 @@ namespace Babylon::Polyfills::Internal
 
         auto state = std::make_shared<State>();
         state->Config = *static_cast<const Options*>(info.Data());
-        state->ParentRuntime = &JsRuntime::GetFromJavaScript(info.Env());
+        state->ParentScheduler.emplace(JsRuntime::GetFromJavaScript(info.Env()));
         // An active Worker is a browser "active object": it remains alive even
         // if script drops its last reference, until terminate()/close(). A
         // strong reference also works on engines such as QuickJS whose N-API
@@ -349,7 +355,7 @@ namespace Babylon::Polyfills::Internal
             // Queue this after all same-task message/error deliveries so
             // WorkerGlobalScope.close() preserves their FIFO ordering.
             // https://github.com/WebKit/WebKit/commit/4aaa3c1477e296e67b03e1461479b8caf57c37dd
-            locked->ParentRuntime->Dispatch([weakState](Napi::Env) {
+            (*locked->ParentScheduler)([weakState](Napi::Env) {
                 const auto parentState = weakState.lock();
                 if (parentState && !parentState->ParentObject.IsEmpty())
                 {
@@ -670,7 +676,7 @@ namespace Babylon::Polyfills::Internal
             return;
         }
 
-        state->ParentRuntime->Dispatch([weakState, message = std::move(message)](Napi::Env env) mutable {
+        (*state->ParentScheduler)([weakState, message = std::move(message)](Napi::Env env) mutable {
             const auto locked = weakState.lock();
             if (!locked || locked->Terminated.load())
             {
@@ -695,7 +701,7 @@ namespace Babylon::Polyfills::Internal
             return;
         }
 
-        state->ParentRuntime->Dispatch([weakState, message = std::move(message)](Napi::Env env) {
+        (*state->ParentScheduler)([weakState, message = std::move(message)](Napi::Env env) {
             const auto locked = weakState.lock();
             if (!locked || locked->Terminated.load())
             {
