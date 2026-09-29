@@ -322,10 +322,10 @@ namespace Babylon::Polyfills::Internal
             m_openErrorSent = true;
             auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
             arcana::make_task(m_runtimeScheduler, arcana::cancellation::none(),
-                [this, anchor{std::move(anchor)}, generation{m_requestGeneration}]() {
+                [this, anchor{std::move(anchor)}, generation{m_requestGeneration}, openGeneration{m_openGeneration}]() {
                     // Release after dispatch unwinds, without clearing a reopened request's listeners.
-                    const auto releaseListeners = gsl::finally([this, generation]() {
-                        if (m_openGeneration == generation)
+                    const auto releaseListeners = gsl::finally([this, openGeneration]() {
+                        if (m_openGeneration == openGeneration)
                         {
                             m_eventHandlerRefs.clear();
                         }

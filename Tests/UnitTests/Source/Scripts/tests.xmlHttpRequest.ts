@@ -180,14 +180,14 @@ describe("XMLHTTPRequest", function () {
         expect(events).to.deep.equal([]);
     });
 
-    for (const event of ["before dispatch", "readystatechange", "error"]) {
+    for (const event of ["before send", "before dispatch", "readystatechange", "error"]) {
         it(`should release canceled URL-open listeners after aborting ${event}`, async function () {
             this.timeout(5000);
             const xhr = new XMLHttpRequest();
             let callbacks = 0;
             const listener = () => {
                 callbacks++;
-                if (event !== "before dispatch" && xhr.readyState === XMLHttpRequest.DONE) {
+                if ((event === "readystatechange" || event === "error") && xhr.readyState === XMLHttpRequest.DONE) {
                     xhr.abort();
                 }
             };
@@ -197,6 +197,9 @@ describe("XMLHTTPRequest", function () {
                 xhr.removeEventListener("readystatechange", listener);
             }
             xhr.open("GET", "noscheme.glb");
+            if (event === "before send") {
+                xhr.abort();
+            }
             xhr.send();
             if (event === "before dispatch") {
                 xhr.abort();
