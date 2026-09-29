@@ -180,6 +180,38 @@ describe("XMLHTTPRequest", function () {
         expect(events).to.deep.equal([]);
     });
 
+    for (const event of ["before dispatch", "readystatechange", "error"]) {
+        it(`should release canceled URL-open listeners after aborting ${event}`, async function () {
+            this.timeout(5000);
+            const xhr = new XMLHttpRequest();
+            let callbacks = 0;
+            const listener = () => {
+                callbacks++;
+                if (event !== "before dispatch" && xhr.readyState === XMLHttpRequest.DONE) {
+                    xhr.abort();
+                }
+            };
+            xhr.addEventListener("readystatechange", listener);
+            xhr.addEventListener("error", listener);
+            if (event === "error") {
+                xhr.removeEventListener("readystatechange", listener);
+            }
+            xhr.open("GET", "noscheme.glb");
+            xhr.send();
+            if (event === "before dispatch") {
+                xhr.abort();
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, 10));
+            const beforeReopen = callbacks;
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
+            xhr.send();
+            await completed;
+            expect(xhr.readyState).to.equal(XMLHttpRequest.DONE);
+            expect(callbacks).to.equal(beforeReopen);
+        });
+    }
+
     for (const event of ["readystatechange", "error"]) {
         it(`should preserve a request reopened from the failure ${event} callback`, async function () {
             this.timeout(5000);

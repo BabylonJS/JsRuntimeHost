@@ -29,11 +29,13 @@ A transport-level failure surfaces the standard way -- an `error` event followed
 with `status === 0` -- exactly as on the web. In addition, two **non-standard, additive**
 read-only properties expose the normalized `UrlLib` transport-error detail so BN-aware code can
 tell a DNS failure from a refused connection or a missing local asset:
-* `errorCode` -- the stable symbolic token (e.g. `"CURLE_COULDNT_CONNECT"`, `"NSURLErrorTimedOut"`,
+* `errorCode` -- the stable symbolic token (e.g. `"UrlOpenFailed"`, `"CURLE_COULDNT_CONNECT"`, `"NSURLErrorTimedOut"`,
   `"AppResourceNotFound"`)
-* `errorDetail` -- the full normalized `"<domain>:<symbol>(<code>): <detail>"` string
+* `errorDetail` -- the original opening error for `UrlOpenFailed`, or the normalized
+  `"<domain>:<symbol>(<code>): <detail>"` string for a failure during `send()`
 
-Both are empty strings unless the request failed at the transport layer, and are populated only
-on backends that expose the detail (Apple, Linux) -- empty on Windows/Android until those
-backends populate `UrlLib`'s accessors. Browsers do not expose these properties, so
-spec-conformant code is unaffected.
+URL-opening errors populate both properties on every platform. Failures during
+`send()` expose the diagnostics supplied by the platform's `UrlLib` backend;
+those strings can be empty when the backend has no detail. Successful requests
+leave both properties empty, and reopening clears an earlier opening error.
+Browsers do not expose these properties, so spec-conformant code is unaffected.

@@ -2,6 +2,7 @@
 #include <Babylon/JsRuntime.h>
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <arcana/tracing/trace_region.h>
+#include <gsl/gsl>
 #include <cstring>
 #include <sstream>
 
@@ -271,7 +272,7 @@ namespace Babylon::Polyfills::Internal
         }
 
         m_url = info[1].As<Napi::String>();
-        ++m_requestGeneration;
+        m_openGeneration = ++m_requestGeneration;
         m_openError.reset();
         m_openErrorSent = false;
 
@@ -322,6 +323,13 @@ namespace Babylon::Polyfills::Internal
             auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
             arcana::make_task(m_runtimeScheduler, arcana::cancellation::none(),
                 [this, anchor{std::move(anchor)}, generation{m_requestGeneration}]() {
+                    // Release after dispatch unwinds, without clearing a reopened request's listeners.
+                    const auto releaseListeners = gsl::finally([this, generation]() {
+                        if (m_openGeneration == generation)
+                        {
+                            m_eventHandlerRefs.clear();
+                        }
+                    });
                     if (generation != m_requestGeneration)
                     {
                         return;
@@ -336,10 +344,6 @@ namespace Babylon::Polyfills::Internal
                             return;
                         }
                         RaiseEvent(event);
-                    }
-                    if (generation == m_requestGeneration)
-                    {
-                        m_eventHandlerRefs.clear();
                     }
                 });
             return;
