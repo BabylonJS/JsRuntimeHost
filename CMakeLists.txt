@@ -95,9 +95,6 @@ option(JSRUNTIMEHOST_POLYFILL_SCHEDULING "Include JsRuntimeHost Polyfill Schedul
 option(JSRUNTIMEHOST_POLYFILL_XMLHTTPREQUEST "Include JsRuntimeHost Polyfill XMLHttpRequest." ON)
 option(JSRUNTIMEHOST_POLYFILL_FETCH "Include JsRuntimeHost Polyfill fetch." ON)
 option(JSRUNTIMEHOST_POLYFILL_URL "Include JsRuntimeHost Polyfill URL and URLSearchParams." ON)
-if(DEFINED JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER AND NOT DEFINED JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER)
-    set(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER "${JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER}" CACHE BOOL "Include JsRuntimeHost Polyfills AbortController and AbortSignal.")
-endif()
 option(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER "Include JsRuntimeHost Polyfills AbortController and AbortSignal." ON)
 option(JSRUNTIMEHOST_POLYFILL_WEBSOCKET "Include JsRuntimeHost Polyfill WebSocket." ON)
 option(JSRUNTIMEHOST_POLYFILL_BLOB "Include JsRuntimeHost Polyfill Blob." ON)
@@ -105,6 +102,11 @@ option(JSRUNTIMEHOST_POLYFILL_FILE "Include JsRuntimeHost Polyfill File and File
 option(JSRUNTIMEHOST_POLYFILL_PERFORMANCE "Include JsRuntimeHost Polyfill Performance." ON)
 option(JSRUNTIMEHOST_POLYFILL_TEXTDECODER "Include JsRuntimeHost Polyfill TextDecoder." ON)
 option(JSRUNTIMEHOST_POLYFILL_TEXTENCODER "Include JsRuntimeHost Polyfill TextEncoder." ON)
+
+# Compatibility with the previous AbortController option.
+if(DEFINED JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER)
+    set(JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER "${JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER}" CACHE BOOL "Include JsRuntimeHost Polyfills AbortController and AbortSignal." FORCE)
+endif()
 
 # Sanitizers
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan" OFF)
