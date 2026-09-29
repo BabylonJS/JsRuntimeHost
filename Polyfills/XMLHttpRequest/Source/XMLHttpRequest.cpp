@@ -179,14 +179,14 @@ namespace Babylon::Polyfills::Internal
     {
         // Stable symbolic token for a transport failure (e.g. "CURLE_COULDNT_CONNECT",
         // "NSURLErrorTimedOut", "AppResourceNotFound"); empty when there was no transport failure.
-        return Napi::String::New(Env(), std::string{m_request.ErrorSymbol()});
+        return Napi::String::New(Env(), m_openError ? "UrlOpenFailed" : std::string{m_request.ErrorSymbol()});
     }
 
     Napi::Value XMLHttpRequest::GetErrorDetail(const Napi::CallbackInfo&)
     {
         // Full normalized "<domain>:<symbol>(<code>): <detail>" string; empty when there was no
         // transport failure.
-        return Napi::String::New(Env(), std::string{m_request.ErrorString()});
+        return Napi::String::New(Env(), m_openError.value_or(std::string{m_request.ErrorString()}));
     }
 
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
@@ -254,24 +254,38 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Abort(const Napi::CallbackInfo&)
     {
+        ++m_requestGeneration;
         m_request.Abort();
     }
 
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
     {
-        m_url = info[1].As<Napi::String>();
-
+        UrlLib::UrlMethod method;
         try
         {
-            m_request.Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
+            method = MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value());
         }
         catch (const std::exception& e)
         {
-            throw Napi::Error::New(info.Env(), std::string{"Error opening URL: "} + e.what());
+            throw Napi::Error::New(info.Env(), e.what());
+        }
+
+        m_url = info[1].As<Napi::String>();
+        ++m_requestGeneration;
+        m_openError.reset();
+        m_openErrorSent = false;
+
+        try
+        {
+            m_request.Open(method, m_url);
+        }
+        catch (const std::exception& e)
+        {
+            m_openError = std::string{"Error opening URL: "} + e.what();
         }
         catch (...)
         {
-            throw Napi::Error::New(info.Env(), "Unknown error opening URL");
+            m_openError = "Unknown error opening URL";
         }
 
         SetReadyState(ReadyState::Opened);
@@ -282,6 +296,11 @@ namespace Babylon::Polyfills::Internal
         if (m_readyState != ReadyState::Opened)
         {
             throw Napi::Error::New(info.Env(), "XMLHttpRequest must be opened before it can be sent");
+        }
+
+        if (m_openErrorSent)
+        {
+            throw Napi::Error::New(info.Env(), "XMLHttpRequest has already been sent");
         }
 
         if (info.Length() > 0)
@@ -295,6 +314,35 @@ namespace Babylon::Polyfills::Internal
             {
                 m_request.SetRequestBody(info[0].As<Napi::String>().Utf8Value());
             }
+        }
+
+        if (m_openError)
+        {
+            m_openErrorSent = true;
+            auto anchor = std::make_shared<Napi::ObjectReference>(Napi::Persistent(info.This().As<Napi::Object>()));
+            arcana::make_task(m_runtimeScheduler, arcana::cancellation::none(),
+                [this, anchor{std::move(anchor)}, generation{m_requestGeneration}]() {
+                    if (generation != m_requestGeneration)
+                    {
+                        return;
+                    }
+
+                    // Match an asynchronous transport failure, unless a callback reopens or aborts the request.
+                    m_readyState = ReadyState::Done;
+                    for (const auto event : {EventType::ReadyStateChange, EventType::Error, EventType::LoadEnd})
+                    {
+                        if (generation != m_requestGeneration)
+                        {
+                            return;
+                        }
+                        RaiseEvent(event);
+                    }
+                    if (generation == m_requestGeneration)
+                    {
+                        m_eventHandlerRefs.clear();
+                    }
+                });
+            return;
         }
 
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::Send [" << m_url << "]").str();

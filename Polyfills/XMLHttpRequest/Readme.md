@@ -15,6 +15,14 @@ Unlike the web, XMLHttpRequest supports loading local files using two schemes:
 ## Other things to be aware of:
 * Only `GET` requests are currently supported
 * For `readyState`, we only support `UNSENT`, `OPENED`, and `DONE`
+* If the platform transport rejects a URL during `open()`, the request still
+  enters `OPENED`. Calling `send()` reports `DONE`, `error`, and `loadend`
+  asynchronously, with `status === 0`. This lets asset loaders handle unsupported
+  or scheme-less Native URLs through their error callbacks rather than aborting
+  scene parsing. No document-relative URL resolution is added.
+* Invalid methods, arguments, and unsupported request-body types still throw
+  synchronously. A deferred URL-open failure exposes `errorCode === "UrlOpenFailed"`
+  and the original error in `errorDetail`; reopening clears those diagnostics.
 
 ## Transport-error diagnostics (non-standard)
 A transport-level failure surfaces the standard way -- an `error` event followed by `loadend`,
