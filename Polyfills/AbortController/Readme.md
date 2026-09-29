@@ -1,6 +1,8 @@
 # AbortController
 Implements parts of [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController/) and [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal). Provides a way to trigger the abort signal. *Work In Progress*
 
+The `JSRUNTIMEHOST_POLYFILL_ABORTCONTROLLER` CMake option (ON by default) builds both polyfills. The previous spelling, `JSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER`, is still accepted: `-DJSRUNTIMEHOST_POLYFILL_ABORT_CONTROLLER=OFF` disables the same target. If both names are set, they must agree; conflicting values fail configuration. When switching names in an existing build directory, remove the old cache entry or set both to the same value.
+
 Supported on `AbortSignal`:
 * `aborted` (read-only) and `reason`
 * [`throwIfAborted()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/throwIfAborted)
