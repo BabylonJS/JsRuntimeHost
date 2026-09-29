@@ -41,5 +41,36 @@ jobs:
       - name: Run Tests
         run: |
           xcrun simctl install booted "Build/iOS/Tests/UnitTests/RelWithDebInfo-iphonesimulator/UnitTests.app"
-          xcrun simctl launch --console booted "com.jsruntimehost.unittests" 2> /tmp/exitCode
-          (exit $(cat /tmp/exitCode))
+          # The app reports its exit code as the last line of stderr (see iOS/App.mm). Tests also
+          # write progress there (the Worker WPT runner does), so only the last line is the code:
+          # handing the whole capture to `exit` made every run with such output fail with 255.
+          xcrun simctl launch --console booted "com.jsruntimehost.unittests" 2> /tmp/stderr
+          cat /tmp/stderr
+          (exit "$(tail -n 1 /tmp/stderr)")
+
+      # A crashed app writes nothing to the exit-code pipe (the step then fails with 255) and the
+      # console shows only what was flushed before the crash; the simulator's crash report is the
+      # only record of where it died.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          for report in $(ls -t ~/Library/Logs/DiagnosticReports/UnitTests-*.ips 2>/dev/null | head -n 3); do
+            echo "::group::$report"
+            python3 - "$report" <<'EOF'
+          import json, sys
+          raw = open(sys.argv[1]).read()
+          header, body = raw.split("\n", 1)
+          crash = json.loads(body)
+          images = crash.get("usedImages", [])
+          print("exception:", json.dumps(crash.get("exception")), "termination:", json.dumps(crash.get("termination")))
+          faulting = crash.get("faultingThread", 0)
+          for index, thread in enumerate(crash.get("threads", [])):
+              if index != faulting and not thread.get("triggered"):
+                  continue
+              print(f"--- thread {index} {thread.get('name') or ''} {thread.get('queue') or ''}")
+              for frame in thread.get("frames", [])[:40]:
+                  image = images[frame.get("imageIndex", 0)] if frame.get("imageIndex", 0) < len(images) else {}
+                  print(f"  {image.get('name', '?'):28s} {frame.get('symbol', '?')}+{frame.get('symbolLocation', 0)}")
+          EOF
+            echo "::endgroup::"
+          done
