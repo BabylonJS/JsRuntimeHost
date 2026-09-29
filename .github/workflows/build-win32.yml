@@ -34,6 +34,21 @@ jobs:
           reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\UnitTests.exe" /v DumpCount /t REG_DWORD /d 1 /f
           reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\UnitTests.exe" /v DumpFolder /t REG_SZ /d "%RUNNER_TEMP%\Dumps" /f
 
+      - name: Install ProcDump as the postmortem debugger
+        shell: pwsh
+        run: |
+          # The WER LocalDumps registration above has produced no .dmp on this runner image for a
+          # plain access violation, so the "crash dumps" artifact only ever held the exe and pdb.
+          # ProcDump registered as the just-in-time (AeDebug) debugger writes a full dump for any
+          # crashing process regardless of WER's policy; the artifact step below uploads it.
+          $zip = Join-Path $env:RUNNER_TEMP "Procdump.zip"
+          Invoke-WebRequest -Uri "https://download.sysinternals.com/files/Procdump.zip" -OutFile $zip
+          $tools = Join-Path $env:RUNNER_TEMP "procdump"
+          Expand-Archive -Path $zip -DestinationPath $tools -Force
+          $dumps = Join-Path $env:RUNNER_TEMP "Dumps"
+          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+          & (Join-Path $tools "procdump.exe") -accepteula -ma -i $dumps
+
       - name: Run Tests
         shell: cmd
         working-directory: Build/Win32/Tests/UnitTests/RelWithDebInfo
