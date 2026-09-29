@@ -35,6 +35,7 @@ namespace Babylon
         }
 
         std::optional<Napi::Env> m_env{};
+        std::shared_ptr<JsRuntime::InternalState> m_jsRuntimeState{};
         std::optional<std::scoped_lock<std::mutex>> m_suspensionLock{};
         arcana::cancellation_source m_cancelSource{};
         arcana::manual_dispatcher<128> m_dispatcher{};
@@ -63,7 +64,7 @@ namespace Babylon
         }};
 
         Dispatch([this](Napi::Env env) {
-            JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); });
+            m_impl->m_jsRuntimeState = JsRuntime::CreateForJavaScript(env, [this](auto func) { Dispatch(std::move(func)); }).m_state;
             Internal::DelayedTaskScheduler::SetForJavaScript(env, GetDelayedTaskScheduler());
             m_impl->m_delayedTaskSchedulerRegistered = true;
         });
@@ -93,6 +94,11 @@ namespace Babylon
         }
 
         Napi::HandleScope scope{env};
+
+        // Stop native completions before discarding work, while captures can still
+        // safely release environment-owned values. Do not rely on JS finalizer order.
+        JsRuntime::Close(m_impl->m_jsRuntimeState);
+
         ShutdownEnvironment(env);
 
         if (m_impl->m_delayedTaskSchedulerRegistered)

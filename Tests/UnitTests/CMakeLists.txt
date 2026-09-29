@@ -31,6 +31,7 @@ set(SOURCES
     "Source/Tests.Fetch.cpp"
     "Source/Tests.IndexedDB.cpp"
     "Source/Tests.JavaScript.cpp"
+    "Source/Tests.JsRuntimeScheduler.cpp"
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Performance.cpp"
     "Source/Tests.Scheduling.cpp"
