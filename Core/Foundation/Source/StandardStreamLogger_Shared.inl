@@ -3,16 +3,20 @@
 // Platform TUs define these in the enclosing anonymous namespace, then include:
 //   struct ChannelPlatformState { ... };
 //   int OsDuplicate(int fd);
-//   int OsDuplicateTo(int source, int target);
+//   int OsDuplicateTo(int source, int target, const ChannelPlatformState* state = nullptr);
 //   int OsClose(int fd);
 //   int64_t OsRead(int fd, void* data, size_t size);
 //   int64_t OsWrite(int fd, const void* data, size_t size);
 //   int OsCreatePipe(int fds[2]);
 //   bool OsOccupyTarget(int target);
+//   size_t OsMaxPlatformLineSize(bool isError);
 //   void OsWritePlatform(bool isError, const std::string& line);
+//   void OsAppendPlatformBytes(ChannelPlatformState& state, std::string& pending, const char* data, size_t size, bool flush);
 //   bool OsOnStartChannel(ChannelPlatformState& state, int target, bool isError);
 //   bool OsOnRedirected(ChannelPlatformState& state, int target);
 //   bool OsOnRestore(ChannelPlatformState& state, int target);
+
+#include "StandardStreamLoggerLines.h"
 
 #include <array>
 #include <cerrno>
@@ -70,20 +74,12 @@ namespace
         return true;
     }
 
-    void EmitLine(Stream stream, std::string line)
+    void Drain(int readFd, int originalFd, Stream stream, ChannelPlatformState platform)
     {
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-        OsWritePlatform(stream == Stream::Error, line);
-    }
-
-    void Drain(int readFd, int originalFd, Stream stream)
-    {
-        // Cap mirrored lines below typical platform limits (~4 KiB for
-        // OutputDebugStringA / logcat / os_log). Leave headroom under 4096.
-        constexpr size_t MAX_PLATFORM_LINE_SIZE{3800};
+        const size_t maxLineSize = OsMaxPlatformLineSize(stream == Stream::Error);
+        const auto emit = [stream](const std::string& line) {
+            OsWritePlatform(stream == Stream::Error, line);
+        };
         std::array<char, 1024> buffer{};
         std::string pending{};
 
@@ -109,39 +105,13 @@ namespace
                 (void)WriteAll(originalFd, buffer.data(), size);
             }
 
-            pending.append(buffer.data(), size);
+            OsAppendPlatformBytes(platform, pending, buffer.data(), size, false);
 
-            // Consume complete lines via a start index so we only memmove once
-            // per read batch instead of on every newline.
-            size_t start = 0;
-            for (;;)
-            {
-                const size_t newline = pending.find('\n', start);
-                if (newline != std::string::npos)
-                {
-                    EmitLine(stream, pending.substr(start, newline - start));
-                    start = newline + 1;
-                }
-                else if (pending.size() - start >= MAX_PLATFORM_LINE_SIZE)
-                {
-                    EmitLine(stream, pending.substr(start, MAX_PLATFORM_LINE_SIZE));
-                    start += MAX_PLATFORM_LINE_SIZE;
-                }
-                else
-                {
-                    break;
-                }
-            }
-            if (start != 0)
-            {
-                pending.erase(0, start);
-            }
+            Babylon::StandardStreamLogger::Detail::EmitPendingLines(pending, maxLineSize, false, emit);
         }
 
-        if (!pending.empty())
-        {
-            EmitLine(stream, std::move(pending));
-        }
+        OsAppendPlatformBytes(platform, pending, buffer.data(), 0, true);
+        Babylon::StandardStreamLogger::Detail::EmitPendingLines(pending, maxLineSize, true, emit);
         (void)OsClose(readFd);
         if (originalFd >= 0)
         {
@@ -153,7 +123,7 @@ namespace
     {
         if (channel.Original >= 0)
         {
-            (void)OsDuplicateTo(channel.Original, channel.Target);
+            (void)OsDuplicateTo(channel.Original, channel.Target, &channel.Platform);
             (void)OsClose(channel.Original);
         }
         else
@@ -209,7 +179,7 @@ namespace
             return false;
         }
 
-        if (OsDuplicateTo(pipeFds[1], target) != 0)
+        if (OsDuplicateTo(pipeFds[1], target, &channel.Platform) != 0)
         {
             (void)OsClose(pipeFds[0]);
             (void)OsClose(pipeFds[1]);
@@ -248,8 +218,8 @@ namespace
         try
         {
             channel.Reader = std::thread{
-                [readFd = pipeFds[0], originalFd = readerOriginal, stream, completed = std::move(completed)]() mutable {
-                    Drain(readFd, originalFd, stream);
+                [readFd = pipeFds[0], originalFd = readerOriginal, stream, platform = channel.Platform, completed = std::move(completed)]() mutable {
+                    Drain(readFd, originalFd, stream, std::move(platform));
                     completed.set_value();
                 }};
         }
@@ -266,7 +236,7 @@ namespace
         bool restored{true};
         if (channel.Original >= 0)
         {
-            restored = OsDuplicateTo(channel.Original, channel.Target) == 0;
+            restored = OsDuplicateTo(channel.Original, channel.Target, &channel.Platform) == 0;
             if (!restored)
             {
                 (void)OsClose(channel.Target);

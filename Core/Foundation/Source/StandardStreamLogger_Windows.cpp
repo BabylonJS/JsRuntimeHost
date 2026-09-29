@@ -1,4 +1,5 @@
 #include "StandardStreamLoggerPlatform.h"
+#include "StandardStreamLoggerLines.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -11,6 +12,10 @@
 
 namespace
 {
+    constexpr intptr_t NO_CONSOLE_FILENO{-2};
+    // Some Windows SDKs hide HANDLE_FLAG_INHERIT from the app partition.
+    constexpr DWORD HANDLE_INHERIT_FLAG{0x00000001};
+
     void IgnoreInvalidParameter(
         const wchar_t*,
         const wchar_t*,
@@ -25,20 +30,198 @@ namespace
     {
         DWORD StandardHandle{};
         HANDLE OriginalHandle{INVALID_HANDLE_VALUE};
+        DWORD OriginalDescriptorHandleFlags{};
+        bool OriginalDescriptorOpen{};
         bool OriginalHandleUsesTarget{};
+        int OriginalMode{_O_BINARY};
+        std::string PendingUtf16{};
     };
+
+    void SetErrnoFromWin32Error(DWORD error)
+    {
+        _doserrno = error;
+        switch (error)
+        {
+        case ERROR_INVALID_HANDLE:
+            errno = EBADF;
+            break;
+        case ERROR_TOO_MANY_OPEN_FILES:
+            errno = EMFILE;
+            break;
+        case ERROR_NOT_ENOUGH_MEMORY:
+        case ERROR_OUTOFMEMORY:
+            errno = ENOMEM;
+            break;
+        case ERROR_ACCESS_DENIED:
+            errno = EACCES;
+            break;
+        case ERROR_INVALID_PARAMETER:
+            errno = EINVAL;
+            break;
+        case ERROR_BROKEN_PIPE:
+            errno = EPIPE;
+            break;
+        default:
+            errno = EIO;
+            break;
+        }
+    }
+
+    intptr_t GetOsHandle(int fd)
+    {
+        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
+        const intptr_t handle = ::_get_osfhandle(fd);
+        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
+        return handle;
+    }
+
+    bool SetDescriptorInheritance(int fd, bool inherit)
+    {
+        const intptr_t handle = GetOsHandle(fd);
+        if (handle == -1)
+        {
+            return false;
+        }
+        if (!::SetHandleInformation(
+                reinterpret_cast<HANDLE>(handle),
+                HANDLE_INHERIT_FLAG,
+                inherit ? HANDLE_INHERIT_FLAG : 0))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+        return true;
+    }
 
     int OsDuplicate(int fd)
     {
-        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
-        const int duplicated = ::_dup(fd);
-        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
+        const intptr_t sourceHandle = GetOsHandle(fd);
+        if (sourceHandle == -1)
+        {
+            return -1;
+        }
+        if (sourceHandle == NO_CONSOLE_FILENO)
+        {
+            errno = EBADF;
+            _doserrno = 0;
+            return -1;
+        }
+
+        HANDLE handle{INVALID_HANDLE_VALUE};
+        if (!::DuplicateHandle(
+                ::GetCurrentProcess(), reinterpret_cast<HANDLE>(sourceHandle),
+                ::GetCurrentProcess(), &handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return -1;
+        }
+
+        // Both the kernel handle and the CRT entry must be non-inheritable.
+        // Binary tees must not translate bytes that the target already translated.
+        // Other CRT flags, including _O_APPEND, cannot be copied through this API.
+        const int duplicated = ::_open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_NOINHERIT);
+        if (duplicated < 0)
+        {
+            const int error = errno;
+            const unsigned long dosError = _doserrno;
+            (void)::CloseHandle(handle);
+            errno = error;
+            _doserrno = dosError;
+        }
         return duplicated;
     }
 
-    int OsDuplicateTo(int source, int target)
+    int OsDuplicateTo(int source, int target, const ChannelPlatformState* state = nullptr)
     {
-        return ::_dup2(source, target);
+        if (state != nullptr && ::_setmode(source, state->OriginalMode) < 0)
+        {
+            return -1;
+        }
+
+        const bool noinherit =
+            state != nullptr &&
+            (!state->OriginalDescriptorOpen ||
+                (state->OriginalDescriptorHandleFlags & HANDLE_INHERIT_FLAG) == 0);
+        if (!noinherit)
+        {
+            return ::_dup2(source, target);
+        }
+
+        // _dup2 always clears the CRT's FNOINHERIT bit. Reopen the target
+        // through the CRT to restore it as well as the kernel handle flag.
+        const intptr_t sourceHandle = GetOsHandle(source);
+        if (sourceHandle == -1)
+        {
+            return -1;
+        }
+        HANDLE handle{INVALID_HANDLE_VALUE};
+        if (!::DuplicateHandle(
+                ::GetCurrentProcess(), reinterpret_cast<HANDLE>(sourceHandle),
+                ::GetCurrentProcess(), &handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return -1;
+        }
+
+        const intptr_t targetHandle = GetOsHandle(target);
+        if (targetHandle == -1 && errno != EBADF)
+        {
+            (void)::CloseHandle(handle);
+            return -1;
+        }
+        // _close can report an invalid OS handle for UWP's -2 placeholder
+        // while still freeing its CRT descriptor slot.
+        if (targetHandle != -1 && ::_close(target) != 0 &&
+            targetHandle != NO_CONSOLE_FILENO)
+        {
+            const int error = errno;
+            const unsigned long dosError = _doserrno;
+            (void)::CloseHandle(handle);
+            errno = error;
+            _doserrno = dosError;
+            return -1;
+        }
+
+        const int reopened = ::_open_osfhandle(
+            reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_NOINHERIT);
+        if (reopened != target)
+        {
+            const int error = reopened < 0 ? errno : EBUSY;
+            const unsigned long dosError = reopened < 0 ? _doserrno : 0;
+            if (reopened < 0)
+            {
+                (void)::CloseHandle(handle);
+            }
+            else
+            {
+                (void)::_close(reopened);
+            }
+            errno = error;
+            _doserrno = dosError;
+            return -1;
+        }
+
+        return ::_setmode(target, state->OriginalMode) < 0 ? -1 : 0;
+    }
+
+    int GetDescriptorMode(int fd)
+    {
+        // Probe a temporary copy rather than changing a live standard stream.
+        // This short-lived _dup is covered by Start/Stop's child-creation exclusion.
+        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
+        const int probe = ::_dup(fd);
+        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
+        if (probe < 0)
+        {
+            return -1;
+        }
+        const int mode = ::_setmode(probe, _O_BINARY);
+        const int error = errno;
+        const unsigned long dosError = _doserrno;
+        (void)::_close(probe);
+        errno = error;
+        _doserrno = dosError;
+        return mode;
     }
 
     int OsClose(int fd)
@@ -68,10 +251,11 @@ namespace
         HANDLE writeHandle{INVALID_HANDLE_VALUE};
         if (!::CreatePipe(&readHandle, &writeHandle, &attributes, 4096))
         {
+            SetErrnoFromWin32Error(::GetLastError());
             return -1;
         }
 
-        fds[0] = ::_open_osfhandle(reinterpret_cast<intptr_t>(readHandle), _O_BINARY);
+        fds[0] = ::_open_osfhandle(reinterpret_cast<intptr_t>(readHandle), _O_BINARY | _O_NOINHERIT);
         if (fds[0] < 0)
         {
             (void)::CloseHandle(readHandle);
@@ -79,7 +263,7 @@ namespace
             return -1;
         }
 
-        fds[1] = ::_open_osfhandle(reinterpret_cast<intptr_t>(writeHandle), _O_BINARY);
+        fds[1] = ::_open_osfhandle(reinterpret_cast<intptr_t>(writeHandle), _O_BINARY | _O_NOINHERIT);
         if (fds[1] < 0)
         {
             (void)::_close(fds[0]);
@@ -94,8 +278,11 @@ namespace
     {
         // Prefer the secure CRT form; UWP treats the deprecated _open as an error.
         int nullFd{-1};
-        if (::_sopen_s(&nullFd, "NUL", _O_WRONLY | _O_BINARY, _SH_DENYNO, 0) != 0)
+        const errno_t openError =
+            ::_sopen_s(&nullFd, "NUL", _O_WRONLY | _O_BINARY | _O_NOINHERIT, _SH_DENYNO, 0);
+        if (openError != 0)
         {
+            errno = openError;
             return false;
         }
         if (nullFd == target)
@@ -103,9 +290,29 @@ namespace
             return true;
         }
 
-        const bool duplicated = OsDuplicateTo(nullFd, target) == 0;
+        ChannelPlatformState state{};
+        const bool targetDuplicated = OsDuplicateTo(nullFd, target, &state) == 0;
+        const bool duplicated =
+            targetDuplicated &&
+            SetDescriptorInheritance(target, false);
+        const int error = errno;
+        const unsigned long dosError = _doserrno;
         (void)OsClose(nullFd);
+        if (!duplicated)
+        {
+            if (targetDuplicated)
+            {
+                (void)OsClose(target);
+            }
+            errno = error;
+            _doserrno = dosError;
+        }
         return duplicated;
+    }
+
+    size_t OsMaxPlatformLineSize(bool /*isError*/)
+    {
+        return 3800;
     }
 
     void OsWritePlatform(bool /*isError*/, const std::string& line)
@@ -115,12 +322,17 @@ namespace
         ::OutputDebugStringA(output.c_str());
     }
 
-    intptr_t GetOsHandle(int fd)
+    void OsAppendPlatformBytes(ChannelPlatformState& state, std::string& pending, const char* data, size_t size, bool flush)
     {
-        const auto previousHandler = ::_set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
-        const intptr_t handle = ::_get_osfhandle(fd);
-        (void)::_set_thread_local_invalid_parameter_handler(previousHandler);
-        return handle;
+        if (state.OriginalMode == _O_WTEXT || state.OriginalMode == _O_U16TEXT)
+        {
+            state.PendingUtf16.append(data, size);
+            Babylon::StandardStreamLogger::Detail::AppendUtf16LE(pending, state.PendingUtf16, flush);
+        }
+        else
+        {
+            pending.append(data, size);
+        }
     }
 
     bool OsOnStartChannel(ChannelPlatformState& state, int target, bool isError)
@@ -128,8 +340,30 @@ namespace
         state.StandardHandle = isError ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE;
         state.OriginalHandle = ::GetStdHandle(state.StandardHandle);
         const intptr_t targetHandle = GetOsHandle(target);
+        if (targetHandle == -1)
+        {
+            return errno == EBADF;
+        }
+        if (targetHandle == NO_CONSOLE_FILENO)
+        {
+            return true;
+        }
+
+        if (!::GetHandleInformation(
+                reinterpret_cast<HANDLE>(targetHandle),
+                &state.OriginalDescriptorHandleFlags))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+
+        state.OriginalMode = GetDescriptorMode(target);
+        if (state.OriginalMode < 0)
+        {
+            return false;
+        }
+        state.OriginalDescriptorOpen = true;
         state.OriginalHandleUsesTarget =
-            targetHandle != -1 &&
             state.OriginalHandle != nullptr &&
             state.OriginalHandle != INVALID_HANDLE_VALUE &&
             state.OriginalHandle == reinterpret_cast<HANDLE>(targetHandle);
@@ -143,22 +377,48 @@ namespace
         {
             return false;
         }
-        return ::SetStdHandle(state.StandardHandle, reinterpret_cast<HANDLE>(pipeHandle)) != FALSE;
+
+        const bool inherit =
+            state.OriginalDescriptorOpen &&
+            (state.OriginalDescriptorHandleFlags & HANDLE_INHERIT_FLAG) != 0;
+        if (!SetDescriptorInheritance(target, inherit))
+        {
+            return false;
+        }
+        if (!::SetStdHandle(state.StandardHandle, reinterpret_cast<HANDLE>(pipeHandle)))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+        return true;
     }
 
     bool OsOnRestore(ChannelPlatformState& state, int target)
     {
         HANDLE handle = state.OriginalHandle;
-        if (state.OriginalHandleUsesTarget)
+        bool restored{true};
+        if (state.OriginalDescriptorOpen)
         {
             const intptr_t restoredHandle = GetOsHandle(target);
             if (restoredHandle == -1)
             {
                 return false;
             }
-            handle = reinterpret_cast<HANDLE>(restoredHandle);
+
+            const bool inherit =
+                (state.OriginalDescriptorHandleFlags & HANDLE_INHERIT_FLAG) != 0;
+            restored = SetDescriptorInheritance(target, inherit);
+            if (state.OriginalHandleUsesTarget)
+            {
+                handle = reinterpret_cast<HANDLE>(restoredHandle);
+            }
         }
-        return ::SetStdHandle(state.StandardHandle, handle) != FALSE;
+        if (!::SetStdHandle(state.StandardHandle, handle))
+        {
+            SetErrnoFromWin32Error(::GetLastError());
+            return false;
+        }
+        return restored;
     }
 }
 

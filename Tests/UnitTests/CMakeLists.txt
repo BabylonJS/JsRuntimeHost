@@ -30,6 +30,8 @@ set(SOURCES
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Scheduling.cpp"
     "Source/Tests.StandardStreamLogger.cpp"
+    "Source/StandardStreamLoggerLines.cpp"
+    "Source/StandardStreamLoggerPosix.cpp"
     "Source/Tests.TimeoutDispatcher.cpp")
 
 if(APPLE)
@@ -58,6 +60,10 @@ if(APPLE)
 elseif(WIN32)
     set(SOURCES ${SOURCES}
         Source/Win32/App.cpp)
+    if(NOT WINDOWS_STORE)
+        set(SOURCES ${SOURCES}
+            "Source/StandardStreamLoggerWindows.cpp")
+    endif()
 elseif(UNIX AND NOT ANDROID)
     set(SOURCES ${SOURCES}
         Source/Linux/App.cpp)
