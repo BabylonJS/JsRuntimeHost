@@ -1,12 +1,15 @@
 import "./tests.setup";
 import "./tests.abortController";
 import "./tests.xmlHttpRequest";
+import "./tests.headers";
+import "./tests.response";
 import "./tests.fetch";
 import "./tests.scheduling";
 import "./tests.webSocket";
 import "./tests.url";
 import "./tests.urlSearchParams";
 import "./tests.console";
+import "./tests.streams";
 import "./tests.blob";
 import "./tests.nodeApi";
 import "./tests.performance";
