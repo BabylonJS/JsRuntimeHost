@@ -104,23 +104,146 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.errorDetail).to.equal("");
     });
 
-    it("should throw something when opening //", async function () {
-        function openDoubleSlash() {
-            const xhr = new XMLHttpRequest();
-            xhr.open("GET", "//");
+    for (const url of ["//", "noscheme.glb"]) {
+        it(`should report a URL-open failure asynchronously for ${url}`, async function () {
+            this.timeout(5000);
+            const xhr = new XMLHttpRequest() as XMLHttpRequest & { errorCode: string; errorDetail: string };
+            const events: string[] = [];
+            xhr.addEventListener("readystatechange", () => events.push(`state:${xhr.readyState}`));
+            xhr.open("GET", url);
+            expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+            expect(events).to.deep.equal(["state:1"]);
             xhr.send();
-        }
-        expect(openDoubleSlash).to.throw();
+            expect(() => xhr.send()).to.throw();
+            expect(events).to.deep.equal(["state:1"]);
+            await new Promise<void>((resolve) => {
+                xhr.addEventListener("error", () => events.push("error"));
+                xhr.addEventListener("loadend", () => {
+                    events.push("loadend");
+                    resolve();
+                });
+            });
+            expect(events).to.deep.equal(["state:1", "state:4", "error", "loadend"]);
+            expect(xhr.status).to.equal(0);
+            expect(xhr.statusText).to.equal("");
+            expect(xhr.responseText).to.equal("");
+            expect(xhr.errorCode).to.equal("UrlOpenFailed");
+            expect(xhr.errorDetail).to.contain("Error opening URL:");
+        });
+    }
+
+    it("should still reject an unsupported method synchronously", function () {
+        const xhr = new XMLHttpRequest();
+        expect(() => xhr.open("INVALID", "noscheme.glb")).to.throw();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
     });
 
-    it("should throw something when opening a url with no scheme", function () {
-        function openNoProtocol() {
+    it("should still reject an unsupported body after a URL-open failure", async function () {
+        this.timeout(5000);
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", "noscheme.glb");
+        expect(() => xhr.send(new Uint8Array(1))).to.throw();
+        const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
+        xhr.send();
+        await completed;
+        expect(xhr.status).to.equal(0);
+    });
+
+    it("should discard a pending URL-open failure when reopened", async function () {
+        this.timeout(5000);
+        const xhr = new XMLHttpRequest() as XMLHttpRequest & { errorCode: string; errorDetail: string };
+        let errors = 0;
+        xhr.addEventListener("error", () => errors++);
+        xhr.open("GET", "noscheme.glb");
+        xhr.send();
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        expect(xhr.errorCode).to.equal("");
+        expect(xhr.errorDetail).to.equal("");
+        const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
+        xhr.send();
+        await completed;
+        expect(errors).to.equal(0);
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseText).to.equal("var symlink_target_js = true;");
+    });
+
+    it("should cancel a pending URL-open failure when aborted", async function () {
+        this.timeout(5000);
+        const xhr = new XMLHttpRequest();
+        const events: string[] = [];
+        xhr.addEventListener("error", () => events.push("error"));
+        xhr.addEventListener("loadend", () => events.push("loadend"));
+        xhr.open("GET", "noscheme.glb");
+        xhr.send();
+        xhr.abort();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+        expect(() => xhr.send()).to.throw();
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        expect(events).to.deep.equal([]);
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+    });
+
+    for (const event of ["before send", "before dispatch", "readystatechange", "error"]) {
+        it(`should release canceled URL-open listeners after aborting ${event}`, async function () {
+            this.timeout(5000);
             const xhr = new XMLHttpRequest();
+            let callbacks = 0;
+            const listener = () => {
+                callbacks++;
+                if ((event === "readystatechange" || event === "error") && xhr.readyState === XMLHttpRequest.DONE) {
+                    xhr.abort();
+                }
+            };
+            xhr.addEventListener("readystatechange", listener);
+            xhr.addEventListener("error", listener);
+            if (event === "error") {
+                xhr.removeEventListener("readystatechange", listener);
+            }
+            xhr.open("GET", "noscheme.glb");
+            if (event === "before send") {
+                xhr.abort();
+            }
+            xhr.send();
+            if (event === "before dispatch") {
+                xhr.abort();
+                expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+                expect(() => xhr.send()).to.throw();
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, 10));
+            const beforeReopen = callbacks;
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
+            xhr.send();
+            await completed;
+            expect(xhr.readyState).to.equal(XMLHttpRequest.DONE);
+            expect(callbacks).to.equal(beforeReopen);
+        });
+    }
+
+    for (const event of ["readystatechange", "error"]) {
+        it(`should preserve a request reopened from the failure ${event} callback`, async function () {
+            this.timeout(5000);
+            const xhr = new XMLHttpRequest();
+            let reopened = false;
+            let errors = 0;
+            xhr.addEventListener("error", () => errors++);
+            xhr.addEventListener(event, () => {
+                if (!reopened && xhr.readyState === XMLHttpRequest.DONE) {
+                    reopened = true;
+                    xhr.open("GET", "app:///Assets/symlink_target.js");
+                    xhr.send();
+                }
+            });
+            const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
             xhr.open("GET", "noscheme.glb");
             xhr.send();
-        }
-        expect(openNoProtocol).to.throw();
-    });
+            await completed;
+            expect(reopened).to.equal(true);
+            expect(errors).to.equal(event === "error" ? 1 : 0);
+            expect(xhr.status).to.equal(200);
+            expect(xhr.responseText).to.equal("var symlink_target_js = true;");
+        });
+    }
 
     it("should throw something when sending before opening", function () {
         function sendWithoutOpening() {
