@@ -23,6 +23,8 @@ Unlike the web, XMLHttpRequest supports loading local files using two schemes:
 * Invalid methods, arguments, and unsupported request-body types still throw
   synchronously. A deferred URL-open failure exposes `errorCode === "UrlOpenFailed"`
   and the original error in `errorDetail`; reopening clears those diagnostics.
+  Aborting its pending notification returns `readyState` to `UNSENT` without
+  dispatching failure events; a new `open()` is required before another `send()`.
 
 ## Transport-error diagnostics (non-standard)
 A transport-level failure surfaces the standard way -- an `error` event followed by `loadend`,

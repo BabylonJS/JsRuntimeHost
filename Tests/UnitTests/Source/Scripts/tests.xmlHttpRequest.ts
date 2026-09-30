@@ -176,8 +176,11 @@ describe("XMLHTTPRequest", function () {
         xhr.open("GET", "noscheme.glb");
         xhr.send();
         xhr.abort();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+        expect(() => xhr.send()).to.throw();
         await new Promise<void>((resolve) => setTimeout(resolve, 10));
         expect(events).to.deep.equal([]);
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
     });
 
     for (const event of ["before send", "before dispatch", "readystatechange", "error"]) {
@@ -203,6 +206,8 @@ describe("XMLHTTPRequest", function () {
             xhr.send();
             if (event === "before dispatch") {
                 xhr.abort();
+                expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+                expect(() => xhr.send()).to.throw();
             }
             await new Promise<void>((resolve) => setTimeout(resolve, 10));
             const beforeReopen = callbacks;

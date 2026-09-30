@@ -185,8 +185,8 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetErrorDetail(const Napi::CallbackInfo&)
     {
-        // Full normalized "<domain>:<symbol>(<code>): <detail>" string; empty when there was no
-        // transport failure.
+        // Original opening error for UrlOpenFailed, or normalized
+        // "<domain>:<symbol>(<code>): <detail>" for a send failure; empty on success.
         return Napi::String::New(Env(), m_openError.value_or(std::string{m_request.ErrorString()}));
     }
 
@@ -257,6 +257,10 @@ namespace Babylon::Polyfills::Internal
     {
         ++m_requestGeneration;
         m_request.Abort();
+        if (m_openErrorSent && m_readyState == ReadyState::Opened)
+        {
+            m_readyState = ReadyState::Unsent;
+        }
     }
 
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
