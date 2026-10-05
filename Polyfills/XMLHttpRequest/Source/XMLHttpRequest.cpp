@@ -112,7 +112,8 @@ namespace Babylon::Polyfills::Internal
                     global.ProgressEvent = ProgressEvent;
                 }
 
-                return function (type, target, progress) {
+                var callbacks = new WeakMap();
+                var makeEvent = function (type, target, progress) {
                     var event = progress
                         ? new global.ProgressEvent(type, {lengthComputable: false, loaded: 0, total: 0})
                         : new global.Event(type);
@@ -141,6 +142,18 @@ namespace Babylon::Polyfills::Internal
                         }
                     };
                 };
+                makeEvent.getCallbacks = function (target) {
+                    var values = callbacks.get(target);
+                    if (!values) {
+                        values = Object.create(null);
+                        callbacks.set(target, values);
+                    }
+                    return values;
+                };
+                makeEvent.removeCallback = function (target, key) {
+                    delete callbacks.get(target)[key];
+                };
+                return makeEvent;
             })(typeof globalThis === "object" ? globalThis : this)
         )JS";
     }
@@ -154,7 +167,7 @@ namespace Babylon::Polyfills::Internal
     };
 
     template<XMLHttpRequest::EventIndex Index>
-    Napi::Value XMLHttpRequest::GetEventHandler(const Napi::CallbackInfo&)
+    Napi::Value XMLHttpRequest::GetEventHandler(const Napi::CallbackInfo& info)
     {
         const auto it = m_listeners.find(EVENT_TYPE_NAMES[static_cast<size_t>(Index)]);
         if (it != m_listeners.end())
@@ -163,7 +176,7 @@ namespace Babylon::Polyfills::Internal
             {
                 if (listener->active && listener->isEventHandler)
                 {
-                    return listener->callback.Value();
+                    return GetCallbacks(info.This().As<Napi::Object>()).Get(listener->callbackKey);
                 }
             }
         }
@@ -172,13 +185,9 @@ namespace Babylon::Polyfills::Internal
     }
 
     template<XMLHttpRequest::EventIndex Index>
-    void XMLHttpRequest::SetEventHandler(const Napi::CallbackInfo&, const Napi::Value& value)
+    void XMLHttpRequest::SetEventHandler(const Napi::CallbackInfo& info, const Napi::Value& value)
     {
-        if (value.IsObject() && !value.IsFunction())
-        {
-            throw Napi::TypeError::New(Env(), "XMLHttpRequest event handler must be callable");
-        }
-
+        auto callbacks = GetCallbacks(info.This().As<Napi::Object>());
         auto& listeners = m_listeners[EVENT_TYPE_NAMES[static_cast<size_t>(Index)]];
         const auto it = std::find_if(listeners.begin(), listeners.end(), [](const std::shared_ptr<Listener>& listener) {
             return listener->isEventHandler;
@@ -190,6 +199,7 @@ namespace Babylon::Polyfills::Internal
             if (it != listeners.end())
             {
                 (*it)->active = false;
+                m_removeCallback.Call({info.This(), Napi::String::New(Env(), (*it)->callbackKey)});
                 listeners.erase(it);
             }
 
@@ -200,11 +210,13 @@ namespace Babylon::Polyfills::Internal
         {
             // Replace in place so reassignment keeps this listener's position in the
             // dispatch order.
-            (*it)->callback = Napi::Persistent(value.As<Napi::Object>());
+            callbacks.Set((*it)->callbackKey, value);
         }
         else
         {
-            listeners.push_back(std::make_shared<Listener>(Listener{Napi::Persistent(value.As<Napi::Object>()), true}));
+            const auto key = std::to_string(++m_nextListenerId);
+            callbacks.Set(key, value);
+            listeners.push_back(std::make_shared<Listener>(Listener{key, true}));
         }
     }
 
@@ -271,6 +283,8 @@ namespace Babylon::Polyfills::Internal
         : Napi::ObjectWrap<XMLHttpRequest>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
         , m_makeEvent{Napi::Persistent(info.NewTarget().As<Napi::Object>().Get(EVENT_FACTORY_NAME).As<Napi::Function>())}
+        , m_getCallbacks{Napi::Persistent(m_makeEvent.Value().Get("getCallbacks").As<Napi::Function>())}
+        , m_removeCallback{Napi::Persistent(m_makeEvent.Value().Get("removeCallback").As<Napi::Function>())}
     {
     }
 
@@ -283,12 +297,17 @@ namespace Babylon::Polyfills::Internal
     {
         if (m_request->ResponseType() == UrlLib::UrlResponseType::String)
         {
+            if (m_readyState != ReadyState::Done || m_statusCode == 0)
+            {
+                return Napi::String::New(Env(), "");
+            }
+
             const std::string_view responseString{m_request->ResponseString()};
             return Napi::String::New(Env(), responseString.data(), responseString.size());
         }
         else
         {
-            if (m_readyState != ReadyState::Done)
+            if (m_readyState != ReadyState::Done || m_statusCode == 0)
             {
                 return Env().Null();
             }
@@ -302,6 +321,11 @@ namespace Babylon::Polyfills::Internal
 
     Napi::Value XMLHttpRequest::GetResponseText(const Napi::CallbackInfo&)
     {
+        if (m_readyState != ReadyState::Done || m_statusCode == 0)
+        {
+            return Napi::String::New(Env(), "");
+        }
+
         // The body may legitimately contain embedded nulls: Emscripten's EXPORT_ES6 output, for
         // example, inlines the .wasm payload as a JavaScript string literal. Passing .data()
         // alone would hand a const char* to Napi and truncate at the first null, so the length
@@ -317,11 +341,19 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::SetResponseType(const Napi::CallbackInfo&, const Napi::Value& value)
     {
+        if (m_sendActive)
+        {
+            throw Napi::Error::New(Env(), "Cannot change responseType while XMLHttpRequest is sending");
+        }
         m_request->ResponseType(ResponseType::StringToEnum(value.As<Napi::String>().Utf8Value()));
     }
 
     Napi::Value XMLHttpRequest::GetResponseURL(const Napi::CallbackInfo&)
     {
+        if (m_readyState != ReadyState::Done || m_statusCode == 0)
+        {
+            return Napi::String::New(Env(), "");
+        }
         return Napi::Value::From(Env(), m_request->ResponseUrl().data());
     }
 
@@ -341,27 +373,35 @@ namespace Babylon::Polyfills::Internal
     {
         // Stable symbolic token for a transport failure (e.g. "CURLE_COULDNT_CONNECT",
         // "NSURLErrorTimedOut", "AppResourceNotFound"); empty when there was no transport failure.
-        return Napi::String::New(Env(), std::string{m_request->ErrorSymbol()});
+        return Napi::String::New(Env(), m_sendActive ? "" : std::string{m_request->ErrorSymbol()});
     }
 
     Napi::Value XMLHttpRequest::GetErrorDetail(const Napi::CallbackInfo&)
     {
         // Full normalized "<domain>:<symbol>(<code>): <detail>" string; empty when there was no
         // transport failure.
-        return Napi::String::New(Env(), std::string{m_request->ErrorString()});
+        return Napi::String::New(Env(), m_sendActive ? "" : std::string{m_request->ErrorString()});
     }
 
     Napi::Value XMLHttpRequest::GetResponseHeader(const Napi::CallbackInfo& info)
     {
         const auto headerName = info[0].As<Napi::String>().Utf8Value();
+        if (m_readyState != ReadyState::Done || m_statusCode == 0)
+        {
+            return info.Env().Null();
+        }
         const auto header = m_request->GetResponseHeader(headerName);
         return header ? Napi::Value::From(Env(), header.value()) : info.Env().Null();
     }
 
     Napi::Value XMLHttpRequest::GetAllResponseHeaders(const Napi::CallbackInfo&)
     {
-        auto responseHeaders = m_request->GetAllResponseHeaders();
         Napi::Object responseHeadersObject = Napi::Object::New(Env());
+        if (m_readyState != ReadyState::Done || m_statusCode == 0)
+        {
+            return responseHeadersObject;
+        }
+        auto responseHeaders = m_request->GetAllResponseHeaders();
 
         for (auto& iter : responseHeaders)
         {
@@ -375,6 +415,10 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::SetRequestHeader(const Napi::CallbackInfo& info)
     {
+        if (m_sendActive)
+        {
+            throw Napi::Error::New(Env(), "Cannot change request headers while XMLHttpRequest is sending");
+        }
         m_request->SetRequestHeader(info[0].As<Napi::String>().Utf8Value(), info[1].As<Napi::String>().Utf8Value());
     }
 
@@ -382,6 +426,7 @@ namespace Babylon::Polyfills::Internal
     {
         const std::string eventType = info[0].As<Napi::String>().Utf8Value();
         const Napi::Function eventHandler = info[1].As<Napi::Function>();
+        auto callbacks = GetCallbacks(info.This().As<Napi::Object>());
 
         auto& listeners = m_listeners[eventType];
         for (const auto& listener : listeners)
@@ -389,7 +434,7 @@ namespace Babylon::Polyfills::Internal
             // Deliberately skips the `on<event>` entry: `xhr.onload = f` followed by
             // `xhr.addEventListener("load", f)` is two independent registrations, and a browser
             // calls `f` twice rather than collapsing them.
-            if (listener->active && !listener->isEventHandler && listener->callback.Value() == eventHandler)
+            if (listener->active && !listener->isEventHandler && callbacks.Get(listener->callbackKey) == eventHandler)
             {
                 // Per DOM, re-adding an identical (type, callback, capture) triple is a silent
                 // no-op rather than an error: "If eventTarget's event listener list does not
@@ -399,13 +444,16 @@ namespace Babylon::Polyfills::Internal
             }
         }
 
-        listeners.push_back(std::make_shared<Listener>(Listener{Napi::Persistent(eventHandler.As<Napi::Object>()), false}));
+        const auto key = std::to_string(++m_nextListenerId);
+        callbacks.Set(key, eventHandler);
+        listeners.push_back(std::make_shared<Listener>(Listener{key, false}));
     }
 
     void XMLHttpRequest::RemoveEventListener(const Napi::CallbackInfo& info)
     {
         const std::string eventType = info[0].As<Napi::String>().Utf8Value();
         const Napi::Function eventHandler = info[1].As<Napi::Function>();
+        auto callbacks = GetCallbacks(info.This().As<Napi::Object>());
         const auto itType = m_listeners.find(eventType);
         if (itType != m_listeners.end())
         {
@@ -414,9 +462,10 @@ namespace Babylon::Polyfills::Internal
             {
                 // removeEventListener never removes an `on<event>` handler; that is done by
                 // assigning null to the property.
-                if ((*it)->active && !(*it)->isEventHandler && (*it)->callback.Value() == eventHandler)
+                if ((*it)->active && !(*it)->isEventHandler && callbacks.Get((*it)->callbackKey) == eventHandler)
                 {
                     (*it)->active = false;
+                    m_removeCallback.Call({info.This(), Napi::String::New(Env(), (*it)->callbackKey)});
                     listeners.erase(it);
                     break;
                 }
@@ -426,28 +475,29 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Abort(const Napi::CallbackInfo& info)
     {
+        if (m_readyState != ReadyState::Done && !m_sendActive)
+        {
+            return;
+        }
+
+        auto request = std::make_shared<UrlLib::UrlRequest>();
+        request->ResponseType(m_request->ResponseType());
+        const auto abortedSendId = ++m_sendId;
+        m_statusCode = 0;
+        m_statusText.clear();
+
         if (m_readyState == ReadyState::Done)
         {
-            const auto responseType = m_request->ResponseType();
-            auto request = std::make_shared<UrlLib::UrlRequest>();
-            request->ResponseType(responseType);
             m_request = std::move(request);
-            m_statusCode = 0;
-            m_statusText.clear();
             m_readyState = ReadyState::Unsent;
             return;
         }
 
-        if (!m_sendActive)
-        {
-            return;
-        }
-
         m_sendActive = false;
-        const auto abortedSendId = ++m_sendId;
-        m_statusCode = 0;
-        m_statusText.clear();
         m_request->Abort();
+        // Cancellation does not join the worker. Its continuation owns the old request;
+        // synchronous abort handlers must only see an empty, worker-independent response.
+        m_request = std::move(request);
 
         auto jsThis = info.This().As<Napi::Object>();
         SetReadyState(ReadyState::Done, jsThis);
@@ -469,18 +519,22 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
     {
-        m_url = info[1].As<Napi::String>();
-
         try
         {
+            auto url = info[1].As<Napi::String>().Utf8Value();
+            const auto method = MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value());
+            auto request = std::make_shared<UrlLib::UrlRequest>();
+            request->ResponseType(m_request->ResponseType());
+            request->Open(method, url);
+
             if (m_sendActive)
             {
                 m_request->Abort();
                 m_sendActive = false;
             }
             ++m_sendId;
-            m_request = std::make_shared<UrlLib::UrlRequest>();
-            m_request->Open(MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value()), m_url);
+            m_request = std::move(request);
+            m_url = std::move(url);
             m_statusCode = 0;
             m_statusText.clear();
         }
@@ -498,7 +552,7 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Send(const Napi::CallbackInfo& info)
     {
-        if (m_readyState != ReadyState::Opened)
+        if (m_readyState != ReadyState::Opened || m_sendActive)
         {
             throw Napi::Error::New(info.Env(), "XMLHttpRequest must be opened before it can be sent");
         }
@@ -558,8 +612,8 @@ namespace Babylon::Polyfills::Internal
                 // ones, where local file reads set Ok. That keeps the missing-local-file-on-UWP
                 // case (status left at 0) reporting `error`.
                 const bool failed = result.has_error() || statusCode == 0;
-                m_statusCode = statusCode;
-                m_statusText = statusCode == 0 ? "" : std::string{request->StatusText()};
+                m_statusCode = failed ? 0 : statusCode;
+                m_statusText = failed ? "" : std::string{request->StatusText()};
 
                 auto jsThis = anchor->Value();
                 SetReadyState(ReadyState::Done, jsThis);
@@ -588,6 +642,13 @@ namespace Babylon::Polyfills::Internal
         RaiseEvent(EventType::ReadyStateChange, jsThis);
     }
 
+    Napi::Object XMLHttpRequest::GetCallbacks(const Napi::Object& jsThis)
+    {
+        // The WeakMap makes self-capturing callbacks a collectable JS cycle, even on
+        // backends whose Napi::Weak implementation retains objects strongly.
+        return m_getCallbacks.Value().Call({jsThis}).As<Napi::Object>();
+    }
+
     void XMLHttpRequest::RaiseEvent(const char* eventType, const Napi::Object& jsThis)
     {
         std::string traceName = (std::ostringstream{} << "XMLHttpRequest::RaiseEvent [" << eventType << "] [" << m_url << "]").str();
@@ -612,6 +673,7 @@ namespace Babylon::Polyfills::Internal
             Napi::Boolean::New(env, std::string_view{eventType} != EventType::ReadyStateChange),
         }).As<Napi::Object>();
         auto event = dispatch.Get("value").As<Napi::Object>();
+        auto callbacks = GetCallbacks(jsThis);
 
         std::vector<std::shared_ptr<Napi::Error>> unhandledErrors{};
         for (const auto& listener : listeners)
@@ -621,16 +683,17 @@ namespace Babylon::Polyfills::Internal
                 continue;
             }
 
-            const auto callback = listener->callback.Value();
+            const auto callback = callbacks.Get(listener->callbackKey);
             if (!callback.IsFunction())
             {
                 continue;
             }
 
             bool caughtException = false;
+            auto handler = Napi::Persistent(callback.As<Napi::Function>());
             try
             {
-                callback.As<Napi::Function>().Call(jsThis, {event});
+                handler.Call(jsThis, {event});
             }
             catch (const Napi::Error& error)
             {

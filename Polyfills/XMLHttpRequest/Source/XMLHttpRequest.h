@@ -66,6 +66,7 @@ namespace Babylon::Polyfills::Internal
 
         void SetReadyState(ReadyState readyState, const Napi::Object& jsThis);
         void RaiseEvent(const char* eventType, const Napi::Object& jsThis);
+        Napi::Object GetCallbacks(const Napi::Object& jsThis);
 
         // A registered event listener. `isEventHandler` marks the single entry owned by the
         // matching `on<event>` property; every other entry came from addEventListener. Both
@@ -75,7 +76,7 @@ namespace Babylon::Polyfills::Internal
         // moving to the end ("If eventHandler's listener is not null, then return").
         struct Listener
         {
-            Napi::ObjectReference callback;
+            std::string callbackKey;
             bool isEventHandler;
             bool active{true};
         };
@@ -84,11 +85,14 @@ namespace Babylon::Polyfills::Internal
         std::shared_ptr<UrlLib::UrlRequest> m_request{std::make_shared<UrlLib::UrlRequest>()};
         JsRuntimeScheduler m_runtimeScheduler;
         Napi::FunctionReference m_makeEvent;
+        Napi::FunctionReference m_getCallbacks;
+        Napi::FunctionReference m_removeCallback;
         ReadyState m_readyState{ReadyState::Unsent};
         // UrlLib writes its status on a worker thread; event handlers read these JS-thread snapshots.
         uint32_t m_statusCode{};
         std::string m_statusText{};
         uint64_t m_sendId{};
+        uint64_t m_nextListenerId{};
         bool m_sendActive{false};
         std::unordered_map<std::string, std::vector<std::shared_ptr<Listener>>> m_listeners;
     };

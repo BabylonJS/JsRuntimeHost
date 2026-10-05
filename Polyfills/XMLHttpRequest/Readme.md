@@ -8,6 +8,13 @@ an event whose `target` and `currentTarget` are the request, and run with the re
 `readystatechange` dispatches an `Event`; `load`, `error`, `abort`, and `loadend` dispatch
 `ProgressEvent` instances (`lengthComputable === false`, `loaded === total === 0`).
 Missing constructors are installed without replacing host-provided ones.
+Both registration styles share registration order, retain handlers across requests, and
+observe removals or property reassignment before a listener's turn. Duplicate
+`addEventListener` registrations are ignored. Primitive property assignments clear the
+handler; non-callable objects are retained by identity but are not invoked.
+Callbacks are owned by JavaScript so a handler capturing its own XHR does not keep an
+otherwise unreachable request alive. Exceptions are reported to the runtime's
+unhandled-exception handler without preventing later listeners from running.
 At the moment, we only support the following events:
 * `loadend`
 * `readystatechange`
@@ -15,13 +22,25 @@ At the moment, we only support the following events:
 * `error` (fired on a transport failure, before `loadend`)
 * `abort` (fired when an active request is aborted, before `loadend`)
 
+Active `abort()` dispatches `readystatechange`, `abort`, and `loadend` synchronously,
+with status 0 and an empty response, then returns to `UNSENT`. A request opened from
+one of those callbacks is preserved. Abort before send is inert; abort after completion
+clears the response without events. Unlike the previous implementation, cancellation
+raises `abort`, not `error`; completed non-`2xx` responses raise `load`, not `error`.
+
+Reopening preserves `responseType`. If validating or opening a replacement fails, the
+previous response or active request remains intact. Response bodies and headers are
+only exposed after successful transport completion; they are not read from an active
+worker. Changing `responseType`, changing request headers, or sending again while a
+send is active throws.
+
 ## Local files
 Unlike the web, XMLHttpRequest supports loading local files using two schemes:
 * `file:///` allows you to load from an absolute path
 * `app:///` allows you to load from a relative path, either the current program or package depending on platform
 
 ## Other things to be aware of:
-* Only `GET` requests are currently supported
+* Only `GET` requests are supported on all platforms; `POST` support depends on the UrlLib backend
 * For `readyState`, we only support `UNSENT`, `OPENED`, and `DONE`
 
 ## Transport-error diagnostics (non-standard)
@@ -34,6 +53,6 @@ tell a DNS failure from a refused connection or a missing local asset:
 * `errorDetail` -- the full normalized `"<domain>:<symbol>(<code>): <detail>"` string
 
 Both are empty strings unless the request failed at the transport layer, and are populated only
-on backends that expose the detail (Apple, Linux) -- empty on Windows/Android until those
-backends populate `UrlLib`'s accessors. Browsers do not expose these properties, so
+on backends that expose the detail (Apple, Linux, Android) -- empty on Windows until that
+backend populates `UrlLib`'s accessors. Browsers do not expose these properties, so
 spec-conformant code is unaffected.
