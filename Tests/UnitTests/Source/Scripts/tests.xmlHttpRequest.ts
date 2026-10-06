@@ -25,6 +25,19 @@ describe("XMLHTTPRequest", function () {
 
     this.timeout(0);
 
+    it("should support a forwarding constructor with a different new target", function () {
+        if (typeof Reflect !== "object" || typeof Reflect.construct !== "function") {
+            this.skip();
+        }
+
+        function ForwardedXHR() {}
+        ForwardedXHR.prototype = XMLHttpRequest.prototype;
+        const xhr = Reflect.construct(XMLHttpRequest, [], ForwardedXHR) as XMLHttpRequest;
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+    });
+
     it("should have readyState=4 when load ends", async function () {
         const xhr = await createRequest("GET", "https://github.com/");
         expect(xhr.readyState).to.equal(4);
@@ -582,6 +595,33 @@ describe("XMLHTTPRequest", function () {
         expect(skipped).to.equal(false);
         expect(loadEvent!.currentTarget).to.equal(null);
         expect(loadEvent!.eventPhase).to.equal(Event.NONE);
+    });
+
+    it("should honor prototype immediate stop without skipping listeners after stopPropagation", async function () {
+        this.timeout(30000);
+        for (const immediate of [false, true]) {
+            const calls: string[] = [];
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                const guard = setTimeout(() => reject(new Error("XHR loadend did not fire")), 25000);
+                xhr.addEventListener("load", (event: Event) => {
+                    calls.push("first");
+                    if (immediate) {
+                        Event.prototype.stopImmediatePropagation.call(event);
+                    } else {
+                        Event.prototype.stopPropagation.call(event);
+                    }
+                });
+                xhr.addEventListener("load", () => { calls.push("second"); });
+                xhr.addEventListener("loadend", () => {
+                    clearTimeout(guard);
+                    resolve();
+                });
+                xhr.open("GET", "app:///Assets/symlink_target.js");
+                xhr.send();
+            });
+            expect(calls).to.deep.equal(immediate ? ["first"] : ["first", "second"]);
+        }
     });
 
     it("should dispatch on<event> properties and addEventListener handlers in registration order", async function () {

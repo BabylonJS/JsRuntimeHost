@@ -64,9 +64,11 @@ namespace Babylon::Polyfills::Internal
             constexpr const char* Abort = "abort";
         }
 
+        constexpr const char* JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
         constexpr const char* EVENT_FACTORY_NAME = "__jsRuntimeHostMakeXHREvent";
         constexpr const char* EVENT_FACTORY_SOURCE = R"JS(
             (function (global) {
+                var immediateStops = new WeakSet();
                 if (typeof global.Event !== "function") {
                     function Event(type, init) {
                         init = init || {};
@@ -86,7 +88,10 @@ namespace Babylon::Polyfills::Internal
                         if (this.cancelable) this.defaultPrevented = true;
                     };
                     Event.prototype.stopPropagation = function () { this.cancelBubble = true; };
-                    Event.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
+                    Event.prototype.stopImmediatePropagation = function () {
+                        immediateStops.add(this);
+                        this.cancelBubble = true;
+                    };
                     Event.prototype.composedPath = function () {
                         return this.currentTarget === null ? [] : [this.target];
                     };
@@ -124,18 +129,17 @@ namespace Babylon::Polyfills::Internal
                         currentTarget: {get: function () { return currentTarget; }, configurable: true},
                         eventPhase: {get: function () { return eventPhase; }, configurable: true}
                     });
-                    var stopped = false;
                     var stop = event.stopImmediatePropagation;
                     Object.defineProperty(event, "stopImmediatePropagation", {
                         configurable: true,
                         value: function () {
-                            stopped = true;
+                            immediateStops.add(this);
                             return stop.call(this);
                         }
                     });
                     return {
                         value: event,
-                        isStopped: function () { return stopped; },
+                        isStopped: function () { return immediateStops.has(event); },
                         end: function () {
                             currentTarget = null;
                             eventPhase = 0;
@@ -222,8 +226,6 @@ namespace Babylon::Polyfills::Internal
 
     void XMLHttpRequest::Initialize(Napi::Env env)
     {
-        static constexpr auto JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME = "XMLHttpRequest";
-
         Napi::Function func = DefineClass(
             env,
             JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME,
@@ -282,7 +284,7 @@ namespace Babylon::Polyfills::Internal
     XMLHttpRequest::XMLHttpRequest(const Napi::CallbackInfo& info)
         : Napi::ObjectWrap<XMLHttpRequest>{info}
         , m_runtimeScheduler{JsRuntime::GetFromJavaScript(info.Env())}
-        , m_makeEvent{Napi::Persistent(info.NewTarget().As<Napi::Object>().Get(EVENT_FACTORY_NAME).As<Napi::Function>())}
+        , m_makeEvent{Napi::Persistent(JsRuntime::NativeObject::GetFromJavaScript(info.Env()).Get(JS_XML_HTTP_REQUEST_CONSTRUCTOR_NAME).As<Napi::Function>().Get(EVENT_FACTORY_NAME).As<Napi::Function>())}
         , m_getCallbacks{Napi::Persistent(m_makeEvent.Value().Get("getCallbacks").As<Napi::Function>())}
         , m_removeCallback{Napi::Persistent(m_makeEvent.Value().Get("removeCallback").As<Napi::Function>())}
     {

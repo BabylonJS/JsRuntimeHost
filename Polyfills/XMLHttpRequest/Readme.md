@@ -15,6 +15,8 @@ handler; non-callable objects are retained by identity but are not invoked.
 Callbacks are owned by JavaScript so a handler capturing its own XHR does not keep an
 otherwise unreachable request alive. Exceptions are reported to the runtime's
 unhandled-exception handler without preventing later listeners from running.
+`stopImmediatePropagation()` skips later listeners on the same request, including
+when called through `Event.prototype`; `stopPropagation()` does not.
 At the moment, we only support the following events:
 * `loadend`
 * `readystatechange`
