@@ -6,6 +6,8 @@
 #include <UrlLib/UrlLib.h>
 
 #include <unordered_map>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace Babylon::Polyfills::Internal
@@ -49,6 +51,10 @@ namespace Babylon::Polyfills::Internal
         void RaiseEvent(const char* eventType);
 
         std::string m_url{};
+        std::optional<std::string> m_openError{};
+        uint64_t m_requestGeneration{};
+        uint64_t m_openGeneration{};
+        bool m_openErrorSent{};
         UrlLib::UrlRequest m_request{};
         JsRuntimeScheduler m_runtimeScheduler;
         ReadyState m_readyState{ReadyState::Unsent};
