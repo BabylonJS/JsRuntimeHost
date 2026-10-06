@@ -8,6 +8,7 @@ set(SOURCES
     "Source/DelayedTaskScheduler.h"
     "Source/PerfTrace.cpp"
     "Source/StandardStreamLogger.cpp"
+    "Source/StandardStreamLoggerLines.h"
     "Source/StandardStreamLoggerPlatform.h")
 
 # .inl bodies are #include'd by the platform TUs (not separate translation units).
