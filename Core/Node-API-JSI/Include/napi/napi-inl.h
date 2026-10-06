@@ -2318,12 +2318,14 @@ ObjectWrap<T>::DefineClass(napi_env env,
         prototype;
 
     if (p.staticVoidMethod != nullptr) {
+      descriptor.setProperty(rt, "writable", jsi::Value{(p.attributes & napi_writable) != 0});
       descriptor.setProperty(rt, "value", jsi::Function::createFromHostFunction(rt, name, 0,
           [env, method{p.staticVoidMethod}, data{p.data}](jsi::Runtime& /*rt*/, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
             (*method)({env, thisVal, args, count, nullptr, data});
             return {};
       }));
     } else if (p.staticMethod != nullptr) {
+      descriptor.setProperty(rt, "writable", jsi::Value{(p.attributes & napi_writable) != 0});
       descriptor.setProperty(rt, "value", jsi::Function::createFromHostFunction(rt, name, 0,
           [env, method{p.staticMethod}, data{p.data}](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
             return {rt, (*method)({env, thisVal, args, count, nullptr, data})};
@@ -2347,6 +2349,7 @@ ObjectWrap<T>::DefineClass(napi_env env,
         descriptor.setProperty(rt, "writable", jsi::Value{(p.attributes & napi_writable) != 0});
         descriptor.setProperty(rt, "value", static_cast<const jsi::Value&>(p.staticValue));
     } else if (p.instanceVoidMethod != nullptr) {
+      descriptor.setProperty(rt, "writable", jsi::Value{(p.attributes & napi_writable) != 0});
       descriptor.setProperty(rt, "value", jsi::Function::createFromHostFunction(rt, name, 0,
         [env, method{p.instanceVoidMethod}, data{p.data}](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
           T* nativeObject{Unwrap(env, thisVal.getObject(rt))};
@@ -2354,6 +2357,7 @@ ObjectWrap<T>::DefineClass(napi_env env,
           return {};
         }));
     } else if (p.instanceMethod != nullptr) {
+      descriptor.setProperty(rt, "writable", jsi::Value{(p.attributes & napi_writable) != 0});
       descriptor.setProperty(rt, "value", jsi::Function::createFromHostFunction(rt, name, 0,
         [env, method{p.instanceMethod}, data{p.data}](jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) -> jsi::Value {
           T* nativeObject{Unwrap(env, thisVal.getObject(rt))};

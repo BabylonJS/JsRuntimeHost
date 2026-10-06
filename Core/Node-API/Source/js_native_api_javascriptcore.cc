@@ -1,8 +1,40 @@
 #include "js_native_api_javascriptcore.h"
 #include "js_native_api_shared.h"
+
+// The JavaScriptCore BigInt C API (JSBigIntCreateWith*, JSValueIsBigInt, kJSTypeBigInt) is annotated
+// API_AVAILABLE(macos(15.0), ios(18.0)); clang derives visionOS 2.0 and tvOS 18.0 from the iOS clause.
+// Two things this guard has to get right, both verified by compiling against each SDK:
+//
+//   * __MAC_OS_X_VERSION_MAX_ALLOWED is undefined on non-macOS Apple SDKs, so testing it alone
+//     compiles the fast path out of every iOS and visionOS build. visionOS additionally reports
+//     __IPHONE_OS_VERSION_MAX_ALLOWED as 17.0, so it needs its own clause.
+//   * __builtin_available(macOS 15.0, *) does NOT guard iOS or visionOS -- the `*` wildcard asserts
+//     availability on unlisted platforms, so on iOS 17 it leaves the call unguarded (a null weak
+//     symbol at runtime). Every platform we ship must be named explicitly.
+//
+// Below the floor (macOS 13, and iOS/visionOS builds deployed under the annotated versions) the
+// BigIntFromString / BigIntToString intrinsic path handles BigInt instead; it is the only path on
+// Android, where no jsc-android build exposes the C API at all.
+#if defined(__APPLE__)
+#include <Availability.h>
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED)  && __MAC_OS_X_VERSION_MAX_ALLOWED  >= 150000) || \
+    (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000) || \
+    (defined(__TV_OS_VERSION_MAX_ALLOWED)     && __TV_OS_VERSION_MAX_ALLOWED     >= 180000) || \
+    (defined(__VISION_OS_VERSION_MAX_ALLOWED) && __VISION_OS_VERSION_MAX_ALLOWED >=  20000)
+#define JSR_JSC_HAS_BIGINT_C_API 1
+#endif
+#endif
+
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+#define JSR_JSC_BIGINT_C_API_AVAILABLE() \
+  __builtin_available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+#endif
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <stdexcept>
@@ -221,6 +253,28 @@ namespace {
   napi_status napi_set_exception(napi_env env, JSValueRef exception) {
     env->last_exception = exception;
     return napi_set_last_error(env, napi_pending_exception);
+  }
+
+  // Property access follows ToObject(), as it does in Node: a primitive receiver is boxed, while
+  // null and undefined leave their TypeError pending and report napi_object_expected. Handing a
+  // primitive straight to JSObject* entry points is a RELEASE_ASSERT inside JavaScriptCore.
+  napi_status ToJSObjectCoerced(napi_env env, napi_value value, JSObjectRef* result) {
+    CHECK_ARG(env, value);
+    const JSValueRef js_value{ToJSValue(value)};
+    if (JSValueIsObject(env->context, js_value)) {
+      *result = ToJSObject(env, value);
+      return napi_ok;
+    }
+
+    JSValueRef exception{};
+    *result = JSValueToObject(env->context, js_value, &exception);
+    if (*result == nullptr) {
+      if (exception != nullptr) {
+        env->last_exception = exception;
+      }
+      return napi_set_last_error(env, napi_object_expected);
+    }
+    return napi_ok;
   }
 
   napi_status napi_set_error_code(napi_env env,
@@ -646,6 +700,7 @@ namespace {
     }
 
     static napi_status Wrap(napi_env env, napi_value object, WrapperInfo** result) {
+      RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(object)), napi_invalid_arg);
       WrapperInfo* info{};
       CHECK_NAPI(Unwrap(env, object, &info));
       if (info == nullptr) {
@@ -663,6 +718,7 @@ namespace {
     }
 
     static napi_status Unwrap(napi_env env, napi_value object, WrapperInfo** result) {
+      RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(object)), napi_invalid_arg);
       CHECK_NAPI(NativeInfo::Query<WrapperInfo>(env, ToJSObject(env, object), result));
       return napi_ok;
     }
@@ -734,6 +790,10 @@ struct napi_ref__ {
 
   napi_status init(napi_env env, napi_value value, uint32_t count) {
     assert(!_value);
+    if (!JSValueIsObject(env->context, ToJSValue(value))) {
+      return init_primitive(env, value, count);
+    }
+
     _value = value;
     _count = count;
 
@@ -771,7 +831,7 @@ struct napi_ref__ {
   }
 
   void deinit(napi_env env) {
-    if (_count != 0) {
+    if (_protected) {
       unprotect(env);
     }
 
@@ -780,8 +840,16 @@ struct napi_ref__ {
   }
 
   void ref(napi_env env) {
-    assert(_value);
-    if (_count++ == 0) {
+    if (_value == nullptr) {
+      // A primitive released at count zero cannot come back; Node reports a count of zero too.
+      return;
+    }
+    if (_count == 0 && _kind == Kind::Object && !IsObjectAlive(env)) {
+      // The weak target has been collected (or its address reused by another object): promoting
+      // it would protect a stale pointer. Node likewise leaves such a reference at zero.
+      return;
+    }
+    if (_count++ == 0 && !_protected) {
       protect(env);
     }
   }
@@ -790,7 +858,13 @@ struct napi_ref__ {
     assert(_value);
     assert(_count != 0);
     if (--_count == 0) {
-      unprotect(env);
+      if (_kind == Kind::Object) {
+        unprotect(env);
+      } else if (_kind == Kind::Primitive) {
+        unprotect(env);
+        _value = nullptr;
+      }
+      // A symbol stays protected: see init_primitive.
     }
   }
 
@@ -799,34 +873,77 @@ struct napi_ref__ {
   }
 
   napi_status value(napi_env env, napi_value* result) const {
-    assert(_value);
-    if (env->reference_tracking_state->active_ref_values.find(_value) != env->reference_tracking_state->active_ref_values.end()) {
-      std::uintptr_t objectId{};
-      // NOTE: This check is needed for the same reason we need a similar check in the init function.
-      // See the comment in init for more details.
-      CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &objectId));
-      if (objectId == _objectId) {
-        *result = _value;
-      }
+    *result = nullptr;
+    if (_value == nullptr) {
+      return napi_ok;
+    }
+    if (_kind != Kind::Object) {
+      *result = _value;
+      return napi_ok;
+    }
+    if (IsObjectAlive(env)) {
+      *result = _value;
     }
 
     return napi_ok;
   }
 
  private:
+  // Whether the weakly tracked object is still the one this reference was created for. The
+  // sentinel finalizer removes the active entry once the object is collected, and the object id
+  // check catches an address reused by a newer object before that finalizer ran (see init).
+  bool IsObjectAlive(napi_env env) const {
+    const auto& active{env->reference_tracking_state->active_ref_values};
+    if (active.find(_value) == active.end()) {
+      return false;
+    }
+    std::uintptr_t objectId{};
+    return ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId;
+  }
+
+  enum class Kind {
+    Object,
+    Symbol,
+    Primitive,
+  };
+
+  // Primitives carry no identity to hang a sentinel on, and the JavaScriptCore C API has no weak
+  // handle for them, so they are held strongly while the count is positive and released once it
+  // reaches zero, which is what Node does for values it cannot hold weakly. Symbols are the
+  // exception: a weak reference to one has to keep resolving for as long as the symbol is alive,
+  // and that cannot be observed through the C API, so they stay protected for the life of the
+  // reference. Before Node-API 10 only symbols were referenceable among the non-objects.
+  napi_status init_primitive(napi_env env, napi_value value, uint32_t count) {
+    const bool symbol{JSValueIsSymbol(env->context, ToJSValue(value))};
+#if NAPI_VERSION < 10
+    RETURN_STATUS_IF_FALSE(env, symbol, napi_invalid_arg);
+#endif
+    _kind = symbol ? Kind::Symbol : Kind::Primitive;
+    _count = count;
+    if (symbol || _count != 0) {
+      _value = value;
+      protect(env);
+    }
+    return napi_ok;
+  }
+
   void protect(napi_env env) {
     _iter = env->strong_refs.insert(env->strong_refs.end(), this);
     JSValueProtect(env->context, ToJSValue(_value));
+    _protected = true;
   }
 
   void unprotect(napi_env env) {
     env->strong_refs.erase(_iter);
     JSValueUnprotect(env->context, ToJSValue(_value));
+    _protected = false;
   }
 
   napi_value _value{};
   uint32_t _count{};
   std::uintptr_t _objectId{};
+  Kind _kind{Kind::Object};
+  bool _protected{false};
   std::list<napi_ref>::iterator _iter{};
 };
 
@@ -843,7 +960,162 @@ void napi_env__::init_symbol(JSValueRef &symbol, const char *description) {
 }
 
 void napi_env__::deinit_symbol(JSValueRef symbol) {
-  JSValueUnprotect(context, symbol);
+  if (symbol != nullptr) {
+    JSValueUnprotect(context, symbol);
+  }
+}
+
+void napi_env__::init_function_prototype_call() {
+  // Capture the canonical Function.prototype.call once, at env init, so napi_call_function does not
+  // depend on a target function's own (user-overridable) "call" property.
+  JSObjectRef global = JSContextGetGlobalObject(context);
+  JSValueRef function_ctor = JSObjectGetProperty(context, global, JSString("Function"), nullptr);
+  JSObjectRef function_ctor_obj = JSValueToObject(context, function_ctor, nullptr);
+  JSValueRef prototype = JSObjectGetProperty(context, function_ctor_obj, JSString("prototype"), nullptr);
+  JSObjectRef prototype_obj = JSValueToObject(context, prototype, nullptr);
+  function_prototype_call = JSObjectGetProperty(context, prototype_obj, JSString("call"), nullptr);
+  JSValueProtect(context, function_prototype_call);
+}
+
+void napi_env__::init_is_bigint_function() {
+  // Cache a `typeof v === 'bigint'` predicate so napi_typeof can detect BigInt on JSC builds whose C
+  // API does not expose kJSTypeBigInt (e.g. jsc-android). On macOS 15+/iOS 18+ napi_typeof uses the
+  // kJSTypeBigInt fast path and this predicate is unused.
+  JSStringRef script = JSStringCreateWithUTF8CString("(function (v) { return typeof v === 'bigint'; })");
+  JSValueRef exception = nullptr;
+  is_bigint_function = JSEvaluateScript(context, script, nullptr, nullptr, 0, &exception);
+  JSStringRelease(script);
+  if (is_bigint_function != nullptr) {
+    JSValueProtect(context, is_bigint_function);
+  }
+}
+
+void napi_env__::init_bigint_intrinsics() {
+  // Capture the BigInt intrinsics once, at env init, for the same reason as
+  // init_function_prototype_call: nothing on the BigInt path may resolve a name through the live
+  // global object, where user script can replace `BigInt`, `BigInt.asIntN/asUintN` or
+  // `BigInt.prototype.toString` and steer every napi_*_bigint_* call through its own code.
+  //
+  // This doubles as the feature probe. jsc-android r250231 (WebKit r250230) compiles BigInt behind
+  // the `useBigInt` runtime option, defaulted off: `BigInt` is simply absent and the parser rejects
+  // `0n`, so every lookup below fails and bigint_supported stays false. Probing by property lookup
+  // rather than by evaluating a literal is deliberate -- a `0n` in the probe source would be a
+  // SyntaxError on such a build, not a false result.
+  auto get = [this](JSValueRef holder, const char* name) -> JSValueRef {
+    if (holder == nullptr) {
+      return nullptr;
+    }
+    JSValueRef exception = nullptr;
+    JSObjectRef holder_obj = JSValueToObject(context, holder, &exception);
+    if (exception != nullptr || holder_obj == nullptr) {
+      return nullptr;
+    }
+    JSStringRef key = JSStringCreateWithUTF8CString(name);
+    JSValueRef value = JSObjectGetProperty(context, holder_obj, key, &exception);
+    JSStringRelease(key);
+    return exception == nullptr ? value : nullptr;
+  };
+  auto is_callable = [this](JSValueRef value) {
+    if (value == nullptr || !JSValueIsObject(context, value)) {
+      return false;
+    }
+    JSObjectRef obj = JSValueToObject(context, value, nullptr);
+    return obj != nullptr && JSObjectIsFunction(context, obj);
+  };
+
+  JSValueRef ctor = get(JSContextGetGlobalObject(context), "BigInt");
+  if (!is_callable(ctor)) {
+    return;  // no BigInt on this engine; bigint_supported stays false
+  }
+  JSValueRef as_int_n = get(ctor, "asIntN");
+  JSValueRef as_uint_n = get(ctor, "asUintN");
+  JSValueRef to_string = get(get(ctor, "prototype"), "toString");
+  if (!is_callable(as_int_n) || !is_callable(as_uint_n) || !is_callable(to_string)) {
+    return;
+  }
+
+  // Unary minus on a BigInt primitive is a spec operation with no interceptable hook, so a helper
+  // captured here stays honest for the life of the env. It is needed because StringToBigInt accepts
+  // a sign only on decimal literals -- BigInt("-0x...") is a SyntaxError -- and the words path below
+  // builds a hex string.
+  JSStringRef negate_src = JSStringCreateWithUTF8CString("(function (v) { return -v; })");
+  JSValueRef exception = nullptr;
+  JSValueRef negate = JSEvaluateScript(context, negate_src, nullptr, nullptr, 0, &exception);
+  JSStringRelease(negate_src);
+  if (exception != nullptr || !is_callable(negate)) {
+    return;
+  }
+
+  bigint_constructor = ctor;
+  bigint_as_int_n = as_int_n;
+  bigint_as_uint_n = as_uint_n;
+  bigint_prototype_to_string = to_string;
+  bigint_negate = negate;
+  for (JSValueRef v : {bigint_constructor, bigint_as_int_n, bigint_as_uint_n,
+                       bigint_prototype_to_string, bigint_negate}) {
+    JSValueProtect(context, v);
+  }
+  bigint_supported = true;
+
+  // Ask the engine directly whether JSValueGetType classifies a BigInt, instead of inferring it from
+  // the SDK or from __builtin_available. napi_typeof is hot, and this keeps the JS `typeof` fallback
+  // off the object path everywhere the C API answers.
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+  JSValueRef probe_arg = JSValueMakeNumber(context, 1);
+  JSObjectRef ctor_obj = JSValueToObject(context, bigint_constructor, nullptr);
+  exception = nullptr;
+  JSValueRef probe = JSObjectCallAsFunction(context, ctor_obj, nullptr, 1, &probe_arg, &exception);
+  if (exception == nullptr && probe != nullptr) {
+    value_type_reports_bigint = JSValueGetType(context, probe) == kJSTypeBigInt;
+  }
+#endif
+}
+
+void napi_env__::init_arraybuffer_intrinsics() {
+  // ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path -- the JavaScriptCore C
+  // API has no detach entry point at all -- and `.detached` is an accessor on the same prototype.
+  // Both are reachable from script, so capture them here rather than looking them up per call.
+  JSValueRef exception = nullptr;
+  JSObjectRef global = JSContextGetGlobalObject(context);
+  JSValueRef ctor = JSObjectGetProperty(context, global, JSString("ArrayBuffer"), &exception);
+  if (exception != nullptr) {
+    return;
+  }
+  JSObjectRef ctor_obj = JSValueToObject(context, ctor, &exception);
+  if (exception != nullptr || ctor_obj == nullptr) {
+    return;
+  }
+  JSValueRef prototype = JSObjectGetProperty(context, ctor_obj, JSString("prototype"), &exception);
+  if (exception != nullptr) {
+    return;
+  }
+  JSObjectRef prototype_obj = JSValueToObject(context, prototype, &exception);
+  if (exception != nullptr || prototype_obj == nullptr) {
+    return;
+  }
+
+  JSValueRef transfer = JSObjectGetProperty(context, prototype_obj, JSString("transfer"), &exception);
+  if (exception == nullptr && transfer != nullptr && JSValueIsObject(context, transfer)) {
+    JSObjectRef transfer_obj = JSValueToObject(context, transfer, nullptr);
+    if (transfer_obj != nullptr && JSObjectIsFunction(context, transfer_obj)) {
+      arraybuffer_transfer = transfer;
+      JSValueProtect(context, arraybuffer_transfer);
+    }
+  }
+
+  // `detached` is an accessor, so the getter has to come out of its property descriptor. Reaching
+  // Object.getOwnPropertyDescriptor through script is safe at env-init time, before any user code
+  // has run; napi_is_detached_arraybuffer then calls the captured getter directly.
+  JSStringRef src = JSStringCreateWithUTF8CString(
+      "(function () { var d = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'detached');"
+      " return (d && typeof d.get === 'function') ? d.get : null; })()");
+  exception = nullptr;
+  JSValueRef getter = JSEvaluateScript(context, src, nullptr, nullptr, 0, &exception);
+  JSStringRelease(src);
+  if (exception == nullptr && getter != nullptr && JSValueIsObject(context, getter)) {
+    arraybuffer_detached_getter = getter;
+    JSValueProtect(context, arraybuffer_detached_getter);
+  }
 }
 
 // Warning: Keep in-sync with napi_status enum
@@ -1000,13 +1272,16 @@ napi_status napi_set_property(napi_env env,
   CHECK_ARG(env, key);
   CHECK_ARG(env, value);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   JSObjectSetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str,
     ToJSValue(value),
     kJSPropertyAttributeNone,
@@ -1024,13 +1299,16 @@ napi_status napi_has_property(napi_env env,
   CHECK_ARG(env, result);
   CHECK_ARG(env, key);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   *result = JSObjectHasProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str);
   return napi_ok;
 }
@@ -1043,13 +1321,16 @@ napi_status napi_get_property(napi_env env,
   CHECK_ARG(env, key);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   *result = ToNapi(JSObjectGetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str,
     &exception));
   CHECK_JSC(env, exception);
@@ -1064,13 +1345,16 @@ napi_status napi_delete_property(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   *result = JSObjectDeleteProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str,
     &exception);
   CHECK_JSC(env, exception);
@@ -1102,10 +1386,13 @@ napi_status napi_set_named_property(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, value);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSObjectSetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     JSString(utf8name),
     ToJSValue(value),
     kJSPropertyAttributeNone,
@@ -1120,11 +1407,14 @@ napi_status napi_has_named_property(napi_env env,
                                     const char* utf8name,
                                     bool* result) {
   CHECK_ENV(env);
-  CHECK_ARG(env, object);
+  CHECK_ARG(env, result);
+
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
 
   *result = JSObjectHasProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     JSString(utf8name));
 
   return napi_ok;
@@ -1135,12 +1425,15 @@ napi_status napi_get_named_property(napi_env env,
                                     const char* utf8name,
                                     napi_value* result) {
   CHECK_ENV(env);
-  CHECK_ARG(env, object);
+  CHECK_ARG(env, result);
+
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
 
   JSValueRef exception{};
   *result = ToNapi(JSObjectGetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     JSString(utf8name),
     &exception));
   CHECK_JSC(env, exception);
@@ -1155,10 +1448,13 @@ napi_status napi_set_element(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, value);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSObjectSetPropertyAtIndex(
     env->context,
-    ToJSObject(env, object),
+    target,
     index,
     ToJSValue(value),
     &exception);
@@ -1174,10 +1470,13 @@ napi_status napi_has_element(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSValueRef value{JSObjectGetPropertyAtIndex(
     env->context,
-    ToJSObject(env, object),
+    target,
     index,
     &exception)};
   CHECK_JSC(env, exception);
@@ -1193,10 +1492,13 @@ napi_status napi_get_element(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   *result = ToNapi(JSObjectGetPropertyAtIndex(
     env->context,
-    ToJSObject(env, object),
+    target,
     index,
     &exception));
   CHECK_JSC(env, exception);
@@ -1213,13 +1515,16 @@ napi_status napi_delete_element(napi_env env,
 
   napi_value index_value{ToNapi(JSValueMakeNumber(env->context, index))};
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString index_str{ToJSString(env, index_value, &exception)};
   CHECK_JSC(env, exception);
 
   *result = JSObjectDeleteProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     index_str,
     &exception);
   CHECK_JSC(env, exception);
@@ -1312,6 +1617,8 @@ napi_status napi_get_array_length(napi_env env,
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
+  RETURN_STATUS_IF_FALSE(env, JSValueIsArray(env->context, ToJSValue(value)), napi_array_expected);
+
   JSValueRef exception{};
   JSValueRef length = JSObjectGetProperty(
     env->context,
@@ -1354,20 +1661,11 @@ napi_status napi_get_prototype(napi_env env,
   // reporting the end of the chain, which made the chain impossible to walk.
   // V8 likewise returns the raw prototype value.
   //
-  // The conversion belongs on the argument rather than the result. V8 coerces
-  // there (`CHECK_TO_OBJECT`), so a primitive yields its wrapper's prototype
-  // and only `null`/`undefined` are rejected. Passing the argument straight to
-  // `ToJSObject` instead would assert in debug and, in release, reinterpret a
-  // non-object `JSValueRef` as a `JSObjectRef` -- so a primitive was undefined
-  // behaviour rather than a status.
-  const JSValueRef value{ToJSValue(object)};
-  if (JSValueIsNull(env->context, value) || JSValueIsUndefined(env->context, value)) {
-    return napi_set_last_error(env, napi_object_expected);
-  }
-
-  JSValueRef exception{};
-  const JSObjectRef self{JSValueToObject(env->context, value, &exception)};
-  CHECK_JSC(env, exception);
+  // The conversion belongs on the argument rather than the result: V8 coerces
+  // there (`CHECK_TO_OBJECT`), so a primitive yields its wrapper's prototype and
+  // only `null`/`undefined` are rejected, with the TypeError left pending.
+  JSObjectRef self{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &self));
 
   *result = ToNapi(JSObjectGetPrototype(env->context, self));
 
@@ -1572,7 +1870,6 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
-  // JSC does not support BigInt
   JSType valueType = JSValueGetType(env->context, ToJSValue(value));
   switch (valueType) {
     case kJSTypeUndefined: *result = napi_undefined; break;
@@ -1581,7 +1878,29 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
     case kJSTypeNumber: *result = napi_number; break;
     case kJSTypeString: *result = napi_string; break;
     case kJSTypeSymbol: *result = napi_symbol; break;
-    default:
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+    // kJSTypeBigInt is only produced by a JSC at/above the C API floor. Where the SDK knows the
+    // enumerator but the deployed OS is older, JSValueGetType simply never returns it and the
+    // predicate below catches the BigInt instead -- so this case needs no __builtin_available.
+    case kJSTypeBigInt: *result = napi_bigint; break;
+#endif
+    default: {
+      // JSC below the C API floor -- and every jsc-android build -- does not report kJSTypeBigInt
+      // through JSValueGetType, so detect BigInt with the `typeof v === 'bigint'` predicate captured
+      // at env init before treating value as an object. Skipped where the engine does classify
+      // BigInt, so the ordinary object path stays free of a JS call.
+      if (!env->value_type_reports_bigint && env->is_bigint_function != nullptr) {
+        JSValueRef arg = ToJSValue(value);
+        JSValueRef exception = nullptr;
+        JSObjectRef predicate = JSValueToObject(env->context, env->is_bigint_function, &exception);
+        if (exception == nullptr && predicate != nullptr) {
+          JSValueRef matched = JSObjectCallAsFunction(env->context, predicate, nullptr, 1, &arg, &exception);
+          if (exception == nullptr && JSValueToBoolean(env->context, matched)) {
+            *result = napi_bigint;
+            break;
+          }
+        }
+      }
       JSObjectRef object{ToJSObject(env, value)};
       // Consult JSObjectIsConstructor in addition to JSObjectIsFunction: some JSC builds (e.g.
       // libjavascriptcoregtk) report constructors created via JSObjectMakeConstructor -- such as
@@ -1599,6 +1918,7 @@ napi_status napi_typeof(napi_env env, napi_value value, napi_valuetype* result) 
         }
       }
       break;
+    }
   }
 
   return napi_ok;
@@ -1679,18 +1999,36 @@ napi_status napi_call_function(napi_env env,
                                napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, recv);
+  CHECK_ARG(env, func);
   if (argc > 0) {
     CHECK_ARG(env, argv);
   }
+  // Only object-ness is checked here: a non-callable object surfaces as the TypeError that
+  // Function.prototype.call raises, whereas some JavaScriptCore builds report JSObjectMakeConstructor
+  // constructors as not-a-function (see napi_typeof).
+  RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(func)), napi_function_expected);
+
+  JSObjectRef function_object = ToJSObject(env, func);
+
+  std::vector<JSValueRef> call_args(argc + 1);
+  call_args[0] = ToJSValue(recv);
+  for (size_t i = 0; i < argc; ++i) {
+    call_args[i + 1] = ToJSValue(argv[i]);
+  }
 
   JSValueRef exception{};
-  JSValueRef return_value{JSObjectCallAsFunction(
-    env->context,
-    ToJSObject(env, func),
-    JSValueIsUndefined(env->context, ToJSValue(recv)) ? nullptr : ToJSObject(env, recv),
-    argc,
-    ToJSValues(argv),
-    &exception)};
+  // Invoke through the canonical Function.prototype.call (captured at env init), not the target's own
+  // "call" property -- user code could override func.call and change native call behavior.
+  JSObjectRef call_object =
+      JSValueToObject(env->context, env->function_prototype_call, &exception);
+  CHECK_JSC(env, exception);
+
+  JSValueRef return_value{JSObjectCallAsFunction(env->context,
+                                                 call_object,
+                                                 function_object,
+                                                 call_args.size(),
+                                                 call_args.data(),
+                                                 &exception)};
   CHECK_JSC(env, exception);
 
   if (result != nullptr) {
@@ -1704,6 +2042,290 @@ napi_status napi_get_global(napi_env env, napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
   *result = ToNapi(JSContextGetGlobalObject(env->context));
+  return napi_ok;
+}
+
+// N-API v6: per-environment instance data. The finalizer (if any) runs when the env is torn down
+// (see ~napi_env__).
+napi_status napi_set_instance_data(napi_env env,
+                                   void* data,
+                                   napi_finalize finalize_cb,
+                                   void* finalize_hint) {
+  CHECK_ENV(env);
+  env->instance_data = data;
+  env->instance_data_finalize_cb = finalize_cb;
+  env->instance_data_finalize_hint = finalize_hint;
+  return napi_ok;
+}
+
+napi_status napi_get_instance_data(napi_env env, void** data) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, data);
+  *data = env->instance_data;
+  return napi_ok;
+}
+
+//=============================================================================
+// N-API v6 BigInt + v7 ArrayBuffer detach (JavaScriptCore)
+//
+// The JSC public C API only ships BigInt create functions on macOS 15+/iOS 18+, and ships no
+// ArrayBuffer-detach call at all. The JS-level BigInt global, however, has been in JSC since ~2018,
+// and ArrayBuffer.prototype.transfer() (ES2024) detaches a buffer -- both reachable through the
+// public C API. So: BigInt uses the native C API where available and the JS BigInt global otherwise;
+// detach uses transfer(). Extraction (get_value_bigint_*) is always string/round-trip based, since
+// the C API has no BigInt readers.
+//=============================================================================
+
+namespace {
+
+// Call BigInt.asIntN(64, value) / BigInt.asUintN(64, value); yields the low 64 bits as a BigInt.
+// Reported when the underlying JSC build has no BigInt (e.g. jsc-android ~2020). Matches the Chakra
+// backend: a JS-catchable ENOTSUP error per the Node-API feature-detection pattern.
+napi_status napi_bigint_unsupported(napi_env env) {
+  CHECK_NAPI(napi_throw_error(env, "ENOTSUP",
+      "BigInt is not supported by the underlying JavaScript engine."));
+  return napi_set_last_error(env, napi_pending_exception);
+}
+
+// BigInt.asIntN(64, value) / BigInt.asUintN(64, value) through the intrinsic captured at env init.
+napi_status BigIntLow64(napi_env env, napi_value value, JSValueRef as_n, JSValueRef* low) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
+  JSValueRef exception{};
+  JSObjectRef as_n_fn = JSValueToObject(env->context, as_n, &exception);
+  CHECK_JSC(env, exception);
+  JSObjectRef bigint_ctor = JSValueToObject(env->context, env->bigint_constructor, &exception);
+  CHECK_JSC(env, exception);
+  JSValueRef args[2] = {JSValueMakeNumber(env->context, 64), ToJSValue(value)};
+  *low = JSObjectCallAsFunction(env->context, as_n_fn, bigint_ctor, 2, args, &exception);
+  CHECK_JSC(env, exception);
+  return napi_ok;
+}
+
+// BigInt.prototype.toString.call(value, radix), through the intrinsic captured at env init: the
+// boxed value supplies `this` only, so a user-installed `toString` own/prototype property cannot
+// intercept the conversion.
+napi_status BigIntToString(napi_env env, napi_value value, int radix, std::string* out) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
+  JSValueRef exception{};
+  JSObjectRef boxed = JSValueToObject(env->context, ToJSValue(value), &exception);
+  CHECK_JSC(env, exception);
+  JSObjectRef toStringFn = JSValueToObject(env->context, env->bigint_prototype_to_string, &exception);
+  CHECK_JSC(env, exception);
+  JSValueRef radixArg = JSValueMakeNumber(env->context, radix);
+  JSValueRef str = JSObjectCallAsFunction(env->context, toStringFn, boxed, 1, &radixArg, &exception);
+  CHECK_JSC(env, exception);
+  JSStringRef jsStr = JSValueToStringCopy(env->context, str, &exception);
+  CHECK_JSC(env, exception);
+  size_t cap = JSStringGetMaximumUTF8CStringSize(jsStr);
+  out->resize(cap);
+  size_t written = JSStringGetUTF8CString(jsStr, out->data(), cap);
+  JSStringRelease(jsStr);
+  if (written > 0) out->resize(written - 1);  // drop the trailing NUL
+  return napi_ok;
+}
+
+// BigInt(text) -- optionally negated -- through the constructor captured at env init. This is the
+// create path wherever the BigInt C API is unavailable (every jsc-android build, and Apple platforms
+// below the macOS 15 / iOS 18 / visionOS 2 floor). It calls the captured intrinsic rather than
+// evaluating a `BigInt("...")` source string: an eval would re-resolve the global `BigInt` on a live
+// context, and would also pay a parse per BigInt created.
+napi_status BigIntFromString(napi_env env, const std::string& text, bool negate, napi_value* result) {
+  if (!env->bigint_supported) {
+    return napi_bigint_unsupported(env);
+  }
+  JSValueRef exception{};
+  JSObjectRef ctor = JSValueToObject(env->context, env->bigint_constructor, &exception);
+  CHECK_JSC(env, exception);
+  JSStringRef js_text = JSStringCreateWithUTF8CString(text.c_str());
+  JSValueRef arg = JSValueMakeString(env->context, js_text);
+  JSStringRelease(js_text);
+  JSValueRef big = JSObjectCallAsFunction(env->context, ctor, nullptr, 1, &arg, &exception);
+  CHECK_JSC(env, exception);
+  if (negate) {
+    JSObjectRef negate_fn = JSValueToObject(env->context, env->bigint_negate, &exception);
+    CHECK_JSC(env, exception);
+    big = JSObjectCallAsFunction(env->context, negate_fn, nullptr, 1, &big, &exception);
+    CHECK_JSC(env, exception);
+  }
+  *result = ToNapi(big);
+  return napi_ok;
+}
+
+}  // namespace
+
+napi_status napi_create_bigint_int64(napi_env env, int64_t value, napi_value* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, result);
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+  if (JSR_JSC_BIGINT_C_API_AVAILABLE()) {
+    JSValueRef exception{};
+    JSValueRef big = JSBigIntCreateWithInt64(env->context, value, &exception);
+    CHECK_JSC(env, exception);
+    *result = ToNapi(big);
+    return napi_ok;
+  }
+#endif
+  // StringToBigInt accepts a leading sign on a decimal literal, so INT64_MIN round-trips as-is.
+  return BigIntFromString(env, std::to_string(value), /*negate*/ false, result);
+}
+
+napi_status napi_create_bigint_uint64(napi_env env, uint64_t value, napi_value* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, result);
+#ifdef JSR_JSC_HAS_BIGINT_C_API
+  if (JSR_JSC_BIGINT_C_API_AVAILABLE()) {
+    JSValueRef exception{};
+    JSValueRef big = JSBigIntCreateWithUInt64(env->context, value, &exception);
+    CHECK_JSC(env, exception);
+    *result = ToNapi(big);
+    return napi_ok;
+  }
+#endif
+  // StringToBigInt accepts a leading sign on a decimal literal, so INT64_MIN round-trips as-is.
+  return BigIntFromString(env, std::to_string(value), /*negate*/ false, result);
+}
+
+napi_status napi_create_bigint_words(napi_env env,
+                                     int sign_bit,
+                                     size_t word_count,
+                                     const uint64_t* words,
+                                     napi_value* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, result);
+  // Match Node/V8 limits *before* touching the (possibly under-sized) words buffer: beyond INT_MAX
+  // it's napi_invalid_arg; beyond the engine's BigInt size limit it's a RangeError.
+  if (word_count > static_cast<size_t>(INT_MAX)) {
+    return napi_set_last_error(env, napi_invalid_arg);
+  }
+  if (word_count > (static_cast<size_t>(1) << 24)) {  // ~ kMaxBigIntLengthBits / 64
+    napi_throw_range_error(env, nullptr, "Maximum BigInt size exceeded");
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+  if (word_count > 0) {
+    CHECK_ARG(env, words);
+  }
+  // Big-endian hex from the little-endian words (words[0] is the least-significant 64 bits).
+  std::string hex;
+  for (size_t i = word_count; i-- > 0;) {
+    char buf[17];
+    snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(words[i]));
+    hex += buf;
+  }
+  if (hex.empty()) {
+    hex = "0";
+  }
+  return BigIntFromString(env, "0x" + hex, /*negate*/ sign_bit != 0, result);
+}
+
+napi_status napi_get_value_bigint_int64(napi_env env,
+                                        napi_value value,
+                                        int64_t* result,
+                                        bool* lossless) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, value);
+  CHECK_ARG(env, result);
+  CHECK_ARG(env, lossless);
+  JSValueRef low{};
+  CHECK_NAPI(BigIntLow64(env, value, env->bigint_as_int_n, &low));
+  std::string decimal;
+  CHECK_NAPI(BigIntToString(env, ToNapi(low), 10, &decimal));
+  *result = static_cast<int64_t>(strtoll(decimal.c_str(), nullptr, 10));
+  *lossless = JSValueIsStrictEqual(env->context, ToJSValue(value), low);
+  return napi_ok;
+}
+
+napi_status napi_get_value_bigint_uint64(napi_env env,
+                                         napi_value value,
+                                         uint64_t* result,
+                                         bool* lossless) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, value);
+  CHECK_ARG(env, result);
+  CHECK_ARG(env, lossless);
+  JSValueRef low{};
+  CHECK_NAPI(BigIntLow64(env, value, env->bigint_as_uint_n, &low));
+  std::string decimal;
+  CHECK_NAPI(BigIntToString(env, ToNapi(low), 10, &decimal));
+  *result = static_cast<uint64_t>(strtoull(decimal.c_str(), nullptr, 10));
+  *lossless = JSValueIsStrictEqual(env->context, ToJSValue(value), low);
+  return napi_ok;
+}
+
+napi_status napi_get_value_bigint_words(napi_env env,
+                                        napi_value value,
+                                        int* sign_bit,
+                                        size_t* word_count,
+                                        uint64_t* words) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, value);
+  CHECK_ARG(env, word_count);
+  std::string hex;
+  CHECK_NAPI(BigIntToString(env, value, 16, &hex));
+  bool negative = !hex.empty() && hex[0] == '-';
+  std::string digits = negative ? hex.substr(1) : hex;
+  if (digits == "0") {
+    digits.clear();
+  }
+  size_t needed = (digits.length() + 15) / 16;
+  if (words == nullptr) {
+    *word_count = needed;
+    return napi_ok;
+  }
+  if (sign_bit != nullptr) {
+    *sign_bit = negative ? 1 : 0;
+  }
+  size_t capacity = *word_count;
+  *word_count = needed;
+  for (size_t w = 0; w < needed && w < capacity; ++w) {
+    size_t end = digits.length() - w * 16;
+    size_t start = end >= 16 ? end - 16 : 0;
+    std::string chunk = digits.substr(start, end - start);
+    words[w] = static_cast<uint64_t>(strtoull(chunk.c_str(), nullptr, 16));
+  }
+  return napi_ok;
+}
+
+napi_status napi_detach_arraybuffer(napi_env env, napi_value arraybuffer) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, arraybuffer);
+  JSObjectRef ab = ToJSObject(env, arraybuffer);
+  if (env->arraybuffer_transfer == nullptr) {
+    // ArrayBuffer.prototype.transfer() (ES2024) is the only public detach path, and the JSC C API has
+    // no detach at all. Engines below it -- every jsc-android build, and Apple platforms under
+    // macOS 14.4 / iOS 17.4 -- get a catchable ENOTSUP so JS land can polyfill.
+    napi_throw_error(env, "ENOTSUP",
+                     "ArrayBuffer detach is not supported by the underlying JavaScript engine.");
+    return napi_set_last_error(env, napi_pending_exception);
+  }
+  JSValueRef exception{};
+  JSObjectRef transferFn = JSValueToObject(env->context, env->arraybuffer_transfer, &exception);
+  CHECK_JSC(env, exception);
+  JSObjectCallAsFunction(env->context, transferFn, ab, 0, nullptr, &exception);  // detaches `ab`
+  CHECK_JSC(env, exception);
+  return napi_ok;
+}
+
+napi_status napi_is_detached_arraybuffer(napi_env env, napi_value arraybuffer, bool* result) {
+  CHECK_ENV(env);
+  CHECK_ARG(env, arraybuffer);
+  CHECK_ARG(env, result);
+  JSObjectRef ab = ToJSObject(env, arraybuffer);
+  JSValueRef exception{};
+  if (env->arraybuffer_detached_getter != nullptr) {
+    JSObjectRef getter = JSValueToObject(env->context, env->arraybuffer_detached_getter, &exception);
+    CHECK_JSC(env, exception);
+    JSValueRef detached = JSObjectCallAsFunction(env->context, getter, ab, 0, nullptr, &exception);
+    CHECK_JSC(env, exception);
+    *result = JSValueToBoolean(env->context, detached);
+  } else {
+    // Pre-ES2024 fallback: a detached buffer has no backing store.
+    JSValueRef ignored{};
+    *result = JSObjectGetArrayBufferBytesPtr(env->context, ab, &ignored) == nullptr;
+  }
   return napi_ok;
 }
 
@@ -2074,6 +2696,8 @@ napi_status napi_get_value_external(napi_env env, napi_value value, void** resul
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
+  RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(value)), napi_invalid_arg);
+
   ExternalInfo* info = NativeInfo::Get<ExternalInfo>(ToJSObject(env, value));
   *result = (info != nullptr && info->Type() == NativeType::External) ? info->Data() : nullptr;
   return napi_ok;
@@ -2130,6 +2754,7 @@ napi_status napi_reference_ref(napi_env env, napi_ref ref, uint32_t* result) {
 napi_status napi_reference_unref(napi_env env, napi_ref ref, uint32_t* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
+  RETURN_STATUS_IF_FALSE(env, ref->count() != 0, napi_generic_failure);
 
   ref->unref(env);
   if (result != nullptr) {
@@ -2228,6 +2853,10 @@ napi_status napi_new_instance(napi_env env,
     CHECK_ARG(env, argv);
   }
   CHECK_ARG(env, result);
+  RETURN_STATUS_IF_FALSE(env,
+    JSValueIsObject(env->context, ToJSValue(constructor)) &&
+      JSObjectIsConstructor(env->context, ToJSObject(env, constructor)),
+    napi_function_expected);
 
   JSValueRef exception{};
   *result = ToNapi(JSObjectCallAsConstructor(
@@ -2247,7 +2876,15 @@ napi_status napi_instanceof(napi_env env,
                             bool* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, object);
+  CHECK_ARG(env, constructor);
   CHECK_ARG(env, result);
+  // Either predicate: some JavaScriptCore builds report JSObjectMakeConstructor constructors as
+  // not-a-function (see napi_typeof).
+  RETURN_STATUS_IF_FALSE(env,
+    JSValueIsObject(env->context, ToJSValue(constructor)) &&
+      (JSObjectIsFunction(env->context, ToJSObject(env, constructor)) ||
+       JSObjectIsConstructor(env->context, ToJSObject(env, constructor))),
+    napi_function_expected);
 
   JSValueRef exception{};
   *result = JSValueIsInstanceOfConstructor(
