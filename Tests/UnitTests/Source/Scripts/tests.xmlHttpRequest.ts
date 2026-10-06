@@ -25,6 +25,19 @@ describe("XMLHTTPRequest", function () {
 
     this.timeout(0);
 
+    it("should support a forwarding constructor with a different new target", function () {
+        if (typeof Reflect !== "object" || typeof Reflect.construct !== "function") {
+            this.skip();
+        }
+
+        function ForwardedXHR() {}
+        ForwardedXHR.prototype = XMLHttpRequest.prototype;
+        const xhr = Reflect.construct(XMLHttpRequest, [], ForwardedXHR) as XMLHttpRequest;
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+    });
+
     it("should have readyState=4 when load ends", async function () {
         const xhr = await createRequest("GET", "https://github.com/");
         expect(xhr.readyState).to.equal(4);
@@ -62,29 +75,710 @@ describe("XMLHTTPRequest", function () {
         expect(notFoundXhr.statusText).to.equal("Not Found");
     });
 
-    it("should fire 'error' event for a remote URL that returns HTTP 404", async function () {
+    it("should fire 'load' rather than 'error' for a remote URL that returns HTTP 404", async function () {
         // Regression test: previously the success-only continuation in XMLHttpRequest::Send
-        // skipped 'error' on async failures including non-2xx HTTP responses, so onerror
-        // observers never ran. See https://github.com/BabylonJS/JsRuntimeHost/pull/165.
+        // skipped the completion events entirely on async failures, so observers never ran.
+        // See https://github.com/BabylonJS/JsRuntimeHost/pull/165.
+        //
+        // A 404 is a *completed* HTTP transaction, so per spec it dispatches 'load' and callers
+        // branch on xhr.status inside the handler; 'error' is reserved for transport-level
+        // failures, which report status 0.
         this.timeout(30000);
-        const result = await new Promise<{ errorFired: boolean; loadendFired: boolean; status: number; readyState: number }>((resolve, reject) => {
+        const result = await new Promise<{ errorFired: boolean; loadFired: boolean; loadendFired: boolean; status: number; readyState: number }>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             let errorFired = false;
+            let loadFired = false;
             let loadendFired = false;
-            const guard = setTimeout(() => reject(new Error("XHR neither errored nor loadended within 25s")), 25000);
+            const guard = setTimeout(() => reject(new Error("XHR neither loaded nor loadended within 25s")), 25000);
             xhr.addEventListener("error", () => { errorFired = true; });
+            xhr.addEventListener("load", () => { loadFired = true; });
             xhr.addEventListener("loadend", () => {
                 loadendFired = true;
                 clearTimeout(guard);
-                resolve({ errorFired, loadendFired, status: xhr.status, readyState: xhr.readyState });
+                resolve({ errorFired, loadFired, loadendFired, status: xhr.status, readyState: xhr.readyState });
             });
             xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
             xhr.send();
         });
         expect(result.status).to.equal(404);
-        expect(result.errorFired).to.equal(true);
+        expect(result.loadFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
         expect(result.loadendFired).to.equal(true);
         expect(result.readyState).to.equal(4);
+    });
+
+    it("should invoke the 'onreadystatechange' handler property", async function () {
+        // Regression test: the on<event> handler properties were not implemented, so
+        // `xhr.onreadystatechange = fn` set an ordinary expando property that was never
+        // invoked and callers waited forever for a callback that could never fire.
+        this.timeout(30000);
+        const result = await new Promise<{ states: number[]; status: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const states: number[] = [];
+            const guard = setTimeout(() => reject(new Error("onreadystatechange never reached readyState 4 within 25s")), 25000);
+            xhr.onreadystatechange = () => {
+                states.push(xhr.readyState);
+                if (xhr.readyState === 4) {
+                    clearTimeout(guard);
+                    resolve({ states, status: xhr.status });
+                }
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.states).to.include(4);
+        expect(result.status).to.equal(200);
+    });
+
+    it("should invoke the 'onload' and 'onloadend' handler properties on success", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ loadFired: boolean; loadEndFired: boolean; errorFired: boolean }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let loadFired = false;
+            let errorFired = false;
+            const guard = setTimeout(() => reject(new Error("onloadend did not fire within 25s")), 25000);
+            xhr.onload = () => { loadFired = true; };
+            xhr.onerror = () => { errorFired = true; };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ loadFired, loadEndFired: true, errorFired });
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.loadFired).to.equal(true);
+        expect(result.loadEndFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
+    });
+
+    it("should invoke the 'onload' handler property, not 'onerror', for HTTP 404", async function () {
+        // 'error' means the transfer never completed. A 404 completed and carries a status, so
+        // the load handler runs and inspects xhr.status.
+        this.timeout(30000);
+        const result = await new Promise<{ errorFired: boolean; loadFired: boolean; status: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let errorFired = false;
+            let loadFired = false;
+            const guard = setTimeout(() => reject(new Error("onloadend did not fire within 25s")), 25000);
+            xhr.onerror = () => { errorFired = true; };
+            xhr.onload = () => { loadFired = true; };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ errorFired, loadFired, status: xhr.status });
+            };
+            xhr.open("GET", "https://github.com/babylonJS/BabylonNative404");
+            xhr.send();
+        });
+        expect(result.status).to.equal(404);
+        expect(result.loadFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
+    });
+
+    it("should let an on<event> property be read back, replaced, and cleared", async function () {
+        const xhr = new XMLHttpRequest();
+        expect(xhr.onload).to.equal(null);
+
+        const first = () => { };
+        xhr.onload = first;
+        expect(xhr.onload).to.equal(first);
+
+        // Assignment replaces rather than accumulates, unlike addEventListener.
+        const second = () => { };
+        xhr.onload = second;
+        expect(xhr.onload).to.equal(second);
+
+        xhr.onload = null;
+        expect(xhr.onload).to.equal(null);
+    });
+
+    it("should coerce a primitive on<event> assignment to null", function () {
+        // [LegacyTreatNonObjectAsNull] applies to primitives, not objects.
+        const xhr: any = new XMLHttpRequest();
+        xhr.onload = () => { };
+        expect(xhr.onload).to.not.equal(null);
+
+        xhr.onload = 0;
+        expect(xhr.onload).to.equal(null);
+
+        xhr.onload = () => { };
+        xhr.onload = "not a function";
+        expect(xhr.onload).to.equal(null);
+
+        xhr.onload = () => { };
+        xhr.onload = undefined;
+        expect(xhr.onload).to.equal(null);
+    });
+
+    it("should retain non-callable on<event> objects by identity without invoking them", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        const object = { handleEvent: () => { throw new Error("object must not be invoked"); } };
+        for (const name of ["onload", "onerror", "onabort", "onloadend", "onreadystatechange"]) {
+            Reflect.set(xhr, name, () => { throw new Error("replaced handler must not run"); });
+            Reflect.set(xhr, name, object);
+            expect(Reflect.get(xhr, name)).to.equal(object);
+        }
+        const boxed = new Number(1);
+        Reflect.set(xhr, "onload", boxed);
+        expect(xhr.onload).to.equal(boxed);
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("object handler XHR did not complete")), 25000);
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve();
+            });
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(xhr.onload).to.equal(boxed);
+        xhr.onload = null;
+        expect(xhr.onload).to.equal(null);
+    });
+
+    it("should preserve arraybuffer responseType when reopened", async function () {
+        this.timeout(30000);
+        const xhr = await createRequest("GET", "app:///Assets/symlink_target.js", undefined, "arraybuffer");
+        const first = new Uint8Array(xhr.response);
+        expect(first.length).to.be.greaterThan(0);
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        expect(xhr.responseType).to.equal("arraybuffer");
+        expect(xhr.response).to.equal(null);
+        await new Promise<void>((resolve) => {
+            xhr.onloadend = () => resolve();
+            xhr.send();
+        });
+        expect(xhr.response).to.be.instanceOf(ArrayBuffer);
+        expect(Array.from(new Uint8Array(xhr.response))).to.deep.equal(Array.from(first));
+    });
+
+    it("should preserve a completed response when open fails", async function () {
+        this.timeout(30000);
+        const xhr = await createRequest("GET", "app:///Assets/symlink_target.js");
+        const response = xhr.responseText;
+        const url = xhr.responseURL;
+        const headers = xhr.getAllResponseHeaders();
+        for (const [method, invalidUrl] of [["INVALID", url], ["GET", "not a URL"]]) {
+            expect(() => xhr.open(method, invalidUrl)).to.throw();
+            expect(xhr.readyState).to.equal(XMLHttpRequest.DONE);
+            expect(xhr.status).to.equal(200);
+            expect(xhr.statusText).to.equal("OK");
+            expect(xhr.responseText).to.equal(response);
+            expect(xhr.response).to.equal(response);
+            expect(xhr.responseURL).to.equal(url);
+            expect(xhr.getAllResponseHeaders()).to.deep.equal(headers);
+        }
+    });
+
+    it("should let an active request finish when a replacement open fails", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let loads = 0;
+        let aborts = 0;
+        const completed = new Promise<void>((resolve) => {
+            xhr.onload = () => { loads++; };
+            xhr.onabort = () => { aborts++; };
+            xhr.onloadend = () => resolve();
+        });
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        xhr.send();
+        expect(() => xhr.open("INVALID", "app:///Assets/symlink_target.js")).to.throw();
+        expect(() => xhr.open("GET", "not a URL")).to.throw();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+        await completed;
+        expect(loads).to.equal(1);
+        expect(aborts).to.equal(0);
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseText).to.not.equal("");
+    });
+
+    it("should expose an empty response during and after synchronous abort", function () {
+        for (const responseType of ["text", "arraybuffer"] as const) {
+            const xhr = new XMLHttpRequest();
+            const responses: unknown[] = [];
+            const texts: string[] = [];
+            const urls: string[] = [];
+            const headers: unknown[] = [];
+            const read = () => {
+                responses.push(xhr.response);
+                texts.push(xhr.responseText);
+                urls.push(xhr.responseURL);
+                headers.push(xhr.getAllResponseHeaders());
+                expect(xhr.getResponseHeader("content-type")).to.equal(null);
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.responseType = responseType;
+            xhr.send();
+            read();
+            xhr.onreadystatechange = read;
+            xhr.onabort = read;
+            xhr.onloadend = read;
+            xhr.abort();
+            read();
+            expect(responses).to.deep.equal(Array(5).fill(responseType === "text" ? "" : null));
+            expect(texts).to.deep.equal(Array(5).fill(""));
+            expect(urls).to.deep.equal(Array(5).fill(""));
+            expect(headers).to.deep.equal(Array(5).fill({}));
+            expect(xhr.responseType).to.equal(responseType);
+        }
+    });
+
+    it("should reject transport mutation while send is active", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        const completed = new Promise<void>((resolve) => { xhr.onloadend = () => resolve(); });
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        xhr.send();
+        expect(() => { xhr.responseType = "arraybuffer"; }).to.throw();
+        expect(() => xhr.setRequestHeader("Accept", "*/*")).to.throw();
+        expect(() => xhr.send()).to.throw();
+        await completed;
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseType).to.equal("text");
+    });
+
+    it("should preserve handlers when the request completes and is reused", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let loadCalls = 0;
+        let loadEndCalls = 0;
+        const onload = () => { loadCalls++; };
+        xhr.onload = onload;
+
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("reused XHR did not complete twice within 25s")), 25000);
+            xhr.onloadend = () => {
+                ++loadEndCalls;
+                expect(xhr.onload).to.equal(onload);
+                if (loadEndCalls === 1) {
+                    xhr.open("GET", "app:///Assets/symlink_target.js");
+                    xhr.send();
+                } else {
+                    clearTimeout(guard);
+                    resolve();
+                }
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+
+        expect(loadCalls).to.equal(2);
+        expect(loadEndCalls).to.equal(2);
+    });
+
+    it("should fire 'abort' rather than 'error' when a request is aborted", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ abortFired: boolean; errorFired: boolean; loadFired: boolean; loadEndFired: boolean }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let abortFired = false;
+            let errorFired = false;
+            let loadFired = false;
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.onabort = () => { abortFired = true; };
+            xhr.onerror = () => { errorFired = true; };
+            xhr.onload = () => { loadFired = true; };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ abortFired, errorFired, loadFired, loadEndFired: true });
+            };
+            xhr.open("GET", "https://github.com/");
+            xhr.send();
+            xhr.abort();
+        });
+        // loadend must always settle the request, whatever the outcome.
+        expect(result.loadEndFired).to.equal(true);
+        // The abort was requested before the transfer could complete, so it must be reported
+        // as an abort -- never as a transport error, and never as a successful load.
+        expect(result.abortFired).to.equal(true);
+        expect(result.errorFired).to.equal(false);
+        expect(result.loadFired).to.equal(false);
+    });
+
+    it("should make abort synchronous, inert before send, and reusable", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        const order: string[] = [];
+        const statuses: number[] = [];
+        const statusTexts: string[] = [];
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                order.push("readystatechange");
+                statuses.push(xhr.status);
+                statusTexts.push(xhr.statusText);
+            }
+        };
+        xhr.onabort = () => {
+            order.push("abort");
+            statuses.push(xhr.status);
+            statusTexts.push(xhr.statusText);
+        };
+        xhr.onloadend = () => {
+            order.push("loadend");
+            statuses.push(xhr.status);
+            statusTexts.push(xhr.statusText);
+        };
+
+        xhr.open("GET", "https://github.com/");
+        xhr.abort();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+        expect(order).to.deep.equal([]);
+
+        xhr.send();
+        xhr.abort();
+        expect(order).to.deep.equal(["readystatechange", "abort", "loadend"]);
+        expect(statuses).to.deep.equal([0, 0, 0]);
+        expect(statusTexts).to.deep.equal(["", "", ""]);
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("XHR did not complete after abort reuse within 25s")), 25000);
+            xhr.onload = () => {
+                clearTimeout(guard);
+                resolve();
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(xhr.status).to.equal(200);
+        expect(xhr.statusText).to.equal("OK");
+    });
+
+    it("should clear a completed response on abort without discarding responseType", async function () {
+        const xhr: any = await createRequest("GET", "app:///Assets/symlink_target.js");
+        expect(xhr.status).to.equal(200);
+        expect(xhr.responseText).to.not.equal("");
+
+        xhr.abort();
+        expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+        expect(xhr.status).to.equal(0);
+        expect(xhr.statusText).to.equal("");
+        expect(xhr.response).to.equal("");
+        expect(xhr.responseText).to.equal("");
+        expect(xhr.responseURL).to.equal("");
+        expect(Object.keys(xhr.getAllResponseHeaders())).to.deep.equal([]);
+        expect(xhr.errorCode).to.equal("");
+        expect(xhr.errorDetail).to.equal("");
+
+        const binary: any = new XMLHttpRequest();
+        binary.open("GET", "app:///Assets/symlink_target.js");
+        binary.responseType = "arraybuffer";
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("binary XHR did not complete")), 25000);
+            binary.onloadend = () => {
+                clearTimeout(guard);
+                resolve();
+            };
+            binary.send();
+        });
+        expect(binary.response).to.be.instanceOf(ArrayBuffer);
+        binary.abort();
+        expect(binary.responseType).to.equal("arraybuffer");
+        expect(binary.response).to.equal(null);
+    });
+
+    it("should preserve a replacement request started during each synchronous abort event", async function () {
+        this.timeout(30000);
+        for (const phase of ["readystatechange", "abort", "loadend"]) {
+            const xhr = new XMLHttpRequest();
+            let restarted = false;
+            let loads = 0;
+            let aborts = 0;
+            const completed = new Promise<void>((resolve, reject) => {
+                const guard = setTimeout(() => reject(new Error(`XHR replacement after ${phase} did not complete`)), 25000);
+                xhr.addEventListener(phase, () => {
+                    if (restarted || (phase === "readystatechange" && xhr.readyState !== XMLHttpRequest.DONE)) {
+                        return;
+                    }
+                    restarted = true;
+                    xhr.open("GET", "app:///Assets/symlink_target.js");
+                    xhr.send();
+                });
+                xhr.addEventListener("abort", () => { aborts++; });
+                xhr.addEventListener("load", () => { loads++; });
+                xhr.addEventListener("loadend", () => {
+                    if (xhr.status === 200 && restarted) {
+                        clearTimeout(guard);
+                        resolve();
+                    }
+                });
+            });
+            xhr.open("GET", "https://github.com/");
+            xhr.send();
+            xhr.abort();
+            expect(restarted).to.equal(true);
+            expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+            await completed;
+            expect(xhr.readyState).to.equal(XMLHttpRequest.DONE);
+            expect(loads).to.equal(1);
+            expect(aborts).to.equal(phase === "readystatechange" ? 0 : 1);
+        }
+    });
+
+    it("should not deliver an old loadend to a request started in onload", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let loads = 0;
+        const loadEndStatuses: number[] = [];
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("XHR replacement from onload did not complete")), 25000);
+            xhr.onload = () => {
+                if (++loads === 1) {
+                    xhr.open("GET", "app:///Assets/symlink_target.js");
+                    xhr.send();
+                }
+            };
+            xhr.onloadend = () => {
+                loadEndStatuses.push(xhr.status);
+                if (loads === 2) {
+                    clearTimeout(guard);
+                    resolve();
+                }
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(loads).to.equal(2);
+        expect(loadEndStatuses).to.deep.equal([200]);
+    });
+
+    it("should dispatch Event and ProgressEvent instances with working event methods", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        let readyEvent: Event | undefined;
+        let loadEvent: ProgressEvent | undefined;
+        let skipped = false;
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("XHR events did not complete")), 25000);
+            xhr.onreadystatechange = (event: Event) => {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    readyEvent = event;
+                }
+            };
+            xhr.addEventListener("load", (event: ProgressEvent) => {
+                try {
+                    expect(event).to.be.instanceOf(Event);
+                    expect(event).to.be.instanceOf(ProgressEvent);
+                    expect(event.type).to.equal("load");
+                    expect(event.target).to.equal(xhr);
+                    expect(event.currentTarget).to.equal(xhr);
+                    expect(event.eventPhase).to.equal(Event.AT_TARGET);
+                    expect(event.lengthComputable).to.equal(false);
+                    expect(event.loaded).to.equal(0);
+                    expect(event.total).to.equal(0);
+                    expect(event.cancelable).to.equal(false);
+                    event.preventDefault();
+                    expect(event.defaultPrevented).to.equal(false);
+                    event.stopImmediatePropagation();
+                    Object.freeze(event);
+                    loadEvent = event;
+                } catch (error) {
+                    clearTimeout(guard);
+                    reject(error);
+                }
+            });
+            xhr.addEventListener("load", () => { skipped = true; });
+            xhr.onloadend = (event: ProgressEvent) => {
+                try {
+                    expect(event).to.be.instanceOf(ProgressEvent);
+                    expect(readyEvent).to.be.instanceOf(Event);
+                    expect(readyEvent).to.not.be.instanceOf(ProgressEvent);
+                    expect(readyEvent!.type).to.equal("readystatechange");
+                    clearTimeout(guard);
+                    resolve();
+                } catch (error) {
+                    clearTimeout(guard);
+                    reject(error);
+                }
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(skipped).to.equal(false);
+        expect(loadEvent!.currentTarget).to.equal(null);
+        expect(loadEvent!.eventPhase).to.equal(Event.NONE);
+    });
+
+    it("should honor prototype immediate stop without skipping listeners after stopPropagation", async function () {
+        this.timeout(30000);
+        for (const immediate of [false, true]) {
+            const calls: string[] = [];
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                const guard = setTimeout(() => reject(new Error("XHR loadend did not fire")), 25000);
+                xhr.addEventListener("load", (event: Event) => {
+                    calls.push("first");
+                    if (immediate) {
+                        Event.prototype.stopImmediatePropagation.call(event);
+                    } else {
+                        Event.prototype.stopPropagation.call(event);
+                    }
+                });
+                xhr.addEventListener("load", () => { calls.push("second"); });
+                xhr.addEventListener("loadend", () => {
+                    clearTimeout(guard);
+                    resolve();
+                });
+                xhr.open("GET", "app:///Assets/symlink_target.js");
+                xhr.send();
+            });
+            expect(calls).to.deep.equal(immediate ? ["first"] : ["first", "second"]);
+        }
+    });
+
+    it("should dispatch on<event> properties and addEventListener handlers in registration order", async function () {
+        // on<event> handlers and addEventListener listeners share one list per event type, so
+        // dispatch follows registration order across both styles rather than running all the
+        // on<event> handlers first.
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.addEventListener("load", () => { order.push("first"); });
+            xhr.onload = () => { order.push("onload"); };
+            xhr.addEventListener("load", () => { order.push("last"); });
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ order });
+            });
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["first", "onload", "last"]);
+    });
+
+    it("should keep an on<event> handler's position in the dispatch order when reassigned", async function () {
+        // Per HTML the internal listener is registered on first set and reused thereafter ("If
+        // eventHandler's listener is not null, then return"), so reassigning the property must
+        // not move it to the end of the list.
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.onload = () => { order.push("replaced"); };
+            xhr.addEventListener("load", () => { order.push("listener"); });
+            xhr.onload = () => { order.push("onload"); };
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ order });
+            });
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["onload", "listener"]);
+    });
+
+    it("should observe listener removal and on<event> reassignment during dispatch", async function () {
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const removed = () => { order.push("removed"); };
+            const replacement = () => { order.push("replacement"); };
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            xhr.addEventListener("load", () => {
+                order.push("first");
+                xhr.removeEventListener("load", removed);
+                xhr.onload = replacement;
+            });
+            xhr.addEventListener("load", removed);
+            xhr.onload = () => { order.push("original"); };
+            xhr.onloadend = () => {
+                clearTimeout(guard);
+                resolve({ order });
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["first", "replacement"]);
+    });
+
+    it("should invoke handlers with the XHR as this and a populated event", async function () {
+        this.timeout(30000);
+        const xhr = new XMLHttpRequest();
+        await new Promise<void>((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error("load did not fire within 25s")), 25000);
+            xhr.onload = function (event: any) {
+                try {
+                    expect(this).to.equal(xhr);
+                    expect(event.type).to.equal("load");
+                    expect(event.target).to.equal(xhr);
+                    expect(event.currentTarget).to.equal(xhr);
+                    expect(event.lengthComputable).to.equal(false);
+                    expect(event.loaded).to.equal(0);
+                    expect(event.total).to.equal(0);
+                    clearTimeout(guard);
+                    resolve();
+                } catch (error) {
+                    clearTimeout(guard);
+                    reject(error);
+                }
+            };
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+    });
+
+    it("should invoke a function registered both as an on<event> property and via addEventListener twice", async function () {
+        // These are two independent registrations, so the duplicate-registration check must not
+        // see the on<event> entry: a browser calls the shared function once for each.
+        this.timeout(30000);
+        const result = await new Promise<{ calls: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let calls = 0;
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            const handler = () => { calls++; };
+            xhr.onload = handler;
+            xhr.addEventListener("load", handler);
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ calls });
+            });
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.calls).to.equal(2);
+    });
+
+    it("should treat a duplicate addEventListener registration as a no-op", async function () {
+        // Per DOM, re-adding an identical (type, callback) pair is a silent no-op rather than an
+        // error, and the listener stays registered once, so it is dispatched once.
+        this.timeout(30000);
+        const result = await new Promise<{ calls: number }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let calls = 0;
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            const handler = () => { calls++; };
+            xhr.addEventListener("load", handler);
+            expect(() => xhr.addEventListener("load", handler)).to.not.throw();
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ calls });
+            });
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.calls).to.equal(1);
+    });
+
+    it("should not let removeEventListener remove an on<event> handler", async function () {
+        // The property is cleared by assigning null, not by removeEventListener.
+        this.timeout(30000);
+        const result = await new Promise<{ order: string[] }>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const order: string[] = [];
+            const guard = setTimeout(() => reject(new Error("loadend did not fire within 25s")), 25000);
+            const handler = () => { order.push("onload"); };
+            xhr.onload = handler;
+            xhr.removeEventListener("load", handler);
+            xhr.addEventListener("loadend", () => {
+                clearTimeout(guard);
+                resolve({ order });
+            });
+            xhr.open("GET", "app:///Assets/symlink_target.js");
+            xhr.send();
+        });
+        expect(result.order).to.deep.equal(["onload"]);
     });
 
     it("should expose errorCode/errorDetail diagnostics after a transport failure", async function () {
