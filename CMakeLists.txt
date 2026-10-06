@@ -50,7 +50,7 @@ FetchContent_Declare(llhttp
 FetchContent_Declare(UrlLib
     # Repoint upstream after BabylonJS/UrlLib#38 merges.
     GIT_REPOSITORY https://github.com/bkaradzic-microsoft/UrlLib.git
-    GIT_TAG 89efc235e2a69df4582aaa11855b45c4adbee7f8
+    GIT_TAG 85e8f026d8cb54fd6ed298b6c0be9bdadb67dcc8
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
