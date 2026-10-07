@@ -14,9 +14,11 @@
 #include <Babylon/Polyfills/TextDecoder.h>
 #include <Babylon/Polyfills/TextEncoder.h>
 #include <cstdint>
+#include <cstdlib>
 #include <future>
 #include <iostream>
 #include <string>
+#include "HttpTestServer.h"
 
 namespace
 {
@@ -38,6 +40,7 @@ namespace
 
 TEST(JavaScript, All)
 {
+    HttpTestServer httpServer;
     // Change this to true to wait for the JavaScript debugger to attach (only applies to V8)
     constexpr const bool waitForDebugger = false;
 
@@ -60,7 +63,7 @@ TEST(JavaScript, All)
 
     Babylon::AppRuntime runtime{options};
 
-    runtime.Dispatch([&exitCodePromise](Napi::Env env) mutable {
+    runtime.Dispatch([&exitCodePromise, httpUrl = httpServer.Url()](Napi::Env env) mutable {
         Babylon::Polyfills::Console::Initialize(env, [env](const char* message, Babylon::Polyfills::Console::LogLevel logLevel) {
             std::cout << "[" << EnumToString(logLevel) << "] " << message;
             if (logLevel == Babylon::Polyfills::Console::LogLevel::Error)
@@ -97,6 +100,11 @@ TEST(JavaScript, All)
 
         env.Global().Set("hostPlatform", Napi::Value::From(env, JSRUNTIMEHOST_PLATFORM));
         env.Global().Set("hostEngine", Napi::Value::From(env, NAPI_JAVASCRIPT_ENGINE));
+        env.Global().Set("httpTestUrl", httpUrl);
+        if (const auto* filter = std::getenv("JSRUNTIMEHOST_TEST_GREP"))
+        {
+            env.Global().Set("testFilter", filter);
+        }
 
         auto getPropertyNamesCallback = Napi::Function::New(
             env, [](const Napi::CallbackInfo& info) -> Napi::Value {
@@ -140,4 +148,5 @@ TEST(JavaScript, All)
     auto exitCode{exitCodePromise.get_future().get()};
 
     EXPECT_EQ(exitCode, 0);
+    EXPECT_NO_THROW(httpServer.Stop());
 }

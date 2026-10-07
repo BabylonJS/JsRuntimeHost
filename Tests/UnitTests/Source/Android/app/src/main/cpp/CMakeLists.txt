@@ -20,6 +20,8 @@ add_library(UnitTestsJNI SHARED
     JNI.cpp
     ${UNIT_TESTS_DIR}/Source/App.cpp
     ${UNIT_TESTS_DIR}/Source/App.h
+    ${UNIT_TESTS_DIR}/Source/HttpTestServer.cpp
+    ${UNIT_TESTS_DIR}/Source/HttpTestServer.h
     ${UNIT_TESTS_DIR}/Source/Tests.AppRuntime.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.Console.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.DelayedTaskScheduler.cpp
