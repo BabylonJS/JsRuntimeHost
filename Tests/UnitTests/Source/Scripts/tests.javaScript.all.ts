@@ -2,6 +2,8 @@ import "./tests.setup";
 import "./tests.abortController";
 import "./tests.xmlHttpRequest";
 import "./tests.fetch";
+import "./tests.httpTransport";
+import "./tests.dataUrl";
 import "./tests.scheduling";
 import "./tests.webSocket";
 import "./tests.url";
@@ -19,9 +21,15 @@ import "./tests.webAssembly";
 declare const setExitCode: (code: number) => void;
 
 function runTests() {
-    mocha.run((failures: number) => {
+    if (typeof testFilter === "string") {
+        mocha.grep(testFilter);
+    }
+    const runner = mocha.run((failures: number) => {
+        if (runner.total === 0) {
+            console.error("No JavaScript tests matched JSRUNTIMEHOST_TEST_GREP.");
+        }
         // Test program will wait for code to be set before exiting
-        if (failures > 0) {
+        if (failures > 0 || runner.total === 0) {
             // Failure
             setExitCode(1);
         } else {

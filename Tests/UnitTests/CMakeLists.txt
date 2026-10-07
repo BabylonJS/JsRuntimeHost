@@ -23,6 +23,8 @@ file(GLOB ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*")
 set(SOURCES
     "Source/App.cpp"
     "Source/App.h"
+    "Source/HttpTestServer.cpp"
+    "Source/HttpTestServer.h"
     "Source/Tests.AppRuntime.cpp"
     "Source/Tests.Console.cpp"
     "Source/Tests.DelayedTaskScheduler.cpp"
@@ -78,6 +80,9 @@ if(NAPI_JAVASCRIPT_ENGINE STREQUAL "V8")
 endif()
 target_compile_definitions(UnitTests PRIVATE JSRUNTIMEHOST_PLATFORM="${JSRUNTIMEHOST_PLATFORM}")
 target_compile_definitions(UnitTests PRIVATE NAPI_JAVASCRIPT_ENGINE="${NAPI_JAVASCRIPT_ENGINE}")
+if(WIN32)
+    target_link_libraries(UnitTests PRIVATE ws2_32)
+endif()
 
 # The V8JSI Node-API shim does not implement napi_create_dataview, so the
 # CreateDataViewRejectsOverflowingRange test is compiled out on that backend.
