@@ -49,7 +49,8 @@ FetchContent_Declare(llhttp
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(UrlLib
     GIT_REPOSITORY https://github.com/BabylonJS/UrlLib.git
-    GIT_TAG 0c991337a1160ba7a2d062bf8e342d0a66f48dc9
+    # Track https://github.com/BabylonJS/UrlLib/pull/39 while it is under review.
+    GIT_TAG cedricguillemet-urllib-transport-fixes
     EXCLUDE_FROM_ALL)
 FetchContent_Declare(quickjs-ng
     GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
