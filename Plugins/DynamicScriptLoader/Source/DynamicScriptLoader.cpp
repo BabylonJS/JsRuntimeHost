@@ -70,7 +70,7 @@ namespace Babylon::Plugins::DynamicScriptLoader
         }
 
         auto native = JsRuntime::NativeObject::GetFromJavaScript(env);
-        if (native.HasOwnProperty("loadScript"))
+        if (native.Has("loadScript"))
         {
             throw Napi::Error::New(env, "_native.loadScript is already defined");
         }
