@@ -1338,6 +1338,7 @@ namespace details
       }
       return result;
     } catch (const Napi::Error& error) {
+      env->last_exception = jsi::Value::undefined();
       throw jsi::JSError{rt, jsi::Value{rt, static_cast<const jsi::Value&>(error.Value())}};
     }
   }
