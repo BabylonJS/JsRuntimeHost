@@ -27,6 +27,7 @@ set(SOURCES
     "Source/Tests.Console.cpp"
     "Source/Tests.DelayedTaskScheduler.cpp"
     "Source/Tests.JavaScript.cpp"
+    "Source/Tests.JsRuntimeScheduler.cpp"
     "Source/Tests.NodeApi.cpp"
     "Source/Tests.Scheduling.cpp"
     "Source/Tests.StandardStreamLogger.cpp"
