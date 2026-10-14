@@ -5,6 +5,9 @@ describe("fetch", function () {
 
     it("should resolve with ok=true and status=200 for a resource that exists", async function () {
         const response = await fetch("https://github.com/");
+        expect(response).to.be.instanceOf(Response);
+        expect(response.headers).to.be.instanceOf(Headers);
+        expect(response.body).to.be.instanceOf(ReadableStream);
         expect(response.ok).to.equal(true);
         expect(response.status).to.equal(200);
     });

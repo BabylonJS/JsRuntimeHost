@@ -1,0 +1,7 @@
+# LeakSanitizer suppressions for the Linux sanitizer job.
+#
+# WebKitGTK's JavaScriptCore grows global bookkeeping (e.g. WTF::BitVector under
+# JSObjectMake -> JSObject::setPrototypeDirect on a Structure transition) that it never
+# frees at exit, and LSan reports it as a direct leak attributed to whichever caller
+# happened to trigger the growth -- here napi reference creation. Not our allocation.
+leak:libjavascriptcoregtk
