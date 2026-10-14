@@ -505,8 +505,8 @@ namespace Babylon::Polyfills::Internal
         const auto url = info[1].As<Napi::String>().Utf8Value();
         if (!UrlSyntax::IsParseable(url))
         {
-            const Napi::Value syntaxError = info.Env().Global().Get("SyntaxError").As<Napi::Function>().New({Napi::String::New(info.Env(), "Failed to parse URL '" + url + "'")});
-            throw Napi::Error{info.Env(), syntaxError};
+            const auto syntaxErrorCtor = info.Env().Global().Get("SyntaxError").As<Napi::Function>();
+            throw Napi::Error{info.Env(), syntaxErrorCtor.Call({Napi::String::New(info.Env(), "Failed to parse URL '" + url + "'")})};
         }
 
         m_url = url;
