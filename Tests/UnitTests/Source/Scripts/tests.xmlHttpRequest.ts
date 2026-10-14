@@ -104,7 +104,7 @@ describe("XMLHTTPRequest", function () {
         expect(xhr.errorDetail).to.equal("");
     });
 
-    for (const url of ["//", "noscheme.glb"]) {
+    for (const url of ["noscheme.glb", "textures/albedo.png"]) {
         it(`should report a URL-open failure asynchronously for ${url}`, async function () {
             this.timeout(5000);
             const xhr = new XMLHttpRequest() as XMLHttpRequest & { errorCode: string; errorDetail: string };
@@ -136,6 +136,46 @@ describe("XMLHTTPRequest", function () {
         const xhr = new XMLHttpRequest();
         expect(() => xhr.open("INVALID", "noscheme.glb")).to.throw();
         expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+    });
+
+    for (const url of ["//", "http://", "https:///", "http://host:99999", "http://[::1", "http://@/", "http://a b/"]) {
+        it(`should throw SyntaxError synchronously from open() for malformed URL ${url}`, function () {
+            const xhr = new XMLHttpRequest();
+            expect(() => xhr.open("GET", url)).to.throw(SyntaxError);
+            expect(xhr.readyState).to.equal(XMLHttpRequest.UNSENT);
+            expect(() => xhr.send()).to.throw();
+        });
+    }
+
+    it("should keep the previous request when open() throws SyntaxError", async function () {
+        this.timeout(5000);
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", "app:///Assets/symlink_target.js");
+        expect(() => xhr.open("GET", "//")).to.throw(SyntaxError);
+        expect(xhr.readyState).to.equal(XMLHttpRequest.OPENED);
+        const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
+        xhr.send();
+        await completed;
+        expect(xhr.status).to.equal(200);
+    });
+
+    it("should not report an unsupported method as a URL-open failure", async function () {
+        this.timeout(5000);
+        const xhr = new XMLHttpRequest() as XMLHttpRequest & { errorCode: string };
+        let threw = false;
+        try {
+            xhr.open("POST", "noscheme.glb");
+        } catch (e) {
+            // Transports that reject POST (e.g. Unix) surface it synchronously, not as UrlOpenFailed.
+            threw = true;
+            expect((e as Error).message).to.contain("POST");
+        }
+        if (!threw) {
+            const completed = new Promise<void>((resolve) => xhr.addEventListener("loadend", () => resolve()));
+            xhr.send();
+            await completed;
+            expect(xhr.errorCode).to.equal("UrlOpenFailed");
+        }
     });
 
     it("should still reject an unsupported body after a URL-open failure", async function () {

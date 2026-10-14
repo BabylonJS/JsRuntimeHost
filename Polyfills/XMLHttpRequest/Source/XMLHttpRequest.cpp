@@ -3,8 +3,12 @@
 #include <Babylon/Polyfills/XMLHttpRequest.h>
 #include <arcana/tracing/trace_region.h>
 #include <gsl/gsl>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <sstream>
+#include <string_view>
 
 namespace Babylon::Polyfills::Internal
 {
@@ -60,6 +64,226 @@ namespace Babylon::Polyfills::Internal
             constexpr const char* ReadyStateChange = "readystatechange";
             constexpr const char* LoadEnd = "loadend";
             constexpr const char* Error = "error";
+        }
+
+        bool TryOpenAsGet(UrlLib::UrlRequest& request, const std::string& url)
+        {
+            try
+            {
+                request.Open(UrlLib::UrlMethod::Get, url);
+                return true;
+            }
+            catch (...)
+            {
+                return false;
+            }
+        }
+
+        namespace UrlSyntax
+        {
+            bool IsAlpha(char c)
+            {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            }
+
+            bool IsDigit(char c)
+            {
+                return c >= '0' && c <= '9';
+            }
+
+            bool IsHexDigit(char c)
+            {
+                return IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            }
+
+            bool IsSlash(char c, bool special)
+            {
+                return c == '/' || (special && c == '\\');
+            }
+
+            bool IsSpecialScheme(const std::string& scheme)
+            {
+                return scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss" || scheme == "ftp";
+            }
+
+            // The authority ends at the first '/', '?' or '#' ('\\' also ends it for special schemes).
+            std::string_view ExtractAuthority(std::string_view value, bool special)
+            {
+                size_t end = 0;
+                while (end < value.size() && !IsSlash(value[end], special) && value[end] != '?' && value[end] != '#')
+                {
+                    ++end;
+                }
+                return value.substr(0, end);
+            }
+
+            bool IsHostValid(std::string_view host)
+            {
+                for (size_t i = 0; i < host.size(); ++i)
+                {
+                    const unsigned char c = static_cast<unsigned char>(host[i]);
+                    if (c <= 0x20 || c == 0x7F || std::strchr("#/<>?@[\\]^|", c) != nullptr)
+                    {
+                        return false;
+                    }
+                    if (c == '%' && (i + 2 >= host.size() || !IsHexDigit(host[i + 1]) || !IsHexDigit(host[i + 2])))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            bool IsPortValid(std::string_view port)
+            {
+                if (port.size() > 5)
+                {
+                    return false;
+                }
+
+                uint32_t value = 0;
+                for (const char c : port)
+                {
+                    if (!IsDigit(c))
+                    {
+                        return false;
+                    }
+                    value = value * 10 + static_cast<uint32_t>(c - '0');
+                }
+                return value <= 65535;
+            }
+
+            bool IsAuthorityValid(std::string_view authority, bool special)
+            {
+                const auto userInfoEnd = authority.rfind('@');
+                if (userInfoEnd != std::string_view::npos)
+                {
+                    authority.remove_prefix(userInfoEnd + 1);
+                    if (authority.empty())
+                    {
+                        return false;
+                    }
+                }
+
+                std::string_view host{authority};
+                std::string_view port{};
+                if (!authority.empty() && authority.front() == '[')
+                {
+                    const auto close = authority.find(']');
+                    if (close == std::string_view::npos)
+                    {
+                        return false;
+                    }
+
+                    host = authority.substr(1, close - 1);
+                    const auto rest = authority.substr(close + 1);
+                    if (!rest.empty())
+                    {
+                        if (rest.front() != ':')
+                        {
+                            return false;
+                        }
+                        port = rest.substr(1);
+                    }
+
+                    if (host.empty() || host.find_first_not_of("0123456789abcdefABCDEF:.") != std::string_view::npos)
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    const auto colon = authority.find(':');
+                    if (colon != std::string_view::npos)
+                    {
+                        host = authority.substr(0, colon);
+                        port = authority.substr(colon + 1);
+                    }
+
+                    if (!IsHostValid(host))
+                    {
+                        return false;
+                    }
+                }
+
+                return IsPortValid(port) && (!special || !host.empty());
+            }
+
+            // Approximates whether the WHATWG URL parser accepts the string when resolved against a
+            // placeholder special-scheme base (so scheme-less relative references like "model.glb" parse,
+            // while "//" or "http://" do not). It only classifies the input -- the string passed to the
+            // transport is never rewritten -- so no document-relative URL resolution is introduced.
+            bool IsParseable(const std::string& input)
+            {
+                size_t first = 0;
+                size_t last = input.size();
+                while (first < last && static_cast<unsigned char>(input[first]) <= 0x20)
+                {
+                    ++first;
+                }
+                while (last > first && static_cast<unsigned char>(input[last - 1]) <= 0x20)
+                {
+                    --last;
+                }
+
+                std::string url;
+                for (size_t i = first; i < last; ++i)
+                {
+                    if (input[i] != '\t' && input[i] != '\n' && input[i] != '\r')
+                    {
+                        url.push_back(input[i]);
+                    }
+                }
+
+                std::string_view rest{url};
+                size_t schemeEnd = 0;
+                if (!url.empty() && IsAlpha(url[0]))
+                {
+                    schemeEnd = 1;
+                    while (schemeEnd < url.size() && (IsAlpha(url[schemeEnd]) || IsDigit(url[schemeEnd]) || url[schemeEnd] == '+' || url[schemeEnd] == '-' || url[schemeEnd] == '.'))
+                    {
+                        ++schemeEnd;
+                    }
+                }
+
+                if (schemeEnd > 0 && schemeEnd < url.size() && url[schemeEnd] == ':')
+                {
+                    std::string scheme{url, 0, schemeEnd};
+                    std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    rest.remove_prefix(schemeEnd + 1);
+
+                    if (scheme == "file")
+                    {
+                        return true;
+                    }
+
+                    if (IsSpecialScheme(scheme))
+                    {
+                        while (!rest.empty() && IsSlash(rest.front(), true))
+                        {
+                            rest.remove_prefix(1);
+                        }
+                        return IsAuthorityValid(ExtractAuthority(rest, true), true);
+                    }
+
+                    if (rest.size() >= 2 && rest[0] == '/' && rest[1] == '/')
+                    {
+                        return IsAuthorityValid(ExtractAuthority(rest.substr(2), false), false);
+                    }
+                    return true;
+                }
+
+                if (rest.size() >= 2 && IsSlash(rest[0], true) && IsSlash(rest[1], true))
+                {
+                    while (!rest.empty() && IsSlash(rest.front(), true))
+                    {
+                        rest.remove_prefix(1);
+                    }
+                    return IsAuthorityValid(ExtractAuthority(rest, true), true);
+                }
+
+                return true;
+            }
         }
     }
 
@@ -266,16 +490,26 @@ namespace Babylon::Polyfills::Internal
     void XMLHttpRequest::Open(const Napi::CallbackInfo& info)
     {
         UrlLib::UrlMethod method;
+        const auto methodName = info[0].As<Napi::String>().Utf8Value();
         try
         {
-            method = MethodType::StringToEnum(info[0].As<Napi::String>().Utf8Value());
+            method = MethodType::StringToEnum(methodName);
         }
         catch (const std::exception& e)
         {
             throw Napi::Error::New(info.Env(), e.what());
         }
 
-        m_url = info[1].As<Napi::String>();
+        // Per the XHR spec, a URL that cannot be parsed fails synchronously with SyntaxError; only
+        // requests the transport later fails to open or fetch are reported through error events.
+        const auto url = info[1].As<Napi::String>().Utf8Value();
+        if (!UrlSyntax::IsParseable(url))
+        {
+            const auto syntaxError = info.Env().Global().Get("SyntaxError").As<Napi::Function>().New({Napi::String::New(info.Env(), "Failed to parse URL '" + url + "'")});
+            throw Napi::Error{info.Env(), syntaxError};
+        }
+
+        m_url = url;
         m_openGeneration = ++m_requestGeneration;
         m_openError.reset();
         m_openErrorSent = false;
@@ -286,6 +520,14 @@ namespace Babylon::Polyfills::Internal
         }
         catch (const std::exception& e)
         {
+            // Some transports reject a method before looking at the URL (e.g. POST on Unix). If a GET
+            // for the same URL opens, the method was the cause, which is an unsupported operation
+            // rather than a URL failure, so it stays synchronous.
+            if (method != UrlLib::UrlMethod::Get && TryOpenAsGet(m_request, m_url))
+            {
+                throw Napi::Error::New(info.Env(), "Unsupported url method for this platform: " + methodName + " (" + e.what() + ")");
+            }
+
             m_openError = std::string{"Error opening URL: "} + e.what();
         }
         catch (...)

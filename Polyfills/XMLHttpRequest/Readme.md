@@ -20,8 +20,14 @@ Unlike the web, XMLHttpRequest supports loading local files using two schemes:
   asynchronously, with `status === 0`. This lets asset loaders handle unsupported
   or scheme-less Native URLs through their error callbacks rather than aborting
   scene parsing. No document-relative URL resolution is added.
-* Invalid methods, arguments, and unsupported request-body types still throw
-  synchronously. A deferred URL-open failure exposes `errorCode === "UrlOpenFailed"`
+* A URL that cannot be parsed (for example `//`, `http://`, or an invalid port)
+  throws a `SyntaxError` from `open()`, as in the XHR specification. Parsing is
+  checked as if the URL were resolved against a placeholder `http` base, so
+  scheme-less references such as `model.glb` are not malformed; the string
+  is still passed to the transport unchanged.
+* Invalid methods, methods the platform transport does not support (for
+  example `POST` on Linux), invalid arguments, and unsupported request-body types
+  still throw synchronously. A deferred URL-open failure exposes `errorCode === "UrlOpenFailed"`
   and the original error in `errorDetail`; reopening clears those diagnostics.
   Aborting its pending notification returns `readyState` to `UNSENT` without
   dispatching failure events; a new `open()` is required before another `send()`.
