@@ -49,3 +49,30 @@ jobs:
         env:
           TSAN_OPTIONS: ${{ inputs.enable-thread-sanitizer && format('suppressions={0}/.github/tsan_suppressions.txt', github.workspace) || '' }}
 
+      # A JavaScriptCore RELEASE_ASSERT ends the process with EXC_BREAKPOINT, which the shell
+      # reports as exit 137 with no gtest summary; the .ips report has the faulting stack.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          sleep 10
+          for report in $(ls -t ~/Library/Logs/DiagnosticReports/UnitTests*.ips 2>/dev/null | head -n 3); do
+            echo "::group::$report"
+            python3 - "$report" <<'PY'
+          import json, sys
+          raw = open(sys.argv[1]).read()
+          header, body = raw.split("\n", 1)
+          crash = json.loads(body)
+          images = crash.get("usedImages", [])
+          print("exception:", json.dumps(crash.get("exception")), "termination:", json.dumps(crash.get("termination")))
+          faulting = crash.get("faultingThread", 0)
+          for index, thread in enumerate(crash.get("threads", [])):
+              if index != faulting and not thread.get("triggered"):
+                  continue
+              print(f"--- thread {index} {thread.get('name') or ''} {thread.get('queue') or ''}")
+              for frame in thread.get("frames", [])[:40]:
+                  image = images[frame.get("imageIndex", 0)] if frame.get("imageIndex", 0) < len(images) else {}
+                  print(f"  {image.get('name', '?'):28s} {frame.get('symbol', '?')}+{frame.get('symbolLocation', 0)}")
+          PY
+            echo "::endgroup::"
+          done
+
