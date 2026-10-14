@@ -27,6 +27,7 @@ add_library(UnitTestsJNI SHARED
     ${UNIT_TESTS_DIR}/Source/Tests.NodeApi.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.Scheduling.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.StandardStreamLogger.cpp
+    ${UNIT_TESTS_DIR}/Source/Tests.Performance.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.TimeoutDispatcher.cpp)
 
 if(JSRUNTIMEHOST_PLUGIN_DYNAMICSCRIPTLOADER)
