@@ -223,6 +223,28 @@ namespace {
     return napi_set_last_error(env, napi_pending_exception);
   }
 
+  // Property access follows ToObject(), as it does in Node: a primitive receiver is boxed, while
+  // null and undefined leave their TypeError pending and report napi_object_expected. Handing a
+  // primitive straight to JSObject* entry points is a RELEASE_ASSERT inside JavaScriptCore.
+  napi_status ToJSObjectCoerced(napi_env env, napi_value value, JSObjectRef* result) {
+    CHECK_ARG(env, value);
+    const JSValueRef js_value{ToJSValue(value)};
+    if (JSValueIsObject(env->context, js_value)) {
+      *result = ToJSObject(env, value);
+      return napi_ok;
+    }
+
+    JSValueRef exception{};
+    *result = JSValueToObject(env->context, js_value, &exception);
+    if (*result == nullptr) {
+      if (exception != nullptr) {
+        env->last_exception = exception;
+      }
+      return napi_set_last_error(env, napi_object_expected);
+    }
+    return napi_ok;
+  }
+
   napi_status napi_set_error_code(napi_env env,
                                   napi_value error,
                                   napi_value code,
@@ -646,6 +668,7 @@ namespace {
     }
 
     static napi_status Wrap(napi_env env, napi_value object, WrapperInfo** result) {
+      RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(object)), napi_invalid_arg);
       WrapperInfo* info{};
       CHECK_NAPI(Unwrap(env, object, &info));
       if (info == nullptr) {
@@ -663,6 +686,7 @@ namespace {
     }
 
     static napi_status Unwrap(napi_env env, napi_value object, WrapperInfo** result) {
+      RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(object)), napi_invalid_arg);
       CHECK_NAPI(NativeInfo::Query<WrapperInfo>(env, ToJSObject(env, object), result));
       return napi_ok;
     }
@@ -734,6 +758,10 @@ struct napi_ref__ {
 
   napi_status init(napi_env env, napi_value value, uint32_t count) {
     assert(!_value);
+    if (!JSValueIsObject(env->context, ToJSValue(value))) {
+      return init_primitive(env, value, count);
+    }
+
     _value = value;
     _count = count;
 
@@ -771,7 +799,7 @@ struct napi_ref__ {
   }
 
   void deinit(napi_env env) {
-    if (_count != 0) {
+    if (_protected) {
       unprotect(env);
     }
 
@@ -780,8 +808,16 @@ struct napi_ref__ {
   }
 
   void ref(napi_env env) {
-    assert(_value);
-    if (_count++ == 0) {
+    if (_value == nullptr) {
+      // A primitive released at count zero cannot come back; Node reports a count of zero too.
+      return;
+    }
+    if (_count == 0 && _kind == Kind::Object && !IsObjectAlive(env)) {
+      // The weak target has been collected (or its address reused by another object): promoting
+      // it would protect a stale pointer. Node likewise leaves such a reference at zero.
+      return;
+    }
+    if (_count++ == 0 && !_protected) {
       protect(env);
     }
   }
@@ -790,7 +826,13 @@ struct napi_ref__ {
     assert(_value);
     assert(_count != 0);
     if (--_count == 0) {
-      unprotect(env);
+      if (_kind == Kind::Object) {
+        unprotect(env);
+      } else if (_kind == Kind::Primitive) {
+        unprotect(env);
+        _value = nullptr;
+      }
+      // A symbol stays protected: see init_primitive.
     }
   }
 
@@ -799,34 +841,77 @@ struct napi_ref__ {
   }
 
   napi_status value(napi_env env, napi_value* result) const {
-    assert(_value);
-    if (env->reference_tracking_state->active_ref_values.find(_value) != env->reference_tracking_state->active_ref_values.end()) {
-      std::uintptr_t objectId{};
-      // NOTE: This check is needed for the same reason we need a similar check in the init function.
-      // See the comment in init for more details.
-      CHECK_NAPI(ReferenceInfo::GetObjectId(env, _value, &objectId));
-      if (objectId == _objectId) {
-        *result = _value;
-      }
+    *result = nullptr;
+    if (_value == nullptr) {
+      return napi_ok;
+    }
+    if (_kind != Kind::Object) {
+      *result = _value;
+      return napi_ok;
+    }
+    if (IsObjectAlive(env)) {
+      *result = _value;
     }
 
     return napi_ok;
   }
 
  private:
+  // Whether the weakly tracked object is still the one this reference was created for. The
+  // sentinel finalizer removes the active entry once the object is collected, and the object id
+  // check catches an address reused by a newer object before that finalizer ran (see init).
+  bool IsObjectAlive(napi_env env) const {
+    const auto& active{env->reference_tracking_state->active_ref_values};
+    if (active.find(_value) == active.end()) {
+      return false;
+    }
+    std::uintptr_t objectId{};
+    return ReferenceInfo::GetObjectId(env, _value, &objectId) == napi_ok && objectId == _objectId;
+  }
+
+  enum class Kind {
+    Object,
+    Symbol,
+    Primitive,
+  };
+
+  // Primitives carry no identity to hang a sentinel on, and the JavaScriptCore C API has no weak
+  // handle for them, so they are held strongly while the count is positive and released once it
+  // reaches zero, which is what Node does for values it cannot hold weakly. Symbols are the
+  // exception: a weak reference to one has to keep resolving for as long as the symbol is alive,
+  // and that cannot be observed through the C API, so they stay protected for the life of the
+  // reference. Before Node-API 10 only symbols were referenceable among the non-objects.
+  napi_status init_primitive(napi_env env, napi_value value, uint32_t count) {
+    const bool symbol{JSValueIsSymbol(env->context, ToJSValue(value))};
+#if NAPI_VERSION < 10
+    RETURN_STATUS_IF_FALSE(env, symbol, napi_invalid_arg);
+#endif
+    _kind = symbol ? Kind::Symbol : Kind::Primitive;
+    _count = count;
+    if (symbol || _count != 0) {
+      _value = value;
+      protect(env);
+    }
+    return napi_ok;
+  }
+
   void protect(napi_env env) {
     _iter = env->strong_refs.insert(env->strong_refs.end(), this);
     JSValueProtect(env->context, ToJSValue(_value));
+    _protected = true;
   }
 
   void unprotect(napi_env env) {
     env->strong_refs.erase(_iter);
     JSValueUnprotect(env->context, ToJSValue(_value));
+    _protected = false;
   }
 
   napi_value _value{};
   uint32_t _count{};
   std::uintptr_t _objectId{};
+  Kind _kind{Kind::Object};
+  bool _protected{false};
   std::list<napi_ref>::iterator _iter{};
 };
 
@@ -1000,13 +1085,16 @@ napi_status napi_set_property(napi_env env,
   CHECK_ARG(env, key);
   CHECK_ARG(env, value);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   JSObjectSetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str,
     ToJSValue(value),
     kJSPropertyAttributeNone,
@@ -1024,13 +1112,16 @@ napi_status napi_has_property(napi_env env,
   CHECK_ARG(env, result);
   CHECK_ARG(env, key);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   *result = JSObjectHasProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str);
   return napi_ok;
 }
@@ -1043,13 +1134,16 @@ napi_status napi_get_property(napi_env env,
   CHECK_ARG(env, key);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   *result = ToNapi(JSObjectGetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str,
     &exception));
   CHECK_JSC(env, exception);
@@ -1064,13 +1158,16 @@ napi_status napi_delete_property(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString key_str{ToJSString(env, key, &exception)};
   CHECK_JSC(env, exception);
 
   *result = JSObjectDeleteProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     key_str,
     &exception);
   CHECK_JSC(env, exception);
@@ -1102,10 +1199,13 @@ napi_status napi_set_named_property(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, value);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSObjectSetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     JSString(utf8name),
     ToJSValue(value),
     kJSPropertyAttributeNone,
@@ -1120,11 +1220,14 @@ napi_status napi_has_named_property(napi_env env,
                                     const char* utf8name,
                                     bool* result) {
   CHECK_ENV(env);
-  CHECK_ARG(env, object);
+  CHECK_ARG(env, result);
+
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
 
   *result = JSObjectHasProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     JSString(utf8name));
 
   return napi_ok;
@@ -1135,12 +1238,15 @@ napi_status napi_get_named_property(napi_env env,
                                     const char* utf8name,
                                     napi_value* result) {
   CHECK_ENV(env);
-  CHECK_ARG(env, object);
+  CHECK_ARG(env, result);
+
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
 
   JSValueRef exception{};
   *result = ToNapi(JSObjectGetProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     JSString(utf8name),
     &exception));
   CHECK_JSC(env, exception);
@@ -1155,10 +1261,13 @@ napi_status napi_set_element(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, value);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSObjectSetPropertyAtIndex(
     env->context,
-    ToJSObject(env, object),
+    target,
     index,
     ToJSValue(value),
     &exception);
@@ -1174,10 +1283,13 @@ napi_status napi_has_element(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSValueRef value{JSObjectGetPropertyAtIndex(
     env->context,
-    ToJSObject(env, object),
+    target,
     index,
     &exception)};
   CHECK_JSC(env, exception);
@@ -1193,10 +1305,13 @@ napi_status napi_get_element(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   *result = ToNapi(JSObjectGetPropertyAtIndex(
     env->context,
-    ToJSObject(env, object),
+    target,
     index,
     &exception));
   CHECK_JSC(env, exception);
@@ -1213,13 +1328,16 @@ napi_status napi_delete_element(napi_env env,
 
   napi_value index_value{ToNapi(JSValueMakeNumber(env->context, index))};
 
+  JSObjectRef target{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &target));
+
   JSValueRef exception{};
   JSString index_str{ToJSString(env, index_value, &exception)};
   CHECK_JSC(env, exception);
 
   *result = JSObjectDeleteProperty(
     env->context,
-    ToJSObject(env, object),
+    target,
     index_str,
     &exception);
   CHECK_JSC(env, exception);
@@ -1312,6 +1430,8 @@ napi_status napi_get_array_length(napi_env env,
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
+  RETURN_STATUS_IF_FALSE(env, JSValueIsArray(env->context, ToJSValue(value)), napi_array_expected);
+
   JSValueRef exception{};
   JSValueRef length = JSObjectGetProperty(
     env->context,
@@ -1354,20 +1474,11 @@ napi_status napi_get_prototype(napi_env env,
   // reporting the end of the chain, which made the chain impossible to walk.
   // V8 likewise returns the raw prototype value.
   //
-  // The conversion belongs on the argument rather than the result. V8 coerces
-  // there (`CHECK_TO_OBJECT`), so a primitive yields its wrapper's prototype
-  // and only `null`/`undefined` are rejected. Passing the argument straight to
-  // `ToJSObject` instead would assert in debug and, in release, reinterpret a
-  // non-object `JSValueRef` as a `JSObjectRef` -- so a primitive was undefined
-  // behaviour rather than a status.
-  const JSValueRef value{ToJSValue(object)};
-  if (JSValueIsNull(env->context, value) || JSValueIsUndefined(env->context, value)) {
-    return napi_set_last_error(env, napi_object_expected);
-  }
-
-  JSValueRef exception{};
-  const JSObjectRef self{JSValueToObject(env->context, value, &exception)};
-  CHECK_JSC(env, exception);
+  // The conversion belongs on the argument rather than the result: V8 coerces
+  // there (`CHECK_TO_OBJECT`), so a primitive yields its wrapper's prototype and
+  // only `null`/`undefined` are rejected, with the TypeError left pending.
+  JSObjectRef self{};
+  CHECK_NAPI(ToJSObjectCoerced(env, object, &self));
 
   *result = ToNapi(JSObjectGetPrototype(env->context, self));
 
@@ -1679,15 +1790,27 @@ napi_status napi_call_function(napi_env env,
                                napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, recv);
+  CHECK_ARG(env, func);
   if (argc > 0) {
     CHECK_ARG(env, argv);
+  }
+  // Only object-ness is checked here: a non-callable object surfaces as the TypeError that
+  // Function.prototype.call raises, whereas some JavaScriptCore builds report JSObjectMakeConstructor
+  // constructors as not-a-function (see napi_typeof).
+  RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(func)), napi_function_expected);
+
+  // The receiver may be any value. A primitive is boxed as ToObject would; undefined and null
+  // become the null receiver, for which JavaScriptCore supplies the global object.
+  JSObjectRef receiver{};
+  if (!JSValueIsUndefined(env->context, ToJSValue(recv)) && !JSValueIsNull(env->context, ToJSValue(recv))) {
+    CHECK_NAPI(ToJSObjectCoerced(env, recv, &receiver));
   }
 
   JSValueRef exception{};
   JSValueRef return_value{JSObjectCallAsFunction(
     env->context,
     ToJSObject(env, func),
-    JSValueIsUndefined(env->context, ToJSValue(recv)) ? nullptr : ToJSObject(env, recv),
+    receiver,
     argc,
     ToJSValues(argv),
     &exception)};
@@ -2074,6 +2197,8 @@ napi_status napi_get_value_external(napi_env env, napi_value value, void** resul
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
 
+  RETURN_STATUS_IF_FALSE(env, JSValueIsObject(env->context, ToJSValue(value)), napi_invalid_arg);
+
   ExternalInfo* info = NativeInfo::Get<ExternalInfo>(ToJSObject(env, value));
   *result = (info != nullptr && info->Type() == NativeType::External) ? info->Data() : nullptr;
   return napi_ok;
@@ -2130,6 +2255,7 @@ napi_status napi_reference_ref(napi_env env, napi_ref ref, uint32_t* result) {
 napi_status napi_reference_unref(napi_env env, napi_ref ref, uint32_t* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
+  RETURN_STATUS_IF_FALSE(env, ref->count() != 0, napi_generic_failure);
 
   ref->unref(env);
   if (result != nullptr) {
@@ -2228,6 +2354,10 @@ napi_status napi_new_instance(napi_env env,
     CHECK_ARG(env, argv);
   }
   CHECK_ARG(env, result);
+  RETURN_STATUS_IF_FALSE(env,
+    JSValueIsObject(env->context, ToJSValue(constructor)) &&
+      JSObjectIsConstructor(env->context, ToJSObject(env, constructor)),
+    napi_function_expected);
 
   JSValueRef exception{};
   *result = ToNapi(JSObjectCallAsConstructor(
@@ -2247,7 +2377,15 @@ napi_status napi_instanceof(napi_env env,
                             bool* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, object);
+  CHECK_ARG(env, constructor);
   CHECK_ARG(env, result);
+  // Either predicate: some JavaScriptCore builds report JSObjectMakeConstructor constructors as
+  // not-a-function (see napi_typeof).
+  RETURN_STATUS_IF_FALSE(env,
+    JSValueIsObject(env->context, ToJSValue(constructor)) &&
+      (JSObjectIsFunction(env->context, ToJSObject(env, constructor)) ||
+       JSObjectIsConstructor(env->context, ToJSObject(env, constructor))),
+    napi_function_expected);
 
   JSValueRef exception{};
   *result = JSValueIsInstanceOfConstructor(
