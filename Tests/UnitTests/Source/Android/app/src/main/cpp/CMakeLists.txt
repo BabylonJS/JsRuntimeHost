@@ -27,6 +27,8 @@ add_library(UnitTestsJNI SHARED
     ${UNIT_TESTS_DIR}/Source/Tests.NodeApi.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.Scheduling.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.StandardStreamLogger.cpp
+    ${UNIT_TESTS_DIR}/Source/Tests.Compression.cpp
+    ${UNIT_TESTS_DIR}/Source/Tests.Streams.cpp
     ${UNIT_TESTS_DIR}/Source/Tests.TimeoutDispatcher.cpp)
 
 if(JSRUNTIMEHOST_PLUGIN_DYNAMICSCRIPTLOADER)
@@ -68,4 +70,6 @@ target_link_libraries(UnitTestsJNI
     PRIVATE File
     PRIVATE TextDecoder
     PRIVATE TextEncoder
-    PRIVATE Performance)
+    PRIVATE Performance
+    PRIVATE Streams
+    PRIVATE Compression)
